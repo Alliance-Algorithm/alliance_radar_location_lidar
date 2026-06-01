@@ -1,0 +1,15 @@
+[submodule "ros_ws/third-party/small_gicp"]
+	path = ros_ws/third-party/small_gicp
+	url = https://github.com/koide3/small_gicp.git
+[submodule "ros_ws/third-party/direct_visual_lidar_calibration"]
+	path = ros_ws/third-party/direct_visual_lidar_calibration
+	url = https://github.com/koide3/direct_visual_lidar_calibration.git
+[submodule "lidar_ros_driver/ws_30pcd_et3_ros2"]
+	path = lidar_ros_driver/ws_30pcd_et3_ros2
+	url = https://gitee.com/shenzhen-smart-people/ws_30pcd_et3_ros2.git
+[submodule "lidar_ros_driver/odin_ros_driver"]
+	path = lidar_ros_driver/odin_ros_driver
+	url = https://github.com/manifoldsdk/odin_ros_driver.git
+[submodule "lidar_ros_driver/livox_ros_driver2"]
+	path = lidar_ros_driver/livox_ros_driver2
+	url = https://github.com/Livox-SDK/livox_ros_driver2.git

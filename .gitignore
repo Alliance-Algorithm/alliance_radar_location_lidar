@@ -1,5 +1,6 @@
 /ws_30pcd_ros_ws
-/ros2_ws/build/
-/ros2_ws/install/
-/ros2_ws/log/
+/ros_ws/build
+/ros_ws/install
+/ros_ws/log
+
 /SLAM-learn
