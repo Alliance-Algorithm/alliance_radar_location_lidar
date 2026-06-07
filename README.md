@@ -82,22 +82,27 @@ docker exec -it RADAR bash
 
 ### 编译 & 运行
 
-项目提供了一套脚本简化编译运行流程，位于 `/workspace/script/`：
+项目提供了一套脚本简化编译运行流程，位于 `/workspace/script/`，支持 `Release` / `Debug` 两种构建类型：
 
-| 脚本 | 说明 |
+| 命令 | 说明 |
 |------|------|
-| `radar --build-pure` | 清理后重新编译 `radar_localization_lidar` |
-| `radar --build-run` | 增量编译并运行定位节点 |
+| `radar --build-pure [Release\|Debug]` | 清理后重新编译 |
+| `radar --build-run [Release\|Debug]` | 增量编译并运行节点 |
+| `radar --run` | 仅运行节点（不编译） |
 | `radar --help` | 查看帮助 |
+
+构建类型默认为 `Release`：
+- **Release**: `-O3 -march=native -flto -DNDEBUG -DEIGEN_NO_DEBUG`
+- **Debug**: `-O3 -march=native -flto -DNDEBUG -DEIGEN_NO_DEBUG -g`（与 Release 优化完全一致，仅多调试符号）
 
 也可以直接调用底层脚本：
 
 ```bash
-# 纯净编译（删除 build/ 后重新编译）
-bash /workspace/script/build_pure.sh
+# Release 纯净编译
+bash /workspace/script/build_pure.sh Release
 
-# 增量编译 + 运行节点
-bash /workspace/script/build_run.sh
+# Debug 编译 + 运行
+bash /workspace/script/build_run.sh Debug
 ```
 
 ### 手动编译
