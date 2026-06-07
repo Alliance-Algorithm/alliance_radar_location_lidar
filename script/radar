@@ -1,25 +1,35 @@
 #!/bin/bash
-SCRIPT_DIR="/workspace/.vscode/script"
+SCRIPT_DIR="/workspace/script"
+BUILD_TYPE=${2:-Release}
 
 case "$1" in
     --build-pure)
-        echo "Pure build radar_localization_lidar..."
-        bash "$SCRIPT_DIR/build_pure.sh"
+        echo "Pure build radar_localization_lidar (${BUILD_TYPE})..."
+        bash "$SCRIPT_DIR/build_pure .sh" "$BUILD_TYPE"
         ;;
     --build-run)
-        echo "Build and run radar_localization_lidar..."
-        bash "$SCRIPT_DIR/build_run.sh"
+        echo "Build and run radar_localization_lidar (${BUILD_TYPE})..."
+        bash "$SCRIPT_DIR/build_run.sh" "$BUILD_TYPE"
+        ;;
+    --run)
+        echo "Run radar_localization_lidar..."
+        bash "$SCRIPT_DIR/run.sh"
         ;;
     --help)
-        echo "Usage: $0 [OPTION]"
+        echo "Usage: $0 [OPTION] [Release|Debug]"
         echo "Options:"
-        echo "  --build-pure    pure build,this will delete all build files and build again"
-        echo "  --build-run     Run build and run script,this won't delete build files, just build and run"
-        echo "  --help          Display this help message"
+        echo "  --build-pure [Release|Debug]    Clean rebuild (delete build/ then build)"
+        echo "  --build-run  [Release|Debug]    Incremental build and run node"
+        echo "  --run                           Run node only (no build)"
+        echo "  --help                         Display this help message"
+        echo ""
+        echo "Build type defaults to Release if not specified."
+        echo "  Release: -O3 -march=native -flto -DNDEBUG"
+        echo "  Debug:   -O3 -march=native -flto -DNDEBUG -g (all optimizations + debug symbols)"
         ;;
     *)
-    echo "Unknown option: $1"
-    echo "Try '$0 --help' for usage."
-    exit 1
-    ;;
+        echo "Unknown option: $1"
+        echo "Try '$0 --help' for usage."
+        exit 1
+        ;;
 esac
