@@ -73,12 +73,51 @@ ros2 launch foxglove_bridge foxglove_bridge_launch.xml port:=8765
 
 ---
 
+## 容器内开发
+
+### 进入容器
+```bash
+docker exec -it RADAR bash
+```
+
+### 编译 & 运行
+
+项目提供了一套脚本简化编译运行流程，位于 `/workspace/script/`：
+
+| 脚本 | 说明 |
+|------|------|
+| `radar --build-pure` | 清理后重新编译 `radar_localization_lidar` |
+| `radar --build-run` | 增量编译并运行定位节点 |
+| `radar --help` | 查看帮助 |
+
+也可以直接调用底层脚本：
+
+```bash
+# 纯净编译（删除 build/ 后重新编译）
+bash /workspace/script/build_pure.sh
+
+# 增量编译 + 运行节点
+bash /workspace/script/build_run.sh
+```
+
+### 手动编译
+```bash
+cd /workspace/ros_ws
+source /opt/ros/humble/setup.bash
+colcon build --packages-select radar_localization_lidar
+source /workspace/ros_ws/install/setup.bash
+ros2 run radar_localization_lidar radar_localization_lidar_node
+```
+
+---
+
 ## 目录结构
 
 ```
 RADAR-LOCATION-LIDAR/
-├── ros_ws/               # ROS 工作空间
-├── ws_30pcd_ros_ws/      # WS_30PCD ROS 驱动工作空间
-├── SLAM-learn/           # SLAM 学习资料
+├── ros_ws/               # ROS2 工作空间（含 radar_localization_lidar 及第三方依赖）
+├── lidar_ros_driver/     # LiDAR 驱动（Livox / WS_30PCD_ET3 / Odin）
+├── script/               # 编译运行脚本
+├── docs/                 # SLAM 学习资料
 └── README.md
 ```
