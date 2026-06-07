@@ -3,6 +3,10 @@ project(radar_localization_lidar)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -DNDEBUG -DEIGEN_NO_DEBUG")
+set(CMAKE_CXX_FLAGS_DEBUG "-O3 -march=native -DNDEBUG -DEIGEN_NO_DEBUG -g -DRADAR_DEBUG")
+add_compile_options(-flto)
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)

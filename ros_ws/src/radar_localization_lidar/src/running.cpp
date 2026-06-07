@@ -17,14 +17,20 @@ int main()
         RCLCPP_ERROR(rclcpp::get_logger("model_preprocess"), "Failed to process model: %s", result.error().c_str());
         return 1;
     }
-    auto point_cloud = model_processor->TransformModeltoPointCloud();
-    if (!point_cloud) {
-        RCLCPP_ERROR(rclcpp::get_logger("model_preprocess"), "Failed to transform model to point cloud: %s", point_cloud.error().c_str());
+    result = model_processor->TransformModeltoPointCloud();
+    if (!result) {
+        RCLCPP_ERROR(rclcpp::get_logger("model_preprocess"), "Failed to transform model to point cloud: %s", result.error().c_str());
         return 1;
     }
-    for (const auto& point : point_cloud.value()) {
+    const auto& point_cloud = model_processor->GetPointCloud();
+#ifdef RADAR_DEBUG
+    RCLCPP_INFO(rclcpp::get_logger("model_preprocess"), "Generated %zu points", point_cloud.size());
+    for (const auto& point : point_cloud) {
         RCLCPP_INFO(rclcpp::get_logger("model_preprocess"), "Point: [%f, %f, %f]", point.x(), point.y(), point.z());
     }
+#else
+    (void)point_cloud;
+#endif
     return 0;
     
 }

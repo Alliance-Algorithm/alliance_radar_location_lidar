@@ -11,7 +11,8 @@ namespace Radar::process::model{
             ~ModelProcess() noexcept;
             auto ConfigLoader(const YAML::Node& model_config)->std::expected<bool, std::string>; 
             auto ProcessModel()->std::expected<bool, std::string>;
-            auto TransformModeltoPointCloud()->std::expected<std::vector<Eigen::Vector3f>, std::string>;
+            auto TransformModeltoPointCloud()->std::expected<bool, std::string>;
+            [[nodiscard]] auto GetPointCloud() const noexcept->const std::vector<Eigen::Vector3f>&;
         private:
             class Impl;
             std::unique_ptr<Impl> impl_;

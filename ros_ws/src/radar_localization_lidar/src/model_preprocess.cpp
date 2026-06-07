@@ -24,6 +24,7 @@ class ModelProcess::Impl{
         std::string model_type;
         std::vector<Vertex> vertices;
         std::vector<Indices> indices;
+        std::vector<Eigen::Vector3f> point_cloud;
     };
     ModelData model_data;
     Assimp::Importer importer;
@@ -43,10 +44,11 @@ class ModelProcess::Impl{
         return true;
     }
 
+    static constexpr unsigned int kAssimpFlags =
+        aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_GenNormals | aiProcess_OptimizeMeshes;
+
     auto LoadModel()->std::expected<const aiScene*, std::string>{
-        const aiScene* scene = importer.ReadFile(
-            model_data.path,
-            aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_GenNormals);
+        const aiScene* scene = importer.ReadFile(model_data.path, kAssimpFlags);
         if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
             return std::unexpected("Assimp error: " + std::string(importer.GetErrorString()));
         }
@@ -54,10 +56,11 @@ class ModelProcess::Impl{
     }
 
     auto ProcessMeshes(const aiMesh* mesh)->std::expected<bool, std::string>{
+        model_data.vertices.reserve(model_data.vertices.size() + mesh->mNumVertices);
         for (unsigned int j = 0; j < mesh->mNumVertices; j++) {
             Vertex vertex;
-            vertex.position = Eigen::Vector3f(mesh->mVertices[j].x, mesh->mVertices[j].y, mesh->mVertices[j].z);
-            vertex.normal = Eigen::Vector3f(mesh->mNormals[j].x, mesh->mNormals[j].y, mesh->mNormals[j].z);
+            vertex.position = Eigen::Vector3f::Map(&mesh->mVertices[j].x);
+            vertex.normal   = Eigen::Vector3f::Map(&mesh->mNormals[j].x);
             if (mesh->mTextureCoords[0]) {
                 vertex.uv = Eigen::Vector2f(mesh->mTextureCoords[0][j].x, mesh->mTextureCoords[0][j].y);
             } else {
@@ -65,6 +68,7 @@ class ModelProcess::Impl{
             }
             model_data.vertices.push_back(vertex);
         }
+        model_data.indices.reserve(model_data.indices.size() + mesh->mNumFaces * 3);
         for (unsigned int j = 0; j < mesh->mNumFaces; j++) {
             const aiFace& face = mesh->mFaces[j];
             for (unsigned int k = 0; k < face.mNumIndices; k++) {
@@ -102,12 +106,16 @@ class ModelProcess::Impl{
         return ProcessNode(scene->mRootNode, scene);
     }
 
-    auto TransformModeltoPointCloud()->std::expected<std::vector<Eigen::Vector3f>, std::string>{
-        std::vector<Eigen::Vector3f> point_cloud;
+    auto TransformModeltoPointCloud()->std::expected<bool, std::string>{
+        model_data.point_cloud.reserve(model_data.vertices.size());
         for (const auto& vertex : model_data.vertices) {
-            point_cloud.push_back(vertex.position);
+            model_data.point_cloud.push_back(vertex.position);
         }
-        return point_cloud;
+        return true;
+    }
+
+    auto GetPointCloud() const noexcept -> const std::vector<Eigen::Vector3f>& {
+        return model_data.point_cloud;
     }
 };
 
@@ -120,7 +128,10 @@ ModelProcess::ModelProcess() noexcept
 auto ModelProcess::ProcessModel()->std::expected<bool, std::string>{
     return impl_->ProcessModel();
 }
-auto ModelProcess::TransformModeltoPointCloud()->std::expected<std::vector<Eigen::Vector3f>, std::string>{
+auto ModelProcess::TransformModeltoPointCloud()->std::expected<bool, std::string>{
     return impl_->TransformModeltoPointCloud();
+}
+auto ModelProcess::GetPointCloud() const noexcept -> const std::vector<Eigen::Vector3f>& {
+    return impl_->GetPointCloud();
 }
 ModelProcess::~ModelProcess() noexcept=default;
