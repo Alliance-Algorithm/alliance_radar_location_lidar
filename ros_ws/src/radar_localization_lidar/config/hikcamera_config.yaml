@@ -1,0 +1,31 @@
+Hikcamera:
+  pixel_format: "MJPEG"        # YUYV, MJPEG, H264, 等
+  image_width: 1280
+  image_height: 720
+  fps: 60
+
+  # 曝光与增益
+  auto_exposure: true
+  exposure_time: 20000         # 微秒，仅当 auto_exposure=false 时生效
+  gain: 0.0
+
+  # 白平衡
+  white_balance_auto: true
+  white_balance_temperature: 4500   # 可选
+  white_balance_red: 1.0
+  white_balance_blue: 1.0
+
+  # 基本图像调节
+  brightness: 128
+  contrast: 32
+  saturation: 64
+  hue: 0
+  gamma: 100
+  sharpness: 3
+
+  # 附加画面设置
+  vflip: false
+  hflip: false
+  roi: {x: 0, y: 0, width: 1280, height: 720}
+  binning: 1
+  denoise: 0
