@@ -3,7 +3,6 @@
 #include <assimp/Importer.hpp>
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
-#include <filesystem>
 using namespace Radar::process::model;
 class ModelProcess::Impl {
 public:

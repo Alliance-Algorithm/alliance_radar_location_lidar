@@ -1,7 +1,9 @@
+#include <expected>
 #include <memory>
 #include <opencv2/opencv.hpp>
 #include <string>
 #include <vector>
+#include <yaml-cpp/yaml.h>
 namespace Radar::process::image {
 class ImageProcess final {
 public:
@@ -12,5 +14,5 @@ public:
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
-}
+};
 }
