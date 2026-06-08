@@ -85,12 +85,5 @@ reviews:
 chat:
   auto_reply: true
 
-knowledge:
-  languages:
-    - cpp
-    - cmake
-    - python
-    - shell
-    - yaml
-    - markdown
+
     # test comment
