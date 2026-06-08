@@ -4,8 +4,8 @@
 language: "zh-CN"
 
 reviews:
-  profile: "assertive"
-  request_changes_workflow: true
+  profile: "chill"
+  request_changes_workflow: false
   high_level_summary: true
   collapse_walkthrough: false
   sequence_diagrams: true
