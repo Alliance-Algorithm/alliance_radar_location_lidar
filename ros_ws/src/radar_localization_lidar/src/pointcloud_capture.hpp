@@ -3,6 +3,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <chrono>
 namespace Radar::capture {
 class PointCloudCapture final {
 public:

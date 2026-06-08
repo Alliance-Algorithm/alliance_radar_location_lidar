@@ -106,6 +106,18 @@ bash /workspace/script/build_pure.sh Release
 bash /workspace/script/build_run.sh Debug
 ```
 
+### clangd 配置
+
+构建脚本已内置 `-DCMAKE_EXPORT_COMPILE_COMMANDS=1`，每次编译后会在 `/workspace/ros_ws/build/` 下生成 `compile_commands.json`，clangd 会自动读取。若需手动生成：
+
+```bash
+cd /workspace/ros_ws
+source /opt/ros/humble/setup.bash
+colcon build --packages-select radar_localization_lidar --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=1
+```
+
+> 项目根目录的 `.clangd` 提供 fallback 编译标志，覆盖 `lidar_ros_driver/` 下未构建的驱动包。
+
 ### 手动编译
 ```bash
 cd /workspace/ros_ws
