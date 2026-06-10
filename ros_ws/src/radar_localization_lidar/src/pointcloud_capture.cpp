@@ -14,4 +14,8 @@ public:
         subscription_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(pointcloud_topic,
             10, std::bind(&Impl::PointCloudCallback, this, std::placeholders::_1));
     }
-}
+
+private:
+    rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr subscription_;
+    void PointCloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg) { }
+};
