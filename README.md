@@ -8,13 +8,22 @@
 
 ## Docker 环境
 
+### 构建镜像
+```bash
+git clone --recurse-submodules https://github.com/HarryPotter1tech/alliance_radar_location_lidar.git
+cd alliance_radar_location_lidar
+docker build -t radar:full .
+```
+> `docker build` 成功 = 所有 5 个包编译验证通过。
+> 若网络受限，Dockerfile 内置了 ghproxy / tuna 国内镜像兜底。
+
 ### 创建容器
 ```bash
 docker run -it -d --name RADAR --privileged --restart=always \
   -v /dev:/dev \
-  -v /home/pinkpanda/linux-RADAR/RADAR-2026/RADAR-LOCATION-LIDAR:/workspace \
+  -v $(pwd):/workspace \
   --network host \
-  harryh_radar
+  radar:full
 ```
 
 ### 命令解释
@@ -27,9 +36,9 @@ docker run -it -d --name RADAR --privileged --restart=always \
 | `--privileged` | 授予容器特权模式，允许直接访问宿主机硬件设备（LiDAR 等） |
 | `--restart=always` | 容器退出后自动重启（含 Docker 守护进程重启时） |
 | `-v /dev:/dev` | 挂载宿主机设备目录，使容器可直接访问 `/dev/ttyUSB*` 等串口与传感器 |
-| `-v <host>:<container>` | 挂载项目工作目录到容器的 `/workspace` |
+| `-v $(pwd):/workspace` | 挂载当前项目目录到容器 `/workspace`，代码改动即时生效 |
 | `--network host` | 容器直接使用宿主机网络栈，无需端口映射，低延迟通信 |
-| `harryh_radar` | 使用的 Docker 镜像名称 |
+| `radar:full` | 本仓库 Dockerfile 构建的镜像，预装 GCC 13 / CMake 4.3 / clang-22 / Livox SDK |
 
 ---
 
