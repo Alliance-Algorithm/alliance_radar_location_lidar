@@ -177,7 +177,7 @@ RUN echo "" && \
     echo "  → colcon build small_gicp + hikcamera (Release)..." && \
     colcon build \
       --packages-select small_gicp hikcamera \
-      --cmake-args -DCMAKE_BUILD_TYPE=Release \
+      --cmake-args -DCMAKE_BUILD_TYPE=Release -Wno-dev \
       || { echo "  [FAIL] third-party 编译失败"; exit 1; }' && \
     echo "" && \
     echo "  [OK] small_gicp + hikcamera 编译完成"
@@ -194,7 +194,7 @@ RUN echo "" && \
     echo "  → colcon build radar_localization_lidar (Release)..." && \
     colcon build \
       --packages-select radar_localization_lidar \
-      --cmake-args -DCMAKE_BUILD_TYPE=Release \
+      --cmake-args -DCMAKE_BUILD_TYPE=Release -Wno-dev \
       || { echo "  [FAIL] radar_localization_lidar 编译失败"; exit 1; }' && \
     echo "" && \
     echo "  [OK] radar_localization_lidar 编译完成"
@@ -213,7 +213,7 @@ RUN echo "" && \
     echo "  → colcon build livox_ros_driver2 (Release, ROS2)..." && \
     colcon build \
       --packages-select livox_ros_driver2 \
-      --cmake-args -DCMAKE_BUILD_TYPE=Release -DROS_EDITION=ROS2 -DDISTRO_ROS=humble \
+      --cmake-args -DCMAKE_BUILD_TYPE=Release -DROS_EDITION=ROS2 -DDISTRO_ROS=humble -Wno-dev \
       || { echo "  [FAIL] livox_ros_driver2 编译失败"; exit 1; }' && \
     echo "" && \
     echo "  [OK] livox_ros_driver2 编译完成"
