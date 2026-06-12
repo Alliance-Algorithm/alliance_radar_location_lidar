@@ -192,6 +192,8 @@ RUN echo "" && \
     bash -c 'source /opt/ros/humble/setup.bash && \
     cd /workspace/ros_ws && \
     echo "  → colcon build radar_localization_lidar (Release)..." && \
+    sed -i "s/-Wextra/-Wextra -Wno-missing-field-initializers -Wno-unused-parameter/" \
+      /workspace/ros_ws/src/radar_localization_lidar/CMakeLists.txt && \
     colcon build \
       --packages-select radar_localization_lidar \
       --cmake-args -DCMAKE_BUILD_TYPE=Release -Wno-dev \
