@@ -208,6 +208,8 @@ RUN echo "" && \
     echo "========================================" && \
     bash -c 'source /opt/ros/humble/setup.bash && \
     cd /workspace/lidar_ros_driver && \
+    cp -f livox_ros_driver2/package_ROS2.xml livox_ros_driver2/package.xml && \
+    cp -rf livox_ros_driver2/launch_ROS2/ livox_ros_driver2/launch/ && \
     echo "  → colcon build livox_ros_driver2 (Release, ROS2)..." && \
     colcon build \
       --packages-select livox_ros_driver2 \
