@@ -77,10 +77,10 @@ RUN echo "" && \
     echo "  → 解压到 /opt/cmake-4.3.3..." && \
     mkdir -p /opt/cmake-4.3.3 && \
     tar -xzf /tmp/cmake.tar.gz --strip-components=1 -C /opt/cmake-4.3.3 && \
-    echo "  → update-alternatives 设置默认 cmake..." && \
-    update-alternatives --install /usr/bin/cmake cmake /opt/cmake-4.3.3/bin/cmake 100 && \
-    update-alternatives --install /usr/bin/ctest ctest /opt/cmake-4.3.3/bin/ctest 100 && \
-    update-alternatives --install /usr/bin/cpack cpack /opt/cmake-4.3.3/bin/cpack 100 && \
+    echo "  → 软链接到 /usr/local/bin (PATH 优先于 /usr/bin)..." && \
+    ln -sf /opt/cmake-4.3.3/bin/cmake /usr/local/bin/cmake && \
+    ln -sf /opt/cmake-4.3.3/bin/ctest /usr/local/bin/ctest && \
+    ln -sf /opt/cmake-4.3.3/bin/cpack /usr/local/bin/cpack && \
     rm /tmp/cmake.tar.gz && \
     echo "" && \
     echo "  CMake: $(cmake --version | head -1)" && \
