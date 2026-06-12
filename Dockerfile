@@ -172,7 +172,7 @@ RUN echo "" && \
     echo "========================================" && \
     echo "[5/7] 编译 third-party (small_gicp + hikcamera)" && \
     echo "========================================" && \
-    sh -c '. /opt/ros/humble/setup.bash && \
+    bash -c 'source /opt/ros/humble/setup.bash && \
     cd /workspace/ros_ws && \
     echo "  → colcon build small_gicp + hikcamera (Release)..." && \
     colcon build \
@@ -189,7 +189,7 @@ RUN echo "" && \
     echo "========================================" && \
     echo "[6/7] 编译 radar_localization_lidar (主包)" && \
     echo "========================================" && \
-    sh -c '. /opt/ros/humble/setup.bash && \
+    bash -c 'source /opt/ros/humble/setup.bash && \
     cd /workspace/ros_ws && \
     echo "  → colcon build radar_localization_lidar (Release)..." && \
     colcon build \
@@ -206,7 +206,7 @@ RUN echo "" && \
     echo "========================================" && \
     echo "[7/7] 编译 livox_ros_driver2 (Livox ROS2 驱动)" && \
     echo "========================================" && \
-    sh -c '. /opt/ros/humble/setup.bash && \
+    bash -c 'source /opt/ros/humble/setup.bash && \
     cd /workspace/lidar_ros_driver && \
     echo "  → colcon build livox_ros_driver2 (Release, ROS2)..." && \
     colcon build \
