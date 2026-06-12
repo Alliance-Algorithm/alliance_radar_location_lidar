@@ -5,33 +5,30 @@ set -e
 echo 'source /opt/ros/humble/setup.bash' >> /etc/bash.bashrc
 echo 'source /opt/ros/humble/setup.bash' >> /etc/skel/.bashrc
 
-GOLD="\033[38;5;178m"
-GOLD_BG="\033[48;5;178m"
-CYAN="\033[38;5;51m"
-BLUE="\033[38;5;33m"
+BLUE="\033[34m"
 RST="\033[0m"
 
 printf "\n\n\n\n"
+printf "${BLUE}"
 
-# ── ALLIANCE RADAR logo (金色背景 + 青色字 = 金边缘青内部) ──
-printf "${GOLD_BG}${CYAN}"
+# ── ALLIANCE RADAR logo ──
 echo "  █████╗ ██╗     ██╗     ██╗ █████╗ ███╗   ██╗ ██████╗███████╗      ██████╗  █████╗ ██████╗  █████╗ ██████╗ "
 echo " ██╔══██╗██║     ██║     ██║██╔══██╗████╗  ██║██╔════╝██╔════╝      ██╔══██╗██╔══██╗██╔══██╗██╔══██╗██╔══██╗"
 echo " ███████║██║     ██║     ██║███████║██╔██╗ ██║██║     █████╗        ██████╔╝███████║██║  ██║███████║██████╔╝"
 echo " ██╔══██║██║     ██║     ██║██╔══██║██║╚██╗██║██║     ██╔══╝        ██╔══██╗██╔══██║██║  ██║██╔══██║██╔══██╗"
 echo " ██║  ██║███████╗███████╗██║██║  ██║██║ ╚████║╚██████╗███████╗      ██║  ██║██║  ██║██████╔╝██║  ██║██║  ██║"
 echo " ╚═╝  ╚═╝╚══════╝╚══════╝╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝╚══════╝      ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝"
-printf "${RST}\n\n"
+printf "\n\n"
 
-# ── 版本信息 (青色字，无框) ──
-printf "${CYAN}"
+# ── 版本信息 ──
 echo "  GCC:   $(gcc --version | head -1)"
 echo "  CMake: $(cmake --version | head -1)"
 echo "  clang: $(clang-format-22 --version | head -1)"
-printf "${RST}\n"
 
-# ── 构建完成 (蓝色字 + 斜体) ──
+printf "${RST}\n\n"
 printf "${BLUE}\033[3m"
-echo ""
+
+# ── 构建完成 ──
 echo "                   ======  构建完成!  7/7 全部通过  ======"
+
 printf "${RST}\n\n"
