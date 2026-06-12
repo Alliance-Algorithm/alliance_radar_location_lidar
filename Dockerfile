@@ -8,11 +8,16 @@ RUN echo "" && \
     echo "[0/7] apt 源切换为 tuna 镜像" && \
     echo "========================================" && \
     echo "  → 替换 ubuntu 源..." && \
-    sed -i 's|http://archive.ubuntu.com|https://mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list && \
-    sed -i 's|http://security.ubuntu.com|https://mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list && \
-    echo "  → 替换 ROS2 源..." && \
+    sed -i \
+      -e 's|http://archive.ubuntu.com|https://mirrors.tuna.tsinghua.edu.cn|g' \
+      -e 's|http://security.ubuntu.com|https://mirrors.tuna.tsinghua.edu.cn|g' \
+      /etc/apt/sources.list && \
+    echo "  → 替换 ROS2 源 (tuna 仅提供二进制包，去掉 deb-src)..." && \
     for f in /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do \
-      [ -f "$f" ] && sed -i 's|http://packages.ros.org|https://mirrors.tuna.tsinghua.edu.cn|g' "$f"; \
+      if [ -f "$f" ]; then \
+        sed -i 's|http://packages.ros.org/ros2|https://mirrors.tuna.tsinghua.edu.cn/ros2|g' "$f" && \
+        sed -i '/ros2.*deb-src/s/^deb/#deb/' "$f"; \
+      fi; \
     done && \
     echo "  → apt-get update..." && \
     apt-get update && \
