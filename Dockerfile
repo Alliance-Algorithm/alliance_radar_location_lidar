@@ -12,7 +12,7 @@ RUN echo "" && \
     sed -i 's|http://security.ubuntu.com|https://mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list && \
     echo "  → 替换 ROS2 源..." && \
     for f in /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do \
-      [ -f "$f" ] && sed -i 's|http://packages.ros.org|https://mirrors.tuna.tsinghua.edu.cn/ros2|g' "$f"; \
+      [ -f "$f" ] && sed -i 's|http://packages.ros.org|https://mirrors.tuna.tsinghua.edu.cn|g' "$f"; \
     done && \
     echo "  → apt-get update..." && \
     apt-get update && \
