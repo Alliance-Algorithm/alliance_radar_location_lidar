@@ -6,7 +6,14 @@ set -euo pipefail
 BUILD_TYPE="${1:-Release}"
 cd /workspace/ros_ws
 
-source /opt/ros/jazzy/setup.bash 2>/dev/null || source /opt/ros/humble/setup.bash 2>/dev/null || true
+if [ -f /opt/ros/jazzy/setup.bash ]; then
+    source /opt/ros/jazzy/setup.bash
+elif [ -f /opt/ros/humble/setup.bash ]; then
+    source /opt/ros/humble/setup.bash
+else
+    echo "[ERROR] ROS2 environment not found (/opt/ros/jazzy or /opt/ros/humble)." >&2
+    exit 1
+fi
 
 echo "[BUILD] radar_localization_lidar (${BUILD_TYPE})..."
 colcon build \

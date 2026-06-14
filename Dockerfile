@@ -17,7 +17,7 @@
 FROM ros:jazzy AS radar-base
 
 ARG TARGETARCH
-SHELL ["/bin/bash", "-c"]
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 ENV TZ=Asia/Shanghai \
     DEBIAN_FRONTEND=noninteractive

@@ -18,13 +18,30 @@ fi
 
 # Initialize git submodules if needed
 cd /workspace
-if [ -f .gitmodules ] && [ ! -f ros_ws/third-party/small_gicp/.git ]; then
-    echo "[..] Initializing git submodules..."
-    git submodule update --init --recursive
+if [ -f .gitmodules ]; then
+    NEED_INIT=false
+    for submod in ros_ws/third-party/small_gicp ros_ws/third-party/ros2-hikcamera; do
+        if [ ! -f "${submod}/.git" ] && [ ! -d "${submod}/.git" ]; then
+            NEED_INIT=true
+            break
+        fi
+    done
+    if [ "$NEED_INIT" = true ]; then
+        echo "[..] Initializing git submodules..."
+        git submodule update --init --recursive
+    fi
 fi
 
 # Build third-party packages if not already built
-if [ ! -d /workspace/ros_ws/install ]; then
+NEED_BUILD=false
+for pkg in small_gicp hikcamera; do
+    if [ ! -d "/workspace/ros_ws/install/${pkg}" ]; then
+        NEED_BUILD=true
+        break
+    fi
+done
+
+if [ "$NEED_BUILD" = true ]; then
     echo "[..] First-time build: third-party packages..."
     cd /workspace/ros_ws
     if [ -f /opt/ros/jazzy/setup.bash ]; then

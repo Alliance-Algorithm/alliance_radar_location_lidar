@@ -21,6 +21,7 @@
                 "ms-python.vscode-pylance",
                 "ms-python.python",
                 "ms-python.debugpy",
+                "ms-vscode.cmake-tools",
                 "KylinIdeTeam.cmake-intellisence",
                 "streetsidesoftware.code-spell-checker",
                 "mhutchie.git-graph"

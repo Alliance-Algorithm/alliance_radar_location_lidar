@@ -100,7 +100,7 @@ bash /workspace/script/build_run.sh Debug
 
 ### clangd 配置
 
-构建脚本已内置 `-DCMAKE_EXPORT_COMPILE_COMMANDS=1`，编译后在 `/workspace/ros_ws/build/` 生成 `compile_commands.json`，clangd 自动读取。
+构建脚本已内置 `-DCMAKE_EXPORT_COMPILE_COMMANDS=1`，编译后在 `/workspace/ros_ws/build/radar_localization_lidar/` 生成 `compile_commands.json`，clangd 自动读取。
 
 ---
 
@@ -126,7 +126,9 @@ ros2 launch ws_30pcd_et3_ros2 scan_frame.launch.py
 
 ```bash
 cd /workspace/lidar_ros_driver/livox_ros_driver2
-./build.sh jazzy
+cp package_ROS2.xml package.xml
+cp -rf launch_ROS2/ launch/
+./build.sh humble
 ros2 launch livox_ros_driver2 rviz_MID360_launch.py
 ```
 
@@ -136,19 +138,17 @@ ros2 launch livox_ros_driver2 rviz_MID360_launch.py
 | `multi_topic` | `0` | 多雷达独立 topic：0=共用，1=独立 |
 | `xfer_format` | `0` | 点云格式：0=Livox 自定义，1=定制格式，2=标准 PCL |
 
+> **注意**：官方 `build.sh` 不支持 `jazzy` 参数，需使用 `humble`。构建前需先复制 ROS2 配置文件。
+
 ### 3. Odin — 留形科技
+
+> **注意**：Odin 驱动为 git submodule，需先初始化。初始化后参考子模块内 README 进行构建。
 
 ```bash
 cd /workspace/lidar_ros_driver/odin_ros_driver
-./script/build_ros2.sh
-ros2 launch odin_ros_driver odin1_ros2.launch.py
+# 查看子模块 README 获取具体构建命令
+cat README.md
 ```
-
-| 模式 | `custom_map_mode` | 说明 |
-|------|-------------------|------|
-| Odometry | `0` | 纯里程计 |
-| SLAM | `1` | 完整 SLAM（含回环检测） |
-| 重定位 | `2` | 基于预建地图的重定位 |
 
 ---
 
