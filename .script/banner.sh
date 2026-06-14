@@ -1,6 +1,6 @@
 #!/bin/bash
 # banner.sh - Display ALLIANCE RADAR banner on container start
-set -e
+set -euo pipefail
 
 ACCENT=$'\033[38;2;249;158;26m'
 RST=$'\033[0m'
