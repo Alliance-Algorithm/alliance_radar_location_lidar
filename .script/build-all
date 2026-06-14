@@ -3,8 +3,10 @@
 # Usage: build-all [Release|Debug]
 set -euo pipefail
 
+: "${RADAR_WS:=/workspace}"
+
 BUILD_TYPE="${1:-Release}"
-cd /workspace/ros_ws
+cd "${RADAR_WS}/ros_ws"
 
 if [ -f /opt/ros/jazzy/setup.bash ]; then
     source /opt/ros/jazzy/setup.bash

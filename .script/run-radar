@@ -2,7 +2,9 @@
 # run-radar - Run the radar node
 set -euo pipefail
 
-cd /workspace/ros_ws
+: "${RADAR_WS:=/workspace}"
+
+cd "${RADAR_WS}/ros_ws"
 
 if [ -f /opt/ros/jazzy/setup.bash ]; then
     source /opt/ros/jazzy/setup.bash
