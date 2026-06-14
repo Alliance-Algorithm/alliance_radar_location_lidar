@@ -148,7 +148,9 @@ RUN mkdir -p \
         /home/ubuntu/.config \
         /home/ubuntu/.local
 
-WORKDIR /home/ubuntu
+RUN mkdir -p /workspace && chown ubuntu:ubuntu /workspace
+
+WORKDIR /workspace
 ENV USER=ubuntu
 ENV WORKDIR=/home/ubuntu
 USER ubuntu
