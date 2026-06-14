@@ -1,20 +1,15 @@
 # =============================================================================
 # RADAR-LOCATION-LIDAR Development Environment
 #
-# Multi-stage build based on ros:jazzy (Ubuntu 24.04 + ROS2 Jazzy)
+# Single-stage build based on ros:jazzy (Ubuntu 24.04 + ROS2 Jazzy)
 # Reference: Alliance-Algorithm/RMCS
-#
-# Stages:
-#   radar-base    : ROS2, Hik MVS SDK, Livox SDK2, rosdep deps
-#   radar-develop : GCC 14, Clang 22, CMake, opencode, dev tools
 #
 # Usage:
 #   git submodule update --init --recursive
 #   docker build -t radar:develop .
 # =============================================================================
 
-# ===== Stage 1: Base runtime =====
-FROM ros:jazzy AS radar-base
+FROM ros:jazzy
 
 ARG TARGETARCH
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -112,11 +107,6 @@ RUN apt-get update \
     && rosdep install --from-paths /tmp/ros_ws_src --ignore-src -r -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /tmp/*
-
-
-# ===== Stage 2: Development =====
-FROM radar-base AS radar-develop
-ARG TARGETARCH
 
 # GCC 14
 RUN apt-get update && apt-get install -y --no-install-recommends \

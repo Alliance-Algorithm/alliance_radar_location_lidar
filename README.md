@@ -149,7 +149,7 @@ cat README.md
 
 ```text
 RADAR-LOCATION-LIDAR/
-├── Dockerfile              # 多阶段构建（base → develop）
+├── Dockerfile              # 基于 ros:jazzy 的开发环境镜像
 ├── .devcontainer/          # VSCode Dev Container 配置
 │   ├── devcontainer.json
 │   └── docker-compose.yml
