@@ -3,8 +3,22 @@
 set -euo pipefail
 
 cd /workspace/ros_ws
-source /opt/ros/jazzy/setup.bash 2>/dev/null || source /opt/ros/humble/setup.bash 2>/dev/null || true
-source install/setup.bash 2>/dev/null || true
+
+if [ -f /opt/ros/jazzy/setup.bash ]; then
+    source /opt/ros/jazzy/setup.bash
+elif [ -f /opt/ros/humble/setup.bash ]; then
+    source /opt/ros/humble/setup.bash
+else
+    echo "[ERROR] ROS2 environment not found (/opt/ros/jazzy or /opt/ros/humble)." >&2
+    exit 1
+fi
+
+if [ -f install/setup.bash ]; then
+    source install/setup.bash
+else
+    echo "[ERROR] install/setup.bash not found. Run build-all or build-radar first." >&2
+    exit 1
+fi
 
 echo "[RUN] radar_localization_lidar_node..."
 ros2 run radar_localization_lidar radar_localization_lidar_node "$@"

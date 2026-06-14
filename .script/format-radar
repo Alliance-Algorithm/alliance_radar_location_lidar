@@ -5,5 +5,5 @@ set -euo pipefail
 SRC_DIR="/workspace/ros_ws/src/radar_localization_lidar/src"
 echo "Formatting ${SRC_DIR}..."
 cd "${SRC_DIR}"
-clang-format -i *.cpp *.hpp
+find . -type f \( -name '*.cpp' -o -name '*.hpp' \) -print0 | xargs -0 -r clang-format -i
 echo "[OK] Formatted all .cpp and .hpp files."

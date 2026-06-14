@@ -154,7 +154,7 @@ ros2 launch odin_ros_driver odin1_ros2.launch.py
 
 ## 目录结构
 
-```
+```text
 RADAR-LOCATION-LIDAR/
 ├── Dockerfile              # 多阶段构建（base → develop）
 ├── .devcontainer/          # VSCode Dev Container 配置

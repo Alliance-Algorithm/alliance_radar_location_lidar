@@ -10,11 +10,17 @@ services:
     privileged: true
     volumes:
       # Project source (bind mount)
-      - ..:/workspace:bind
+      - type: bind
+        source: ..
+        target: /workspace
       # Device access
-      - /dev:/dev:bind
+      - type: bind
+        source: /dev
+        target: /dev
       # X11 display
-      - /tmp/.X11-unix:/tmp/.X11-unix:bind
+      - type: bind
+        source: /tmp/.X11-unix
+        target: /tmp/.X11-unix
       # Host opencode config (any device's ~/.opencode)
       - ${HOME}/.opencode:/home/ubuntu/.opencode:cached
       # Host codex config
