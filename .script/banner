@@ -1,5 +1,5 @@
 #!/bin/bash
-# banner.sh - Display ALLIANCE RADAR banner on container start
+# banner - Display ALLIANCE RADAR banner on container start
 set -euo pipefail
 
 ACCENT=$'\033[38;2;249;158;26m'
@@ -10,7 +10,12 @@ CLANG_VER=${CLANG_VER:-"(not installed)"}
 
 CPUS=$(nproc)
 OS=$(cat /etc/os-release 2>/dev/null | grep PRETTY_NAME | cut -d= -f2 | tr -d '"')
-ROS_DISTRO=$(source /opt/ros/jazzy/setup.bash 2>/dev/null && echo $ROS_DISTRO || echo "jazzy")
+if [ -f /opt/ros/jazzy/setup.bash ]; then
+    set +u
+    source /opt/ros/jazzy/setup.bash
+    set -u
+fi
+ROS_DISTRO=${ROS_DISTRO:-jazzy}
 
 mapfile -t LOGO < /home/ubuntu/.script/ow_logo.txt
 
