@@ -44,14 +44,7 @@ done
 if [ "$NEED_BUILD" = true ]; then
     echo "[..] First-time build: third-party packages..."
     cd /workspace/ros_ws
-    if [ -f /opt/ros/jazzy/setup.bash ]; then
-        source /opt/ros/jazzy/setup.bash
-    elif [ -f /opt/ros/humble/setup.bash ]; then
-        source /opt/ros/humble/setup.bash
-    else
-        echo "[ERROR] ROS2 environment not found." >&2
-        exit 1
-    fi
+    source /opt/ros/jazzy/setup.bash
     colcon build --packages-select small_gicp hikcamera \
         --cmake-args -DCMAKE_BUILD_TYPE=Release -Wno-dev
 fi

@@ -5,12 +5,12 @@
 # ROS2
 if [ -f /opt/ros/jazzy/setup.bash ]; then
     source /opt/ros/jazzy/setup.bash
-elif [ -f /opt/ros/humble/setup.bash ]; then
-    source /opt/ros/humble/setup.bash
+else
+    echo "[ERROR] ROS2 Jazzy not found at /opt/ros/jazzy/setup.bash" >&2
 fi
 
 # Workspace
-export RADAR_WS="/workspace"
+export RADAR_WS="${RADAR_WS:-/workspace}"
 export RADAR_SRC="${RADAR_WS}/ros_ws/src/radar_localization_lidar"
 
 # Add build scripts to PATH
