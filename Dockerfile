@@ -11,11 +11,21 @@
 
 FROM ros:jazzy
 
-ARG TARGETARCH
+ARG TARGETARCH=${TARGETARCH:-amd64}
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 ENV TZ=Asia/Shanghai \
     DEBIAN_FRONTEND=noninteractive
+
+# Swap apt mirrors to tuna (China)
+RUN sed -i \
+    -e 's|http://archive.ubuntu.com|https://mirrors.tuna.tsinghua.edu.cn|g' \
+    -e 's|http://security.ubuntu.com|https://mirrors.tuna.tsinghua.edu.cn|g' \
+    /etc/apt/sources.list.d/*.sources 2>/dev/null || \
+    sed -i \
+    -e 's|http://archive.ubuntu.com|https://mirrors.tuna.tsinghua.edu.cn|g' \
+    -e 's|http://security.ubuntu.com|https://mirrors.tuna.tsinghua.edu.cn|g' \
+    /etc/apt/sources.list
 
 # System packages + ROS2 deps + project deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -46,51 +56,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* /tmp/*
 
 # Hik MVS SDK (multi-arch)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libbz2-1.0 libgcc-s1 libstdc++6 libudev1 libusb-1.0-0 zlib1g \
-    && apt-get autoremove -y && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* /tmp/* \
-    && set -eu; \
-    case "${TARGETARCH}" in \
-        amd64) arch_tag=x86_64; arch_dir=64 ;; \
-        arm64) arch_tag=aarch64; arch_dir=aarch64 ;; \
-        *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
-    esac; \
-    download_url="https://github.com/Alliance-Algorithm/hik-mvs/releases/latest/download/mvs-sdk-${arch_tag}.tar.gz"; \
-    mkdir -p /tmp/mvs-src \
-        "/opt/mvs-usb3-core/lib/${arch_dir}" \
-        /opt/mvs-usb3-core/lib/cmake/MVSUSB3Core \
-        /opt/mvs-usb3-core/include; \
-    curl -fsSL -o /tmp/mvs.tar.gz "${download_url}"; \
-    tar -xzf /tmp/mvs.tar.gz -C /tmp/mvs-src; \
-    cp -a "/tmp/mvs-src/lib/${arch_dir}/." "/opt/mvs-usb3-core/lib/${arch_dir}/"; \
-    cp -a /tmp/mvs-src/include/. /opt/mvs-usb3-core/include/; \
-    rm -f "/opt/mvs-usb3-core/lib/${arch_dir}/libusb-1.0.so.0"; \
-    rm -rf /var/lib/apt/lists/* /tmp/mvs-src /tmp/mvs.tar.gz; \
-    cmake_dir=/opt/mvs-usb3-core/lib/cmake/MVSUSB3Core; \
-    cat > "${cmake_dir}/MVSUSB3CoreConfig.cmake" <<MVS_EOF
-get_filename_component(MVSUSB3Core_ROOT "\${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
-set(MVSUSB3Core_INCLUDE_DIR "\${MVSUSB3Core_ROOT}/include")
-set(MVSUSB3Core_INCLUDE_DIRS "\${MVSUSB3Core_INCLUDE_DIR}")
-set(MVSUSB3Core_LIBRARY_DIR "\${MVSUSB3Core_ROOT}/lib/${arch_dir}")
-set(MVSUSB3Core_LIBRARY "\${MVSUSB3Core_LIBRARY_DIR}/libMvCameraControl.so")
-set(MVSUSB3Core_LIBRARIES "\${MVSUSB3Core_LIBRARY}")
-if(NOT EXISTS "\${MVSUSB3Core_INCLUDE_DIR}/MvCameraControl.h")
-  set(MVSUSB3Core_FOUND FALSE)
-  message(FATAL_ERROR "MVSUSB3Core headers not found under \${MVSUSB3Core_INCLUDE_DIR}")
-endif()
-if(NOT EXISTS "\${MVSUSB3Core_LIBRARY}")
-  set(MVSUSB3Core_FOUND FALSE)
-  message(FATAL_ERROR "MVSUSB3Core library not found under \${MVSUSB3Core_LIBRARY_DIR}")
-endif()
-if(NOT TARGET MVSUSB3Core::MVSUSB3Core)
-  add_library(MVSUSB3Core::MVSUSB3Core SHARED IMPORTED GLOBAL)
-  set_target_properties(MVSUSB3Core::MVSUSB3Core PROPERTIES
-    IMPORTED_LOCATION "\${MVSUSB3Core_LIBRARY}"
-    INTERFACE_INCLUDE_DIRECTORIES "\${MVSUSB3Core_INCLUDE_DIR}")
-endif()
-set(MVSUSB3Core_FOUND TRUE)
-MVS_EOF
+COPY docker/scripts/gen_mvs_cmake.sh /tmp/gen_mvs_cmake.sh
+RUN chmod +x /tmp/gen_mvs_cmake.sh && /tmp/gen_mvs_cmake.sh && rm /tmp/gen_mvs_cmake.sh
 
 # Livox SDK2
 RUN git clone https://github.com/Livox-SDK/Livox-SDK2.git /tmp/Livox-SDK2 \
