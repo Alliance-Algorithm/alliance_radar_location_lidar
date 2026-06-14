@@ -155,7 +155,9 @@ USER ubuntu
 
 # oh-my-zsh
 RUN sh -c "$(wget https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh -O -)" \
-    && sed -i 's/ZSH_THEME="robbyrussell"/ZSH_THEME="af-magic"/g' ~/.zshrc
+    && sed -i 's/ZSH_THEME="robbyrussell"/ZSH_THEME="af-magic"/g' ~/.zshrc \
+    && sed -i 's/plugins=(git)/plugins=()/g' ~/.zshrc \
+    && sed -i "s/# zstyle ':omz:update' mode disabled/zstyle ':omz:update' mode disabled/g" ~/.zshrc
 
 # oh-my-opencode plugin (host config will be mounted at runtime)
 RUN mkdir -p ~/.opencode/plugins

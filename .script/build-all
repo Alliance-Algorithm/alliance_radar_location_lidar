@@ -10,10 +10,8 @@ cd "${RADAR_WS}/ros_ws"
 
 if [ -f /opt/ros/jazzy/setup.bash ]; then
     source /opt/ros/jazzy/setup.bash
-elif [ -f /opt/ros/humble/setup.bash ]; then
-    source /opt/ros/humble/setup.bash
 else
-    echo "[ERROR] ROS2 environment not found (/opt/ros/jazzy or /opt/ros/humble)." >&2
+    echo "[ERROR] ROS2 Jazzy not found at /opt/ros/jazzy/setup.bash" >&2
     exit 1
 fi
 
