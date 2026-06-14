@@ -1,0 +1,16 @@
+#!/bin/bash
+# build-radar - Build radar_localization_lidar
+# Usage: build-radar [Release|Debug]
+set -euo pipefail
+
+BUILD_TYPE="${1:-Release}"
+cd /workspace/ros_ws
+
+source /opt/ros/jazzy/setup.bash 2>/dev/null || source /opt/ros/humble/setup.bash 2>/dev/null || true
+
+echo "[BUILD] radar_localization_lidar (${BUILD_TYPE})..."
+colcon build \
+    --packages-select radar_localization_lidar \
+    --cmake-args -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DCMAKE_EXPORT_COMPILE_COMMANDS=1
+
+echo "[OK] Build complete. Source install/setup.bash to use."

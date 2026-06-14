@@ -1,0 +1,10 @@
+#!/bin/bash
+# run-radar - Run the radar node
+set -euo pipefail
+
+cd /workspace/ros_ws
+source /opt/ros/jazzy/setup.bash 2>/dev/null || source /opt/ros/humble/setup.bash 2>/dev/null || true
+source install/setup.bash 2>/dev/null || true
+
+echo "[RUN] radar_localization_lidar_node..."
+ros2 run radar_localization_lidar radar_localization_lidar_node "$@"
