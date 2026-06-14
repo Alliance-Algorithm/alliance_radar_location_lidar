@@ -1,18 +1,17 @@
 #!/bin/bash
+# post-create.sh - First-time container setup
 set -euo pipefail
 
 echo "========================================="
 echo "  RADAR-LOCATION-LIDAR post-create setup"
 echo "========================================="
 
-# Sync host opencode config into container
-# The bind mount already makes ~/.opencode available,
-# but we ensure the binary is in PATH
+# Check host opencode config
 if [ -f /home/ubuntu/.opencode/bin/opencode ]; then
     echo "[OK] opencode binary found from host mount"
 fi
 
-# Sync host codex config
+# Check host codex config
 if [ -f /home/ubuntu/.codex/config.toml ]; then
     echo "[OK] codex config found from host mount"
 fi
@@ -28,9 +27,16 @@ fi
 if [ ! -d /workspace/ros_ws/install ]; then
     echo "[..] First-time build: third-party packages..."
     cd /workspace/ros_ws
-    source /opt/ros/humble/setup.bash 2>/dev/null || source /opt/ros/$ROS_DISTRO/setup.bash
+    if [ -f /opt/ros/jazzy/setup.bash ]; then
+        source /opt/ros/jazzy/setup.bash
+    elif [ -f /opt/ros/humble/setup.bash ]; then
+        source /opt/ros/humble/setup.bash
+    else
+        echo "[ERROR] ROS2 environment not found." >&2
+        exit 1
+    fi
     colcon build --packages-select small_gicp hikcamera \
-        --cmake-args -DCMAKE_BUILD_TYPE=Release -Wno-dev 2>/dev/null || true
+        --cmake-args -DCMAKE_BUILD_TYPE=Release -Wno-dev
 fi
 
 echo ""

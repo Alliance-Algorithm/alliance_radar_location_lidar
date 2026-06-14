@@ -73,26 +73,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     rm -f "/opt/mvs-usb3-core/lib/${arch_dir}/libusb-1.0.so.0"; \
     rm -rf /var/lib/apt/lists/* /tmp/mvs-src /tmp/mvs.tar.gz; \
     cmake_dir=/opt/mvs-usb3-core/lib/cmake/MVSUSB3Core; \
-    cat > "${cmake_dir}/MVSUSB3CoreConfig.cmake" <<'MVS_EOF'
-get_filename_component(MVSUSB3Core_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
-set(MVSUSB3Core_INCLUDE_DIR "${MVSUSB3Core_ROOT}/include")
-set(MVSUSB3Core_INCLUDE_DIRS "${MVSUSB3Core_INCLUDE_DIR}")
-set(MVSUSB3Core_LIBRARY_DIR "${MVSUSB3Core_ROOT}/lib/${arch_dir}")
-set(MVSUSB3Core_LIBRARY "${MVSUSB3Core_LIBRARY_DIR}/libMvCameraControl.so")
-set(MVSUSB3Core_LIBRARIES "${MVSUSB3Core_LIBRARY}")
-if(NOT EXISTS "${MVSUSB3Core_INCLUDE_DIR}/MvCameraControl.h")
+    cat > "${cmake_dir}/MVSUSB3CoreConfig.cmake" <<MVS_EOF
+get_filename_component(MVSUSB3Core_ROOT "\${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
+set(MVSUSB3Core_INCLUDE_DIR "\${MVSUSB3Core_ROOT}/include")
+set(MVSUSB3Core_INCLUDE_DIRS "\${MVSUSB3Core_INCLUDE_DIR}")
+set(MVSUSB3Core_LIBRARY_DIR "\${MVSUSB3Core_ROOT}/lib/${arch_dir}")
+set(MVSUSB3Core_LIBRARY "\${MVSUSB3Core_LIBRARY_DIR}/libMvCameraControl.so")
+set(MVSUSB3Core_LIBRARIES "\${MVSUSB3Core_LIBRARY}")
+if(NOT EXISTS "\${MVSUSB3Core_INCLUDE_DIR}/MvCameraControl.h")
   set(MVSUSB3Core_FOUND FALSE)
-  message(FATAL_ERROR "MVSUSB3Core headers not found under ${MVSUSB3Core_INCLUDE_DIR}")
+  message(FATAL_ERROR "MVSUSB3Core headers not found under \${MVSUSB3Core_INCLUDE_DIR}")
 endif()
-if(NOT EXISTS "${MVSUSB3Core_LIBRARY}")
+if(NOT EXISTS "\${MVSUSB3Core_LIBRARY}")
   set(MVSUSB3Core_FOUND FALSE)
-  message(FATAL_ERROR "MVSUSB3Core library not found under ${MVSUSB3Core_LIBRARY_DIR}")
+  message(FATAL_ERROR "MVSUSB3Core library not found under \${MVSUSB3Core_LIBRARY_DIR}")
 endif()
 if(NOT TARGET MVSUSB3Core::MVSUSB3Core)
   add_library(MVSUSB3Core::MVSUSB3Core SHARED IMPORTED GLOBAL)
   set_target_properties(MVSUSB3Core::MVSUSB3Core PROPERTIES
-    IMPORTED_LOCATION "${MVSUSB3Core_LIBRARY}"
-    INTERFACE_INCLUDE_DIRECTORIES "${MVSUSB3Core_INCLUDE_DIR}")
+    IMPORTED_LOCATION "\${MVSUSB3Core_LIBRARY}"
+    INTERFACE_INCLUDE_DIRECTORIES "\${MVSUSB3Core_INCLUDE_DIR}")
 endif()
 set(MVSUSB3Core_FOUND TRUE)
 MVS_EOF
