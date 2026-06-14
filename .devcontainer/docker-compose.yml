@@ -3,7 +3,6 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile
-      target: radar-develop
       args:
         TARGETARCH: ${TARGETARCH:-amd64}
     user: "1000:1000"
