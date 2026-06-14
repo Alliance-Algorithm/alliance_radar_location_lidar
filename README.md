@@ -16,7 +16,7 @@
 ### 步骤
 
 ```bash
-git clone --recurse-submodules https://github.com/Yukikaze2233/alliance_radar_location_lidar.git
+git clone --recurse-submodules https://github.com/HarryPotter1tech/alliance_radar_location_lidar.git
 cd alliance_radar_location_lidar
 code .
 ```
@@ -28,6 +28,7 @@ code .
 - 安装 Hik MVS SDK、Livox SDK2
 - 挂载宿主机的 `~/.opencode`、`~/.codex` 配置
 - 运行 `post-create.sh` 初始化子模块和编译第三方包
+- 显示 ALLIANCE RADAR ASCII art banner
 
 ### 宿主机 opencode 配置复用
 
@@ -49,7 +50,7 @@ code .
 
 ```bash
 git submodule update --init --recursive
-docker build --target radar-develop -t radar:develop .
+docker build -t radar:develop .
 ```
 
 ### 创建容器
@@ -90,6 +91,7 @@ docker exec -it RADAR zsh
 | `build-radar [Release\|Debug]` | 仅编译 radar_localization_lidar |
 | `run-radar` | 运行雷达节点 |
 | `format-radar` | 格式化 C++ 源文件 |
+| `banner.sh` | 显示 ALLIANCE RADAR ASCII art |
 
 ### clangd 配置
 
@@ -158,6 +160,8 @@ RADAR-LOCATION-LIDAR/
 │   ├── build-all           # 编译所有包
 │   ├── run-radar           # 运行节点
 │   ├── format-radar        # 格式化代码
+│   ├── banner.sh           # ASCII art banner
+│   ├── ow_logo.txt         # Overwatch 风格 logo
 │   └── template/           # 环境变量模板
 ├── ros_ws/                 # ROS2 工作空间
 │   ├── src/radar_localization_lidar/  # 主包
