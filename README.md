@@ -46,7 +46,14 @@ code .
 
 ## Docker 环境（手动）
 
-### 构建镜像
+### 方式一：拉取预构建镜像（推荐）
+
+```bash
+docker pull ghcr.io/harrypotter1tech/radar:develop
+docker tag ghcr.io/harrypotter1tech/radar:develop radar:develop
+```
+
+### 方式二：本地构建镜像
 
 ```bash
 git submodule update --init --recursive
