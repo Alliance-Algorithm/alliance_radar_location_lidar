@@ -12,7 +12,7 @@
 	url = https://github.com/Livox-SDK/livox_ros_driver2.git
 [submodule "ros_ws/third-party/ros2-hikcamera"]
 	path = ros_ws/third-party/ros2-hikcamera
-	url = https://github.com/Alliance-Algorithm/ros2-hikcamera.git
+	url = https://github.com/HarryPotter1tech/ros2-hikcamera-radar.git
 [submodule "lidar_ros_driver/livox_sdk2"]
 	path = lidar_ros_driver/livox_sdk2
 	url = https://github.com/Livox-SDK/Livox-SDK2.git
