@@ -21,6 +21,18 @@ echo "[BUILD] third-party (small_gicp + hikcamera)..."
 colcon build --packages-select small_gicp hikcamera \
     --cmake-args -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -Wno-dev
 
+echo "[BUILD] third-party (direct_visual_lidar_calibration)..."
+colcon build --packages-select direct_visual_lidar_calibration \
+    --cmake-args \
+        -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
+        -DCMAKE_CXX_STANDARD=17 \
+        -DCMAKE_CXX_FLAGS="-Wno-maybe-uninitialized -Wno-template-id-cdtor" \
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCMAKE_POLICY_DEFAULT_CMP0167=NEW \
+        -DCMAKE_POLICY_DEFAULT_CMP0144=NEW \
+        -DCMAKE_PREFIX_PATH="/usr/local" \
+        -Wno-dev
+
 echo "[BUILD] radar_localization_lidar..."
 colcon build --packages-select radar_localization_lidar \
     --cmake-args -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DCMAKE_EXPORT_COMPILE_COMMANDS=1
