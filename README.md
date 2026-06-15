@@ -25,7 +25,7 @@ code .
 
 容器会自动：
 - 构建基于 `ros:jazzy` 的开发环境（GCC 14 + Clang 22 + CMake 4.2）
-- 安装 Hik MVS SDK、Livox SDK2
+- 安装 Hik MVS SDK、Livox SDK2、GTSAM 4.2a9、Iridescence
 - 挂载宿主机的 `~/.opencode`、`~/.codex` 配置
 - 运行 `post-create.sh` 初始化子模块和编译第三方包
 - 显示 ALLIANCE RADAR ASCII art banner
@@ -165,7 +165,7 @@ RADAR-LOCATION-LIDAR/
 │   └── template/           # 环境变量模板
 ├── ros_ws/                 # ROS2 工作空间
 │   ├── src/radar_localization_lidar/  # 主包
-│   └── third-party/        # small_gicp, ros2-hikcamera
+│   └── third-party/        # small_gicp, ros2-hikcamera, direct_visual_lidar_calibration
 ├── lidar_ros_driver/       # LiDAR 驱动（git submodules）
 ├── docs/                   # SLAM 学习资料
 └── README.md
