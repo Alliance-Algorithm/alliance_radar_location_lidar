@@ -52,6 +52,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libyaml-cpp-dev \
     libzmq3-dev \
     libassimp-dev \
+    libomp-dev \
+    libglm-dev \
+    libglfw3-dev \
+    libpng-dev \
+    libjpeg-dev \
+    libfmt-dev \
+    libtbb-dev \
+    ros-$ROS_DISTRO-cv-bridge \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /tmp/*
 
@@ -67,6 +75,27 @@ RUN git clone https://github.com/Livox-SDK/Livox-SDK2.git /tmp/Livox-SDK2 \
     && cmake -DCMAKE_BUILD_TYPE=Release .. \
     && make -j$(nproc) && make install \
     && cd / && rm -rf /tmp/Livox-SDK2
+
+# GTSAM 4.2a9
+RUN git clone https://github.com/borglab/gtsam.git /tmp/gtsam \
+    && cd /tmp/gtsam && git checkout 4.2a9 \
+    && mkdir build && cd build \
+    && cmake .. \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DGTSAM_BUILD_EXAMPLES_ALWAYS=OFF \
+        -DGTSAM_BUILD_TESTS=OFF \
+        -DGTSAM_BUILD_WITH_MARCH_NATIVE=OFF \
+        -DGTSAM_USE_SYSTEM_EIGEN=ON \
+        -DCMAKE_CXX_STANDARD=17 \
+    && make -j$(nproc) && make install \
+    && ldconfig && rm -rf /tmp/gtsam
+
+# Iridescence
+RUN git clone https://github.com/koide3/iridescence.git --recursive /tmp/iridescence \
+    && mkdir /tmp/iridescence/build && cd /tmp/iridescence/build \
+    && cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_STANDARD=17 \
+    && make -j$(nproc) && make install \
+    && ldconfig && rm -rf /tmp/iridescence
 
 # rosdep dependencies
 COPY ros_ws/src /tmp/ros_ws_src
