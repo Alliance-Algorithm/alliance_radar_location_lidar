@@ -30,7 +30,6 @@ colcon build --packages-select direct_visual_lidar_calibration \
         -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DCMAKE_POLICY_DEFAULT_CMP0167=NEW \
         -DCMAKE_POLICY_DEFAULT_CMP0144=NEW \
-        -DCMAKE_PREFIX_PATH="/usr/local" \
         -Wno-dev
 
 echo "[BUILD] radar_localization_lidar..."

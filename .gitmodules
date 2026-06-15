@@ -18,4 +18,4 @@
 	url = https://github.com/Livox-SDK/Livox-SDK2.git
 [submodule "ros_ws/third-party/direct_visual_lidar_calibration"]
 	path = ros_ws/third-party/direct_visual_lidar_calibration
-	url = git@github.com:koide3/direct_visual_lidar_calibration.git
+	url = https://github.com/koide3/direct_visual_lidar_calibration.git

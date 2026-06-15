@@ -76,9 +76,12 @@ RUN git clone https://github.com/Livox-SDK/Livox-SDK2.git /tmp/Livox-SDK2 \
     && make -j$(nproc) && make install \
     && cd / && rm -rf /tmp/Livox-SDK2
 
+ARG GTSAM_COMMIT=c57988fe554e7213c77fe379c1d7c483de26ad33
+ARG IRIDESCENCE_COMMIT=e72c3091be415b48d88ce9cf70415a2e0cace570
+
 # GTSAM 4.2a9
 RUN git clone https://github.com/borglab/gtsam.git /tmp/gtsam \
-    && cd /tmp/gtsam && git checkout 4.2a9 \
+    && cd /tmp/gtsam && git checkout --detach ${GTSAM_COMMIT} \
     && mkdir build && cd build \
     && cmake .. \
         -DCMAKE_BUILD_TYPE=Release \
@@ -91,8 +94,10 @@ RUN git clone https://github.com/borglab/gtsam.git /tmp/gtsam \
     && ldconfig && rm -rf /tmp/gtsam
 
 # Iridescence
-RUN git clone https://github.com/koide3/iridescence.git --recursive /tmp/iridescence \
-    && mkdir /tmp/iridescence/build && cd /tmp/iridescence/build \
+RUN git clone https://github.com/koide3/iridescence.git /tmp/iridescence \
+    && cd /tmp/iridescence && git checkout --detach ${IRIDESCENCE_COMMIT} \
+    && git submodule update --init --recursive \
+    && mkdir build && cd build \
     && cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_STANDARD=17 \
     && make -j$(nproc) && make install \
     && ldconfig && rm -rf /tmp/iridescence
