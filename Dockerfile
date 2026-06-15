@@ -70,7 +70,7 @@ RUN chmod +x /tmp/gen_mvs_cmake.sh && /tmp/gen_mvs_cmake.sh && rm /tmp/gen_mvs_c
 # Livox SDK2
 RUN git clone https://github.com/Yukikaze2233/Livox-SDK2.git /tmp/Livox-SDK2 \
     && cd /tmp/Livox-SDK2 \
-    && sed -i '6iset(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-pragmas -Wno-c++20-compat -include cstdint")' CMakeLists.txt \
+    && sed -i '6iset(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w -Wno-pragmas -include cstdint")' CMakeLists.txt \
     && mkdir build && cd build \
     && cmake -DCMAKE_BUILD_TYPE=Release .. \
     && make -j$(nproc) && make install \
@@ -85,6 +85,7 @@ RUN git clone https://github.com/borglab/gtsam.git /tmp/gtsam \
     && mkdir build && cd build \
     && cmake .. \
         -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_CXX_FLAGS="-w" \
         -DGTSAM_BUILD_EXAMPLES_ALWAYS=OFF \
         -DGTSAM_BUILD_TESTS=OFF \
         -DGTSAM_BUILD_WITH_MARCH_NATIVE=OFF \
@@ -98,7 +99,7 @@ RUN git clone https://github.com/koide3/iridescence.git /tmp/iridescence \
     && cd /tmp/iridescence && git checkout --detach ${IRIDESCENCE_COMMIT} \
     && git submodule update --init --recursive \
     && mkdir build && cd build \
-    && cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_STANDARD=17 \
+    && cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_STANDARD=17 -DCMAKE_CXX_FLAGS="-w" \
     && make -j$(nproc) && make install \
     && ldconfig && rm -rf /tmp/iridescence
 
