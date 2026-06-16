@@ -22,9 +22,18 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
+            wget gnupg \
             libopencv-dev libassimp-dev libeigen3-dev \
-            libzmq3-dev libyaml-cpp-dev libomp-dev \
-            clang-format
+            libzmq3-dev libyaml-cpp-dev libomp-dev
+          mkdir -p /etc/apt/keyrings
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | \
+            gpg --dearmor -o /etc/apt/keyrings/apt.llvm.org.gpg
+          chmod 644 /etc/apt/keyrings/apt.llvm.org.gpg
+          echo "deb [signed-by=/etc/apt/keyrings/apt.llvm.org.gpg] https://apt.llvm.org/noble/ llvm-toolchain-noble-22 main" \
+            > /etc/apt/sources.list.d/llvm.list
+          apt-get update
+          apt-get install -y --no-install-recommends clang-format-22
+          update-alternatives --install /usr/bin/clang-format clang-format /usr/bin/clang-format-22 50
           rosdep update
           rosdep install --from-paths ros_ws/src --ignore-src -r -y
 
