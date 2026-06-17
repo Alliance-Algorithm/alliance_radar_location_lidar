@@ -94,9 +94,9 @@ docker exec -it RADAR zsh
 
 | 命令 | 说明 |
 |------|------|
-| `build-all [Release\|Debug]` | 编译所有包（third-party + 主包） |
-| `build-radar [Release\|Debug]` | 仅编译 radar_calibration |
-| `run-radar` | 运行雷达节点 |
+| `build-all [Release\|Debug]` | 编译所有包（third-party + 全部 radar 包） |
+| `build-radar [Release\|Debug]` | 编译 radar_calibration |
+| `run-radar` | 运行标定定位节点 |
 | `format-radar` | 格式化 C++ 源文件 |
 | `banner` | 显示 ALLIANCE RADAR ASCII art |
 
@@ -171,7 +171,14 @@ RADAR-LOCATION-LIDAR/
 │   ├── ow_logo.txt         # Overwatch 风格 logo
 │   └── template/           # 环境变量模板
 ├── ros_ws/                 # ROS2 工作空间
-│   ├── src/radar_calibration/  # 相机-雷达标定+定位
+│   ├── src/
+│   │   ├── radar_lidar/       # LiDAR 配准定位
+│   │   ├── radar_camera/      # 视觉位姿观测
+│   │   ├── radar_fusion/      # 多传感器融合定位
+│   │   ├── radar_bridge/      # ROS2 → 共享内存桥接
+│   │   ├── radar_model/       # 离线模型 → 点云资产
+│   │   ├── radar_calibration/ # 相机-雷达标定+定位
+│   │   └── radar_bringup/     # Launch / YAML / 组件编排
 │   └── third-party/        # small_gicp, hikcamera_sdk, direct_visual_lidar_calibration
 ├── lidar_ros_driver/       # LiDAR 驱动（git submodules）
 │   └── * Livox 驱动使用 fork 版本以支持 Mid-70（上游 SDK2 暂未提供），维护者 @Yukikaze2233
