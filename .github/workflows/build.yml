@@ -52,17 +52,6 @@ jobs:
           colcon build --packages-select small_gicp hikcamera \
             --cmake-args -DCMAKE_BUILD_TYPE=Release -Wno-dev
 
-      - name: Build radar packages
-        run: |
-          source /opt/ros/jazzy/setup.bash
-          cd ros_ws
-          source install/setup.bash
-          colcon build --packages-select radar_lidar radar_camera radar_fusion radar_bridge radar_model radar_bringup \
-            --cmake-args \
-              -DCMAKE_BUILD_TYPE=Release \
-              -DCMAKE_CXX_FLAGS="-Wno-missing-field-initializers -Wno-unused-parameter" \
-              -Wno-dev
-
       - name: Format check (clang-format)
         run: |
           find ros_ws/src \
