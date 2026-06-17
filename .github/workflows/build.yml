@@ -8,7 +8,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: ghcr.io/harrypotter1tech/radar:develop
+    container: ros:jazzy
     defaults:
       run:
         shell: bash
@@ -23,6 +23,23 @@ jobs:
           git config --global --add safe.directory /__w/alliance_radar_location_lidar/alliance_radar_location_lidar
           git submodule update --init --recursive --jobs 4
 
+      - name: Install system deps
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            wget gnupg \
+            libopencv-dev libassimp-dev libeigen3-dev \
+            libzmq3-dev libyaml-cpp-dev libomp-dev libpcl-dev
+          mkdir -p /etc/apt/keyrings
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | \
+            gpg --dearmor -o /etc/apt/keyrings/apt.llvm.org.gpg
+          chmod 644 /etc/apt/keyrings/apt.llvm.org.gpg
+          echo "deb [signed-by=/etc/apt/keyrings/apt.llvm.org.gpg] https://apt.llvm.org/noble/ llvm-toolchain-noble-22 main" \
+            > /etc/apt/sources.list.d/llvm.list
+          apt-get update
+          apt-get install -y --no-install-recommends clang-format-22
+          update-alternatives --install /usr/bin/clang-format clang-format /usr/bin/clang-format-22 50
+
       - name: Install ROS deps
         run: |
           rosdep update
@@ -34,18 +51,6 @@ jobs:
           cd ros_ws
           colcon build --packages-select small_gicp hikcamera \
             --cmake-args -DCMAKE_BUILD_TYPE=Release -Wno-dev
-
-      - name: Build direct_visual_lidar_calibration
-        run: |
-          source /opt/ros/jazzy/setup.bash
-          cd ros_ws
-          colcon build --packages-select direct_visual_lidar_calibration \
-            --cmake-args \
-              -DCMAKE_BUILD_TYPE=Release \
-              -DCMAKE_CXX_STANDARD=17 \
-              -DCMAKE_CXX_FLAGS="-Wno-maybe-uninitialized -Wno-template-id-cdtor" \
-              -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-              -Wno-dev
 
       - name: Build radar packages
         run: |
