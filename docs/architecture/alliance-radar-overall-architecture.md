@@ -111,7 +111,7 @@ alliance_radar_location_lidar/
     │
     ├── third-party/                           ← 第三方算法库
     │   ├── direct_visual_lidar_calibration/   ← 视觉-LiDAR 直接标定
-    │   ├── ros2-hikcamera/                    ← 海康相机 ROS2 驱动
+    │   ├── hikcamera_sdk/                    ← 海康相机 ROS2 驱动
     │   └── small_gicp/                        ← 轻量 GICP 配准库
     │
     └── tool/
@@ -257,7 +257,7 @@ Current Architecture
 └── Dependency Layer
     └── ros_ws/third-party/
         ├── small_gicp                ← GICP 配准
-        ├── ros2-hikcamera            ← 海康相机驱动
+        ├── hikcamera_sdk             ← 海康相机驱动
         └── direct_visual_lidar_calibration
                                          ← 视觉-LiDAR 标定
 ```

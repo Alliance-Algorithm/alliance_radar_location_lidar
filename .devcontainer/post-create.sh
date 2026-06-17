@@ -20,7 +20,7 @@ fi
 cd /workspace
 if [ -f .gitmodules ]; then
     NEED_INIT=false
-    for submod in ros_ws/third-party/small_gicp ros_ws/third-party/ros2-hikcamera; do
+    for submod in ros_ws/third-party/small_gicp ros_ws/third-party/hikcamera_sdk; do
         if [ ! -f "${submod}/.git" ] && [ ! -d "${submod}/.git" ]; then
             NEED_INIT=true
             break
