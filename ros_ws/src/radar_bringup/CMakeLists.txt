@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 4.0)
+cmake_minimum_required(VERSION 3.14)
 project(radar_bringup)
 
 find_package(ament_cmake REQUIRED)
