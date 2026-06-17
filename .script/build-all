@@ -34,6 +34,10 @@ colcon build --packages-select direct_visual_lidar_calibration \
 
 echo "[BUILD] radar_localization_lidar..."
 colcon build --packages-select radar_localization_lidar \
-    --cmake-args -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DCMAKE_EXPORT_COMPILE_COMMANDS=1
+    --cmake-args \
+        -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
+        -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
+        -DCMAKE_CXX_FLAGS="-Wno-missing-field-initializers -Wno-unused-parameter" \
+        -Wno-dev
 
 echo "[OK] All packages built."
