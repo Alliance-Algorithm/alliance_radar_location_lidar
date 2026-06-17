@@ -1,1 +1,0 @@
-#include <hikcamera/capturer.hpp>

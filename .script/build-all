@@ -17,12 +17,15 @@ else
     exit 1
 fi
 
-echo "[BUILD] third-party (small_gicp + hikcamera)..."
-colcon build --packages-select small_gicp hikcamera \
+_build() {
+    colcon build "$@" 2>&1 | grep -vE "^(Summary:|  [0-9]+ package|WARNING:colcon|\[Processing|$|^-+$)"
+    return "${PIPESTATUS[0]}"
+}
+
+_build --packages-select small_gicp hikcamera \
     --cmake-args -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -Wno-dev
 
-echo "[BUILD] third-party (direct_visual_lidar_calibration)..."
-colcon build --packages-select direct_visual_lidar_calibration \
+_build --packages-select direct_visual_lidar_calibration \
     --cmake-args \
         -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
         -DCMAKE_CXX_STANDARD=17 \
@@ -32,8 +35,10 @@ colcon build --packages-select direct_visual_lidar_calibration \
         -DCMAKE_POLICY_DEFAULT_CMP0144=NEW \
         -Wno-dev
 
-echo "[BUILD] radar_localization_lidar..."
-colcon build --packages-select radar_localization_lidar \
-    --cmake-args -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DCMAKE_EXPORT_COMPILE_COMMANDS=1
+_build --packages-select radar_lidar radar_camera radar_fusion radar_bridge radar_model radar_bringup radar_calibration \
+    --cmake-args \
+        -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
+        -DCMAKE_CXX_FLAGS="-Wno-missing-field-initializers -Wno-unused-parameter" \
+        -Wno-dev
 
-echo "[OK] All packages built."
+echo ">>"
