@@ -3,8 +3,8 @@ CompileFlags:
     - -I/workspace/lidar_ros_driver/livox_ros_driver2/src/include
     - -I/workspace/lidar_ros_driver/odin_ros_driver/include
     - -I/workspace/lidar_ros_driver/ws_30pcd_et3_ros2/include
-    - -I/workspace/ros_ws/third-party/ros2-hikcamera/include
-    - -I/workspace/ros_ws/third-party/ros2-hikcamera/src
+    - -I/workspace/ros_ws/third-party/hikcamera_sdk/include
+    - -I/workspace/ros_ws/third-party/hikcamera_sdk/src
     - -I/workspace/ros_ws/third-party/small_gicp/include
     - -isystem/usr/include/opencv4
     - -isystem/usr/include/eigen3
