@@ -15,8 +15,12 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          submodules: recursive
+          submodules: false
           persist-credentials: false
+
+      - name: Init submodules
+        run: |
+          git submodule update --init --recursive --jobs 4
 
       - name: Install system deps
         run: |
@@ -44,16 +48,31 @@ jobs:
           colcon build --packages-select small_gicp hikcamera \
             --cmake-args -DCMAKE_BUILD_TYPE=Release -Wno-dev
 
-      - name: Build radar_calibration
+      - name: Build direct_visual_lidar_calibration
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          cd ros_ws
+          colcon build --packages-select direct_visual_lidar_calibration \
+            --cmake-args \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_CXX_STANDARD=17 \
+              -DCMAKE_CXX_FLAGS="-Wno-maybe-uninitialized -Wno-template-id-cdtor" \
+              -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+              -Wno-dev
+
+      - name: Build radar packages
         run: |
           source /opt/ros/jazzy/setup.bash
           cd ros_ws
           source install/setup.bash
-          colcon build --packages-select radar_calibration \
-            --cmake-args -DCMAKE_BUILD_TYPE=Release
+          colcon build --packages-select radar_lidar radar_camera radar_fusion radar_bridge radar_model radar_bringup radar_calibration \
+            --cmake-args \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_CXX_FLAGS="-Wno-missing-field-initializers -Wno-unused-parameter" \
+              -Wno-dev
 
       - name: Format check (clang-format)
         run: |
-          find ros_ws/src/radar_calibration/src \
+          find ros_ws/src \
             -type f \( -name '*.cpp' -o -name '*.hpp' \) \
             -print0 | xargs -0 clang-format --dry-run --Werror
