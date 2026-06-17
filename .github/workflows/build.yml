@@ -20,6 +20,7 @@ jobs:
 
       - name: Init submodules
         run: |
+          git config --global --add safe.directory /__w/alliance_radar_location_lidar/alliance_radar_location_lidar
           git submodule update --init --recursive --jobs 4
 
       - name: Install system deps
