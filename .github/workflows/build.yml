@@ -29,7 +29,7 @@ jobs:
           apt-get install -y --no-install-recommends \
             wget gnupg \
             libopencv-dev libassimp-dev libeigen3-dev \
-            libzmq3-dev libyaml-cpp-dev libomp-dev
+            libzmq3-dev libyaml-cpp-dev libomp-dev libceres-dev libpcl-dev
           mkdir -p /etc/apt/keyrings
           wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | \
             gpg --dearmor -o /etc/apt/keyrings/apt.llvm.org.gpg
