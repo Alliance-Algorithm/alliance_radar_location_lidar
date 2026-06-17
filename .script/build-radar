@@ -1,5 +1,5 @@
 #!/bin/bash
-# build-radar - Build radar_localization_lidar
+# build-radar - Build radar_calibration
 # Usage: build-radar [Release|Debug]
 set -euo pipefail
 
@@ -17,9 +17,9 @@ else
     exit 1
 fi
 
-echo "[BUILD] radar_localization_lidar (${BUILD_TYPE})..."
+echo "[BUILD] radar_calibration (${BUILD_TYPE})..."
 colcon build \
-    --packages-select radar_localization_lidar \
+    --packages-select radar_calibration \
     --cmake-args -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DCMAKE_EXPORT_COMPILE_COMMANDS=1
 
 echo "[OK] Build complete. Source install/setup.bash to use."
