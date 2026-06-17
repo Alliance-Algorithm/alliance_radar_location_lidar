@@ -105,8 +105,9 @@ RUN git clone https://github.com/koide3/iridescence.git /tmp/iridescence \
 
 # rosdep dependencies
 COPY ros_ws/src /tmp/ros_ws_src
+COPY ros_ws/third-party /tmp/ros_ws_third_party
 RUN apt-get update \
-    && rosdep install --from-paths /tmp/ros_ws_src --ignore-src -r -y \
+    && rosdep install --from-paths /tmp/ros_ws_src /tmp/ros_ws_third_party --ignore-src -r -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /tmp/*
 

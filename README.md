@@ -95,14 +95,14 @@ docker exec -it RADAR zsh
 | 命令 | 说明 |
 |------|------|
 | `build-all [Release\|Debug]` | 编译所有包（third-party + 主包） |
-| `build-radar [Release\|Debug]` | 仅编译 radar_localization_lidar |
+| `build-radar [Release\|Debug]` | 仅编译 radar_calibration |
 | `run-radar` | 运行雷达节点 |
 | `format-radar` | 格式化 C++ 源文件 |
 | `banner` | 显示 ALLIANCE RADAR ASCII art |
 
 ### clangd 配置
 
-构建脚本已内置 `-DCMAKE_EXPORT_COMPILE_COMMANDS=1`，编译后在 `/workspace/ros_ws/build/radar_localization_lidar/` 生成 `compile_commands.json`，clangd 自动读取。
+构建脚本已内置 `-DCMAKE_EXPORT_COMPILE_COMMANDS=1`，编译后在 `/workspace/ros_ws/build/radar_calibration/` 生成 `compile_commands.json`，clangd 自动读取。
 
 ---
 
@@ -163,7 +163,7 @@ RADAR-LOCATION-LIDAR/
 │   ├── devcontainer.json
 │   └── docker-compose.yml
 ├── .script/                # 开发脚本
-│   ├── build-radar         # 编译主包
+│   ├── build-radar         # 编译标定包
 │   ├── build-all           # 编译所有包
 │   ├── run-radar           # 运行节点
 │   ├── format-radar        # 格式化代码
@@ -171,7 +171,7 @@ RADAR-LOCATION-LIDAR/
 │   ├── ow_logo.txt         # Overwatch 风格 logo
 │   └── template/           # 环境变量模板
 ├── ros_ws/                 # ROS2 工作空间
-│   ├── src/radar_localization_lidar/  # 主包
+│   ├── src/radar_calibration/  # 相机-雷达标定+定位
 │   └── third-party/        # small_gicp, hikcamera_sdk, direct_visual_lidar_calibration
 ├── lidar_ros_driver/       # LiDAR 驱动（git submodules）
 │   └── * Livox 驱动使用 fork 版本以支持 Mid-70（上游 SDK2 暂未提供），维护者 @Yukikaze2233

@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.14)
-project(radar_localization_lidar)
+project(radar_calibration)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -45,15 +46,15 @@ if(BUILD_TESTING)
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
 endif()
-add_executable(radar_localization_lidar_node ${SOURCES})
-target_link_libraries(radar_localization_lidar_node 
+add_executable(radar_calibration_node ${SOURCES})
+target_link_libraries(radar_calibration_node 
     ${OpenCV_LIBS}
     assimp::assimp
     Eigen3::Eigen
     ${ZMQ_LIBRARIES}
     ${yaml-cpp_LIBRARIES}
 )
-ament_target_dependencies(radar_localization_lidar_node 
+ament_target_dependencies(radar_calibration_node 
     rclcpp
     std_msgs
     sensor_msgs
@@ -68,5 +69,5 @@ ament_target_dependencies(radar_localization_lidar_node
   install(DIRECTORY config model
     DESTINATION ${PROJECT_NAME}
   )
-install(TARGETS radar_localization_lidar_node DESTINATION lib/${PROJECT_NAME})
+install(TARGETS radar_calibration_node DESTINATION lib/${PROJECT_NAME})
 ament_package()
