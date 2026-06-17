@@ -20,7 +20,7 @@ fi
 cd /workspace
 if [ -f .gitmodules ]; then
     NEED_INIT=false
-    for submod in ros_ws/third-party/small_gicp ros_ws/third-party/ros2-hikcamera; do
+    for submod in ros_ws/third-party/small_gicp ros_ws/third-party/hikcamera_sdk; do
         if [ ! -f "${submod}/.git" ] && [ ! -d "${submod}/.git" ]; then
             NEED_INIT=true
             break
@@ -47,6 +47,14 @@ if [ "$NEED_BUILD" = true ]; then
     source /opt/ros/jazzy/setup.bash
     colcon build --packages-select small_gicp hikcamera \
         --cmake-args -DCMAKE_BUILD_TYPE=Release -Wno-dev
+fi
+
+# Sync build scripts to ~/.script/
+if [ -d /workspace/.script ]; then
+    mkdir -p ~/.script/
+    cp -f /workspace/.script/* ~/.script/
+    chmod +x ~/.script/*
+    echo "[OK] Build scripts synced to ~/.script/"
 fi
 
 echo ""
