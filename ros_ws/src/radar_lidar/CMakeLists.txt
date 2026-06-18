@@ -18,10 +18,18 @@ find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(diagnostic_msgs REQUIRED)
 find_package(pcl_conversions REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(small_gicp REQUIRED)
+find_package(PCL REQUIRED COMPONENTS common io filters segmentation search kdtree)
 find_package(Eigen3 REQUIRED)
+
+include_directories(include ${PCL_INCLUDE_DIRS})
+find_path(SMALL_GICP_INCLUDE_DIR small_gicp/registration/registration_helper.hpp
+  HINTS /workspace/ros_ws/install/small_gicp/include
+        ${small_gicp_DIR}/../../../include)
+include_directories(${SMALL_GICP_INCLUDE_DIR})
 
 file(GLOB SOURCES "src/*.cpp")
 
@@ -34,6 +42,8 @@ endif()
 
 add_executable(radar_lidar_node ${SOURCES})
 target_link_libraries(radar_lidar_node
+    small_gicp::small_gicp
+    ${PCL_LIBRARIES}
     Eigen3::Eigen
 )
 ament_target_dependencies(radar_lidar_node
@@ -41,6 +51,7 @@ ament_target_dependencies(radar_lidar_node
     std_msgs
     sensor_msgs
     geometry_msgs
+    diagnostic_msgs
     pcl_conversions
     tf2_geometry_msgs
     small_gicp

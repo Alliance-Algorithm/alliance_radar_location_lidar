@@ -3,7 +3,7 @@
 <package format="3">
   <name>radar_lidar</name>
   <version>0.0.1</version>
-  <description>LiDAR preprocessing and GICP/NDT registration localization</description>
+  <description>LiDAR scan-to-map localization, dynamic cloud extraction, and Euclidean clustering</description>
   <maintainer email="huangziang_2024@qq.com">Your Name</maintainer>
   <license>Apache-2.0</license>
 
@@ -13,7 +13,9 @@
   <depend>std_msgs</depend>
   <depend>sensor_msgs</depend>
   <depend>geometry_msgs</depend>
+  <depend>diagnostic_msgs</depend>
   <depend>pcl_conversions</depend>
+  <depend>libpcl-all-dev</depend>
   <depend>tf2_geometry_msgs</depend>
   <depend>small_gicp</depend>
 
