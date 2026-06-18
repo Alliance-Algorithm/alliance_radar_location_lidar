@@ -13,3 +13,5 @@ compile_commands.json
 
 # IDE
 .vscode/settings.json
+.mimocode/
+.omo/
