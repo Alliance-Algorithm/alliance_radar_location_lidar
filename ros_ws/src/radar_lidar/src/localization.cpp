@@ -12,22 +12,24 @@ LocalizationStage::LocalizationStage(std::shared_ptr<const MapData> map,
                                      config::LocalizationConfig cfg)
     : map_(std::move(map))
     , cfg_(cfg)
-    , prev_pose_(Eigen::Isometry3d::Identity()) {}
+    , prev_pose_(Eigen::Isometry3d::Identity()) {
+    // 构造时一次提取地图点，避免每帧重复拷贝
+    if (map_ && map_->size() > 0) {
+        const auto& mc = map_->sgicp_cloud();
+        target_points_.resize(mc.size());
+        for (size_t i = 0; i < mc.size(); ++i) {
+            target_points_[i] = mc.point(i).head<3>();
+        }
+    }
+}
 
 auto LocalizationStage::process(const types::Frame& scan)
     -> std::expected<types::PoseEstimate, std::string> {
     if (scan.points.empty()) {
         return std::unexpected("Empty scan");
     }
-    if (!map_ || map_->size() == 0) {
+    if (target_points_.empty()) {
         return std::unexpected("Map not loaded");
-    }
-
-    // 提取地图点 (已在下采样后的 MapData 中)
-    const auto& map_cloud = map_->sgicp_cloud();
-    std::vector<Eigen::Vector3d> target_points(map_cloud.size());
-    for (size_t i = 0; i < map_cloud.size(); ++i) {
-        target_points[i] = map_cloud.point(i).head<3>();
     }
 
     // small_gicp 配置
@@ -41,16 +43,20 @@ auto LocalizationStage::process(const types::Frame& scan)
     setting.num_threads                 = cfg_.num_threads;
     setting.verbose                     = cfg_.verbose;
 
-    auto result = small_gicp::align(target_points, scan.points, prev_pose_, setting);
+    auto result = small_gicp::align(target_points_, scan.points, prev_pose_, setting);
 
-    // 更新状态
+    // 只有收敛时才更新状态，避免漂移传播
+    if (!result.converged) {
+        return std::unexpected("GICP did not converge (score=" +
+                               std::to_string(result.error) + ")");
+    }
     prev_pose_ = result.T_target_source;
 
     // 构造输出
     types::PoseEstimate out;
     out.T             = result.T_target_source;
     out.fitness_score = result.error;
-    out.converged     = result.converged;
+    out.converged     = true;
 
     // 协方差 = Hessian 逆 (带正则化)
     Eigen::Matrix<double, 6, 6> H_reg =

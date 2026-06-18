@@ -170,7 +170,7 @@ RADAR-LOCATION-LIDAR/
 │   ├── banner              # ASCII art banner
 │   ├── ow_logo.txt         # Overwatch 风格 logo
 │   └── template/           # 环境变量模板
-├── # assets/ moved to root model/                 # 离线资产
+├── ├── model/                 # 模型文件 (FBX, ONNX, PCD)                 # 离线资产
 │   └── model/              # 模型文件 (FBX, ONNX, PCD)
 ├── ros_ws/                 # ROS2 工作空间
 │   ├── src/

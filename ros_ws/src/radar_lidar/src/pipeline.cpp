@@ -58,7 +58,8 @@ void LidarPipeline::on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg)
         pcl::fromROSMsg(*msg, *cloud);
         frame.points.reserve(cloud->size());
         for (const auto& pt : cloud->points) {
-            if (std::isfinite(pt.x)) frame.points.emplace_back(pt.x, pt.y, pt.z);
+            if (std::isfinite(pt.x) && std::isfinite(pt.y) && std::isfinite(pt.z))
+                frame.points.emplace_back(pt.x, pt.y, pt.z);
         }
         frame.stamp    = rclcpp::Time(msg->header.stamp).nanoseconds();
         frame.frame_id = msg->header.frame_id;

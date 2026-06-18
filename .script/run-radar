@@ -26,4 +26,4 @@ else
 fi
 
 echo "[RUN] radar_lidar_node..."
-ros2 run radar_lidar radar_lidar_node --ros-args -p map_path:=/workspace/model/generated/map.pcd "$@"
+ros2 run radar_lidar radar_lidar_node --ros-args -p map_path:=${RADAR_WS}/model/generated/map.pcd "$@"
