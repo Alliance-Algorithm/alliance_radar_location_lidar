@@ -19,6 +19,3 @@
 [submodule "ros_ws/third-party/hikcamera_ros_driver"]
 	path = ros_ws/third-party/hikcamera_ros_driver
 	url = https://github.com/HarryPotter1tech/hicamera_ros_driver.git
-[submodule "ros_ws/third-party/ros2-hikcamera"]
-	path = ros_ws/third-party/ros2-hikcamera
-	url = https://github.com/HarryPotter1tech/ros2-hikcamera.git
