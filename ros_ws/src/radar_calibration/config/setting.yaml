@@ -22,5 +22,5 @@ Camera_Lidar:
       camera_lidar_translation: [0.000, 0.000, 0.000]
 Model:
     model_name: "RMUC-2026-National"
-    model_path: "/workspace/ros_ws/src/radar_localization_lidar/model/RMUC2026.fbx"
+    model_path: "/workspace/model/RMUC2026.fbx"
     model_type: "fbx"

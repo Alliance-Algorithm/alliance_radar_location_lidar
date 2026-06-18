@@ -34,5 +34,4 @@ ament_target_dependencies(radar_fusion_node
 )
 
 install(TARGETS radar_fusion_node DESTINATION lib/${PROJECT_NAME})
-install(DIRECTORY config/ DESTINATION ${PROJECT_NAME})
 ament_package()

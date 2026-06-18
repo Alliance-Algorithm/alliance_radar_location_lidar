@@ -64,6 +64,6 @@ ament_target_dependencies(radar_calibration_node
     hikcamera
     ament_index_cpp
 )
-install(DIRECTORY config model DESTINATION ${PROJECT_NAME})
+install(DIRECTORY config DESTINATION ${PROJECT_NAME})
 install(TARGETS radar_calibration_node DESTINATION lib/${PROJECT_NAME})
 ament_package()
