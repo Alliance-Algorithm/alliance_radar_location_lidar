@@ -24,10 +24,10 @@ public:
     auto process(const types::Frame& scan) -> std::expected<types::PoseEstimate, std::string>;
 
 private:
-    std::shared_ptr<const MapData>   map_;
-    config::LocalizationConfig       cfg_;
-    Eigen::Isometry3d                prev_pose_;
-    std::vector<Eigen::Vector3d>     target_points_;  // 缓存的地图点，构造时一次提取
+    std::shared_ptr<const MapData> map_;
+    config::LocalizationConfig cfg_;
+    Eigen::Isometry3d prev_pose_;
+    std::vector<Eigen::Vector3d> target_points_; // 缓存的地图点，构造时一次提取
 };
 
-}  // namespace radar
+} // namespace radar

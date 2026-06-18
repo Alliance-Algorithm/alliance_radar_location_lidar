@@ -22,17 +22,16 @@ public:
 private:
     void on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg);
     void publish_pose(const types::PoseEstimate& pose, types::Timestamp stamp);
-    void publish_diagnostics(const types::PoseEstimate& pose,
-                             double elapsed_ms, uint64_t frame);
+    void publish_diagnostics(const types::PoseEstimate& pose, double elapsed_ms, uint64_t frame);
 
     std::shared_ptr<const MapData> map_;
-    LocalizationStage              localization_;
+    LocalizationStage localization_;
 
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr sub_scan_;
     rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pub_pose_;
-    rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticStatus>::SharedPtr       pub_diag_;
+    rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticStatus>::SharedPtr pub_diag_;
 
-    uint64_t frame_count_{0};
+    uint64_t frame_count_ { 0 };
 };
 
-}  // namespace radar
+} // namespace radar

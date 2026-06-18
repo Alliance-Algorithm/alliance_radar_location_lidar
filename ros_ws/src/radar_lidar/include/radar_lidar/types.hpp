@@ -13,16 +13,16 @@ using PointCloud = std::vector<Point>;
 using Timestamp  = int64_t;
 
 struct Frame {
-    PointCloud  points;
-    Timestamp   stamp{0};
+    PointCloud points;
+    Timestamp stamp { 0 };
     std::string frame_id;
 };
 
 struct PoseEstimate {
-    Eigen::Isometry3d            T = Eigen::Isometry3d::Identity();
+    Eigen::Isometry3d T                    = Eigen::Isometry3d::Identity();
     Eigen::Matrix<double, 6, 6> covariance = Eigen::Matrix<double, 6, 6>::Identity();
-    double                       fitness_score = 0.0;
-    bool                         converged = false;
+    double fitness_score                   = 0.0;
+    bool converged                         = false;
 };
 
-}  // namespace radar::types
+} // namespace radar::types

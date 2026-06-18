@@ -2,8 +2,8 @@
 
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/io/pcd_io.h>
-#include <small_gicp/util/downsampling_omp.hpp>
 #include <small_gicp/ann/kdtree_omp.hpp>
+#include <small_gicp/util/downsampling_omp.hpp>
 
 namespace radar {
 
@@ -35,8 +35,7 @@ auto MapData::Load(const std::string& pcd_path, double voxel_leaf_size)
 
     // 4. 构建 small_gicp 点云和 KD-tree
     auto sgicp_cloud = std::make_shared<SGicpCloud>(points);
-    auto sgicp_tree  = std::make_shared<SGicpTree>(
-        sgicp_cloud, small_gicp::KdTreeBuilderOMP(4));
+    auto sgicp_tree  = std::make_shared<SGicpTree>(sgicp_cloud, small_gicp::KdTreeBuilderOMP(4));
 
     // 5. 构建 PCL KD-tree
     auto pcl_cloud = filtered;
@@ -44,13 +43,13 @@ auto MapData::Load(const std::string& pcd_path, double voxel_leaf_size)
     pcl_tree->setInputCloud(pcl_cloud);
 
     // 6. 组装
-    auto data           = std::shared_ptr<MapData>(new MapData());
-    data->sgicp_cloud_  = sgicp_cloud;
-    data->sgicp_tree_   = sgicp_tree;
-    data->pcl_cloud_    = pcl_cloud;
-    data->pcl_tree_     = pcl_tree;
+    auto data          = std::shared_ptr<MapData>(new MapData());
+    data->sgicp_cloud_ = sgicp_cloud;
+    data->sgicp_tree_  = sgicp_tree;
+    data->pcl_cloud_   = pcl_cloud;
+    data->pcl_tree_    = pcl_tree;
 
     return data;
 }
 
-}  // namespace radar
+} // namespace radar

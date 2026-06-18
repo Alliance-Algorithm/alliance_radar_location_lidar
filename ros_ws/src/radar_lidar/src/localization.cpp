@@ -8,8 +8,8 @@
 
 namespace radar {
 
-LocalizationStage::LocalizationStage(std::shared_ptr<const MapData> map,
-                                     config::LocalizationConfig cfg)
+LocalizationStage::LocalizationStage(
+    std::shared_ptr<const MapData> map, config::LocalizationConfig cfg)
     : map_(std::move(map))
     , cfg_(cfg)
     , prev_pose_(Eigen::Isometry3d::Identity()) {
@@ -47,8 +47,8 @@ auto LocalizationStage::process(const types::Frame& scan)
 
     // 只有收敛时才更新状态，避免漂移传播
     if (!result.converged) {
-        return std::unexpected("GICP did not converge (score=" +
-                               std::to_string(result.error) + ")");
+        return std::unexpected(
+            "GICP did not converge (score=" + std::to_string(result.error) + ")");
     }
     prev_pose_ = result.T_target_source;
 
@@ -59,11 +59,10 @@ auto LocalizationStage::process(const types::Frame& scan)
     out.converged     = true;
 
     // 协方差 = Hessian 逆 (带正则化)
-    Eigen::Matrix<double, 6, 6> H_reg =
-        result.H + Eigen::Matrix<double, 6, 6>::Identity() * 1e-6;
-    out.covariance = H_reg.inverse();
+    Eigen::Matrix<double, 6, 6> H_reg = result.H + Eigen::Matrix<double, 6, 6>::Identity() * 1e-6;
+    out.covariance                    = H_reg.inverse();
 
     return out;
 }
 
-}  // namespace radar
+} // namespace radar

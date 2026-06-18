@@ -23,17 +23,17 @@ public:
         -> std::expected<std::shared_ptr<MapData>, std::string>;
 
     [[nodiscard]] auto sgicp_cloud() const -> const SGicpCloud& { return *sgicp_cloud_; }
-    [[nodiscard]] auto sgicp_tree()  const -> const SGicpTree&  { return *sgicp_tree_; }
-    [[nodiscard]] auto pcl_cloud()   const -> const PclCloud&   { return *pcl_cloud_; }
-    [[nodiscard]] auto pcl_tree()    const -> const PclTree&    { return *pcl_tree_; }
-    [[nodiscard]] auto size()        const -> size_t            { return sgicp_cloud_->size(); }
+    [[nodiscard]] auto sgicp_tree() const -> const SGicpTree& { return *sgicp_tree_; }
+    [[nodiscard]] auto pcl_cloud() const -> const PclCloud& { return *pcl_cloud_; }
+    [[nodiscard]] auto pcl_tree() const -> const PclTree& { return *pcl_tree_; }
+    [[nodiscard]] auto size() const -> size_t { return sgicp_cloud_->size(); }
 
 private:
     MapData() = default;
     std::shared_ptr<SGicpCloud> sgicp_cloud_;
-    std::shared_ptr<SGicpTree>  sgicp_tree_;
-    std::shared_ptr<PclCloud>   pcl_cloud_;
-    std::shared_ptr<PclTree>    pcl_tree_;
+    std::shared_ptr<SGicpTree> sgicp_tree_;
+    std::shared_ptr<PclCloud> pcl_cloud_;
+    std::shared_ptr<PclTree> pcl_tree_;
 };
 
-}  // namespace radar
+} // namespace radar
