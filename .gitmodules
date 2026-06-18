@@ -18,7 +18,7 @@
 	url = https://github.com/Yukikaze2233/Livox-SDK2.git
 [submodule "ros_ws/third-party/direct_visual_lidar_calibration"]
 	path = ros_ws/third-party/direct_visual_lidar_calibration
-	url = https://github.com/koide3/direct_visual_lidar_calibration.git
+	url = https://github.com/HarryPotter1tech/direct_visual_lidar_calibration.git
 [submodule "ros_ws/third-party/hikcamera_ros_driver"]
 	path = ros_ws/third-party/hikcamera_ros_driver
 	url = https://github.com/HarryPotter1tech/hicamera_ros_driver.git
