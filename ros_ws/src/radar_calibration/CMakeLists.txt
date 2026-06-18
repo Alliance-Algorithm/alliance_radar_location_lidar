@@ -62,12 +62,8 @@ ament_target_dependencies(radar_calibration_node
     tf2_geometry_msgs
     OpenCV
     hikcamera
-    assimp
-    Eigen3
     ament_index_cpp
 )
-  install(DIRECTORY config model
-    DESTINATION ${PROJECT_NAME}
-  )
+install(DIRECTORY config model DESTINATION ${PROJECT_NAME})
 install(TARGETS radar_calibration_node DESTINATION lib/${PROJECT_NAME})
 ament_package()
