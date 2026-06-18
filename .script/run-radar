@@ -1,5 +1,6 @@
 #!/bin/bash
-# run-radar - Run the radar node
+# run-radar - Run radar_lidar_node
+# Usage: run-radar [extra ros2 args...]
 set -euo pipefail
 
 : "${RADAR_WS:=/workspace}"
@@ -24,5 +25,5 @@ else
     exit 1
 fi
 
-echo "[RUN] radar_calibration_node..."
-ros2 run radar_calibration radar_calibration_node "$@"
+echo "[RUN] radar_lidar_node..."
+ros2 run radar_lidar radar_lidar_node --ros-args -p map_path:=/workspace/model/generated/map.pcd "$@"

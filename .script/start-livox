@@ -1,0 +1,22 @@
+#!/bin/bash
+# start-livox - Launch Livox Mid-70 driver
+set -euo pipefail
+
+set +u
+source /opt/ros/jazzy/setup.bash
+set -u
+
+export LD_LIBRARY_PATH="/workspace/lidar_ros_driver/livox_sdk2/build/install/lib:${LD_LIBRARY_PATH:-}"
+export LD_LIBRARY_PATH="/workspace/lidar_ros_driver/livox_ros_driver2/build:${LD_LIBRARY_PATH}"
+
+CONFIG_PATH="/workspace/lidar_ros_driver/livox_ros_driver2/config/MID70_config.json"
+
+echo "[LIVOX] Starting Mid-70 driver..."
+/workspace/lidar_ros_driver/livox_ros_driver2/build/livox_ros_driver2_node \
+    --ros-args \
+    -p user_config_path:="${CONFIG_PATH}" \
+    -p xfer_format:=0 \
+    -p multi_topic:=0 \
+    -p publish_freq:=10.0 \
+    -p frame_id:="livox_frame" \
+    "$@"
