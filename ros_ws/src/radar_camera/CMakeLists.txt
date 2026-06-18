@@ -45,5 +45,4 @@ ament_target_dependencies(radar_camera_node
 )
 
 install(TARGETS radar_camera_node DESTINATION lib/${PROJECT_NAME})
-install(DIRECTORY config/ DESTINATION ${PROJECT_NAME})
 ament_package()

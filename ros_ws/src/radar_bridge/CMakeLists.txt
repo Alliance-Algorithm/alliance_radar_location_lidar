@@ -37,6 +37,5 @@ ament_target_dependencies(radar_bridge_node
 )
 
 install(TARGETS radar_bridge_node DESTINATION lib/${PROJECT_NAME})
-install(DIRECTORY config/ DESTINATION ${PROJECT_NAME})
 install(DIRECTORY shm/ DESTINATION ${PROJECT_NAME})
 ament_package()
