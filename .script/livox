@@ -1,0 +1,11 @@
+#!/bin/bash
+# livox - Launch Livox Mid-70 driver
+set -euo pipefail
+
+set +u
+source /opt/ros/jazzy/setup.bash
+source /workspace/lidar_ros_driver/livox_ros2_driver/install/setup.bash
+set -u
+
+echo "[LIVOX] Starting Mid-70 driver..."
+ros2 launch livox_ros2_driver livox_lidar_launch.py "$@"

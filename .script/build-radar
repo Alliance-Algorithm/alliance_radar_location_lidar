@@ -1,5 +1,5 @@
 #!/bin/bash
-# build-radar - Build radar_calibration
+# build-radar - Build all radar packages (radar_lidar, radar_camera, radar_fusion, radar_bridge, radar_calibration, radar_bringup)
 # Usage: build-radar [Release|Debug]
 set -euo pipefail
 
@@ -17,9 +17,10 @@ else
     exit 1
 fi
 
-echo "[BUILD] radar_calibration (${BUILD_TYPE})..."
+echo "[BUILD] radar packages (${BUILD_TYPE})..."
 colcon build \
-    --packages-select radar_calibration \
-    --cmake-args -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DCMAKE_EXPORT_COMPILE_COMMANDS=1
+    --packages-select radar_lidar radar_camera radar_fusion radar_bridge radar_calibration radar_bringup \
+    --cmake-args -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
+        -DCMAKE_CXX_FLAGS="-Wno-missing-field-initializers -Wno-unused-parameter"
 
 echo "[OK] Build complete. Source install/setup.bash to use."
