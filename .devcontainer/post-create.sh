@@ -20,7 +20,7 @@ fi
 cd /workspace
 if [ -f .gitmodules ]; then
     NEED_INIT=false
-    for submod in ros_ws/third-party/small_gicp ros_ws/third-party/hikcamera_sdk; do
+    for submod in ros_ws/third-party/small_gicp ros_ws/third-party/hikcamera_sdk ros_ws/third-party/hikcamera_ros_driver; do
         if [ ! -f "${submod}/.git" ] && [ ! -d "${submod}/.git" ]; then
             NEED_INIT=true
             break
@@ -34,7 +34,7 @@ fi
 
 # Build third-party packages if not already built
 NEED_BUILD=false
-for pkg in small_gicp hikcamera; do
+for pkg in small_gicp hikcamera hikcamera_ros_driver; do
     if [ ! -d "/workspace/ros_ws/install/${pkg}" ]; then
         NEED_BUILD=true
         break
@@ -45,7 +45,7 @@ if [ "$NEED_BUILD" = true ]; then
     echo "[..] First-time build: third-party packages..."
     cd /workspace/ros_ws
     source /opt/ros/jazzy/setup.bash
-    colcon build --packages-select small_gicp hikcamera \
+    colcon build --packages-select small_gicp hikcamera hikcamera_ros_driver \
         --cmake-args -DCMAKE_BUILD_TYPE=Release -Wno-dev
 fi
 

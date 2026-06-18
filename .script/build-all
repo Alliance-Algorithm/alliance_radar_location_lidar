@@ -22,7 +22,7 @@ _build() {
     return "${PIPESTATUS[0]}"
 }
 
-_build --packages-select small_gicp hikcamera \
+_build --packages-select small_gicp hikcamera hikcamera_ros_driver \
     --cmake-args -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -Wno-dev
 
 _build --packages-select direct_visual_lidar_calibration \

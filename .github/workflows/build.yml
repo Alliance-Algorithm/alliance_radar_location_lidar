@@ -45,11 +45,11 @@ jobs:
           rosdep update
           rosdep install --from-paths ros_ws/src ros_ws/third-party --ignore-src -r -y
 
-      - name: Build third-party (small_gicp + hikcamera)
+      - name: Build third-party (small_gicp + hikcamera + hikcamera_ros_driver)
         run: |
           source /opt/ros/jazzy/setup.bash
           cd ros_ws
-          colcon build --packages-select small_gicp hikcamera \
+          colcon build --packages-select small_gicp hikcamera hikcamera_ros_driver \
             --cmake-args -DCMAKE_BUILD_TYPE=Release -Wno-dev
 
       - name: Format check (clang-format)
