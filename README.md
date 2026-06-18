@@ -170,13 +170,14 @@ RADAR-LOCATION-LIDAR/
 │   ├── banner              # ASCII art banner
 │   ├── ow_logo.txt         # Overwatch 风格 logo
 │   └── template/           # 环境变量模板
+├── # assets/ moved to root model/                 # 离线资产
+│   └── model/              # 模型文件 (FBX, ONNX, PCD)
 ├── ros_ws/                 # ROS2 工作空间
 │   ├── src/
 │   │   ├── radar_lidar/       # LiDAR 配准定位
 │   │   ├── radar_camera/      # 视觉位姿观测
 │   │   ├── radar_fusion/      # 多传感器融合定位
 │   │   ├── radar_bridge/      # ROS2 → 共享内存桥接
-│   │   ├── radar_model/       # 离线模型 → 点云资产
 │   │   ├── radar_calibration/ # 相机-雷达标定+定位
 │   │   └── radar_bringup/     # Launch / YAML / 组件编排
 │   └── third-party/        # small_gicp, hikcamera_sdk, direct_visual_lidar_calibration
