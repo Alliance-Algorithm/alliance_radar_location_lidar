@@ -4,10 +4,17 @@
 #include <rclcpp/rclcpp.hpp>
 int main() {
     auto model_processor = std::make_unique<Radar::process::model::ModelProcess>();
-    const auto config_path =
-        ament_index_cpp::get_package_share_directory("radar_calibration") + "/config/setting.yaml";
-    YAML::Node model_config = YAML::LoadFile(config_path);
-    auto result             = model_processor->ConfigLoader(model_config);
+    YAML::Node model_config;
+    try {
+        const auto config_path = ament_index_cpp::get_package_share_directory("radar_calibration")
+            + "/config/setting.yaml";
+        model_config = YAML::LoadFile(config_path);
+    } catch (const std::exception& e) {
+        RCLCPP_ERROR(rclcpp::get_logger("model_preprocess"),
+            "Failed to resolve/load model config: %s", e.what());
+        return 1;
+    }
+    auto result = model_processor->ConfigLoader(model_config);
     if (!result) {
         RCLCPP_ERROR(rclcpp::get_logger("model_preprocess"), "Failed to load model config: %s",
             result.error().c_str());

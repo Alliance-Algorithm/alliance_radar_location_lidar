@@ -27,7 +27,7 @@ def generate_launch_description():
     )
     radar_params_arg = DeclareLaunchArgument(
         "radar_params",
-        default_value=os.path.join(radar_dir, "odin.yaml"),
+        default_value=os.path.join(radar_dir, "config", "odin.yaml"),
         description="radar_lidar parameter YAML (sensor-specific)",
     )
     odin_config_arg = DeclareLaunchArgument(

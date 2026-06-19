@@ -1,6 +1,8 @@
 CompileFlags:
   CompilationDatabase: ./
   Remove:
+    - -march=native
+    - -fopenmp
     - -flto*
     - -fno-fat-lto-objects
   Add:
