@@ -3,9 +3,9 @@
 #include <filesystem>
 #include <rclcpp/rclcpp.hpp>
 int main() {
-    auto model_processor    = std::make_unique<Radar::process::model::ModelProcess>();
-    const auto config_path  = ament_index_cpp::get_package_share_directory("radar_calibration")
-                             + "/config/setting.yaml";
+    auto model_processor = std::make_unique<Radar::process::model::ModelProcess>();
+    const auto config_path =
+        ament_index_cpp::get_package_share_directory("radar_calibration") + "/config/setting.yaml";
     YAML::Node model_config = YAML::LoadFile(config_path);
     auto result             = model_processor->ConfigLoader(model_config);
     if (!result) {
