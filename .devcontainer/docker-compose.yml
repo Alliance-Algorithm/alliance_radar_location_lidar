@@ -28,6 +28,9 @@ services:
       - ${HOME}/.mimocode:/home/ubuntu/.mimocode:cached
       # Host XDG config (optional, for shared tool settings)
       - ${HOME}/.config/opencode:/home/ubuntu/.config/opencode:cached
+      # Host Neovim config (for container-side nvim LSP)
+      - ${HOME}/.config/nvim:/home/ubuntu/.config/nvim:cached
+      - ${HOME}/.local/share/nvim:/home/ubuntu/.local/share/nvim:cached
     environment:
       - DISPLAY=${DISPLAY}
       - WAYLAND_DISPLAY=${WAYLAND_DISPLAY}

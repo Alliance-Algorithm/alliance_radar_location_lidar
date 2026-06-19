@@ -1,26 +1,90 @@
 #!/bin/bash
-# build-radar - Build all radar packages (radar_lidar, radar_camera, radar_fusion, radar_bridge, radar_calibration, radar_bringup)
-# Usage: build-radar [Release|Debug]
+# build-radar - Build radar packages + lidar drivers (fast path, skips DVL calibration)
+# Usage: build-radar [Release|Debug] [--clean]
 set -euo pipefail
 
 : "${RADAR_WS:=/workspace}"
-
 BUILD_TYPE="${1:-Release}"
-cd "${RADAR_WS}/ros_ws"
 
-if [ -f /opt/ros/jazzy/setup.bash ]; then
-    set +u
-    source /opt/ros/jazzy/setup.bash
-    set -u
-else
-    echo "[ERROR] ROS2 Jazzy not found at /opt/ros/jazzy/setup.bash" >&2
+if [[ ! -d "${RADAR_WS}/ros_ws" ]]; then
+    echo "> ERROR: Workspace not found: ${RADAR_WS}/ros_ws"
     exit 1
 fi
 
-echo "[BUILD] radar packages (${BUILD_TYPE})..."
-colcon build \
-    --packages-select radar_lidar radar_camera radar_fusion radar_bridge radar_calibration radar_bringup \
-    --cmake-args -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
-        -DCMAKE_CXX_FLAGS="-Wno-missing-field-initializers -Wno-unused-parameter"
+cd "${RADAR_WS}"/ros_ws || exit 1
 
-echo "[OK] Build complete. Source install/setup.bash to use."
+# ── ROS env ──────────────────────────────────────────────────────
+export COLCON_LOG_PATH="${RADAR_WS}/ros_ws/log"
+mkdir -p "${COLCON_LOG_PATH}"
+
+if [ -f /opt/ros/jazzy/setup.bash ]; then
+    set +u; source /opt/ros/jazzy/setup.bash; set -u
+else
+    echo "> ERROR: ROS2 Jazzy not found" >&2
+    exit 1
+fi
+
+# ── validate source dirs exist ────────────────────────────────────
+for src_dir in \
+    "${RADAR_WS}/ros_ws/src" \
+    "${RADAR_WS}/ros_ws/third-party" \
+    "${RADAR_WS}/lidar_ros_driver/odin_ros_driver"; do
+    if [[ ! -d "$src_dir" ]]; then
+        echo "> WARNING: Source dir not found: $src_dir"
+    fi
+done
+
+# ── odin cmake needs this ───────────────────────────────────────
+export BUILD_SYSTEM=ROS2
+
+COLON_ARGS=(
+    --base-paths
+        src
+        third-party
+        "${RADAR_WS}/lidar_ros_driver/odin_ros_driver"
+    --packages-skip
+        direct_visual_lidar_calibration
+    --packages-select
+        small_gicp
+        hikcamera
+        hikcamera_ros_driver
+        odin_ros_driver
+        radar_lidar
+        radar_camera
+        radar_fusion
+        radar_bridge
+        radar_bringup
+        radar_calibration
+    --symlink-install
+)
+
+CMAKE_ARGS=(
+    -DBUILD_SYSTEM=ROS2
+    -DCMAKE_BUILD_TYPE="${BUILD_TYPE}"
+    -DCMAKE_EXPORT_COMPILE_COMMANDS=1
+    -DCMAKE_CXX_FLAGS="-Wno-missing-field-initializers -Wno-unused-parameter"
+    -Wno-dev
+)
+
+# ── build ────────────────────────────────────────────────────────
+echo "> Building radar packages + lidar drivers (${BUILD_TYPE}) ..."
+
+CLICOLOR_FORCE=1 colcon build \
+    "${COLON_ARGS[@]}" \
+    --cmake-args "${CMAKE_ARGS[@]}"
+
+echo ">>"
+
+# ── generate root compile_commands.json for clangd ──────────────
+python3 - <<'PY'
+import json
+from pathlib import Path
+build_root = Path("build")
+merged = []
+for f in sorted(build_root.glob("*/compile_commands.json")):
+    merged.extend(json.loads(f.read_text()))
+if merged:
+    (Path("/workspace") / "compile_commands.json").write_text(
+        json.dumps(merged, indent=2) + "\n")
+    print(f"> clangd: {len(merged)} entries -> /workspace/compile_commands.json")
+PY

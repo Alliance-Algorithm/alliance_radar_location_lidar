@@ -1,0 +1,107 @@
+#!/bin/bash
+# radar - Host-side entry for RADAR-LOCATION-LIDAR container
+# Usage: radar [zsh|nvim|neovide|build|foxglove]
+# Reference: Alliance-Algorithm/RMCS .script/host/rmcs
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+
+readonly DEVELOPER_NAME="ubuntu"
+readonly SERVICE="radar-develop"
+readonly COMPOSE_FILE=".devcontainer/docker-compose.yml"
+readonly NVIM_PORT=6666
+readonly NVIM_HOST="localhost"
+
+function show_help() {
+    echo "Usage: radar [zsh|nvim|neovide|build|foxglove]"
+    echo ""
+    echo "Commands:"
+    echo "  zsh        Open interactive shell inside container"
+    echo "  nvim       Start Neovim headless server + Neovide"
+    echo "  neovide    Same as nvim"
+    echo "  build      Run build-radar inside container"
+    echo "  foxglove   Start Foxglove bridge"
+    echo ""
+    echo "Project: $REPO_ROOT"
+}
+
+function radar_zsh() {
+    echo "Starting container and entering shell..."
+    if ! docker compose -f "$COMPOSE_FILE" ps --status running 2>/dev/null | grep -q "$SERVICE"; then
+        docker compose -f "$COMPOSE_FILE" up -d
+    fi
+    docker compose -f "$COMPOSE_FILE" exec "$SERVICE" zsh
+}
+
+function radar_nvim() {
+    local timeout=15
+    local success=0
+    local port=$NVIM_PORT
+
+    echo "Starting container..."
+    docker compose -f "$COMPOSE_FILE" up -d
+
+    echo "Checking available port..."
+    while nc -z "$NVIM_HOST" "$port" 2>/dev/null; do
+        port=$((port + 1))
+    done
+
+    echo "Starting nvim headless server on port $port..."
+    docker compose -f "$COMPOSE_FILE" exec -u "$DEVELOPER_NAME" -d "$SERVICE" \
+        nvim --headless --listen "$NVIM_HOST:$port"
+
+    for i in $(seq 1 $timeout); do
+        if nc -z "$NVIM_HOST" "$port" 2>/dev/null; then
+            echo "nvim server started on port $port"
+            success=1
+            break
+        fi
+        echo "Waiting for nvim server... ($i/$timeout)"
+        sleep 1
+    done
+
+    if [ $success -eq 1 ]; then
+        if command -v neovide &>/dev/null; then
+            echo "Starting Neovide..."
+            nohup neovide --server="$NVIM_HOST:$port" >/dev/null 2>&1 &
+        else
+            echo "Neovide not found. Connect manually: nvim --server localhost:$port --remote-ui"
+        fi
+    else
+        echo "nvim server failed to start within $timeout seconds"
+        exit 1
+    fi
+}
+
+function radar_exec() {
+    if ! docker compose -f "$COMPOSE_FILE" ps --status running 2>/dev/null | grep -q "$SERVICE"; then
+        docker compose -f "$COMPOSE_FILE" up -d
+    fi
+    docker compose -f "$COMPOSE_FILE" exec "$SERVICE" zsh -i -c "source ~/env_setup.zsh 2>/dev/null; hash -r; $*"
+}
+
+function main() {
+    cd "$REPO_ROOT" || exit 1
+
+    case "${1:-zsh}" in
+        zsh)
+            radar_zsh
+            ;;
+        nvim|neovide|ide)
+            radar_nvim
+            ;;
+        build)
+            radar_exec "build-radar Release"
+            ;;
+        foxglove)
+            radar_exec "foxglove"
+            ;;
+        *)
+            show_help
+            ;;
+    esac
+}
+
+main "$@"

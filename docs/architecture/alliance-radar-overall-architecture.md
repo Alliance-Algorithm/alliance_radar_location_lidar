@@ -96,7 +96,7 @@ alliance_radar_location_lidar/
     ├── log/                                   ← 运行日志
     │
     ├── src/
-    │   └── radar_localization_lidar/          ← 当前核心算法单包
+    │   └── radar_lidar/                       ← 当前 LiDAR 定位核心包
     │       ├── CMakeLists.txt
     │       ├── package.xml
     │       ├── config/
@@ -248,7 +248,7 @@ Current Architecture
 │       └── ws_30pcd_et3_ros2         ← WS-30 点云输入
 │
 ├── Core Algorithm Layer
-│   └── ros_ws/src/radar_localization_lidar/
+│   └── ros_ws/src/radar_lidar/
 │       ├── running.cpp               ← 主节点入口
 │       ├── pointcloud_process.*      ← 点云处理 / 配准 / 定位
 │       ├── pointcloud_capture.*      ← 点云采集

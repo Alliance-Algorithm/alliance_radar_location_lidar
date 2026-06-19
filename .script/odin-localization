@@ -1,0 +1,23 @@
+#!/bin/bash
+# odin-localization - Launch Odin driver + radar_lidar localization
+# Usage: odin-localization [extra ros2 launch args...]
+set -euo pipefail
+
+: "${RADAR_WS:=/workspace}"
+
+INSTALL_DIR="${RADAR_WS}/ros_ws/install"
+
+if [ ! -f /opt/ros/jazzy/setup.bash ]; then
+    echo "> ERROR: ROS2 Jazzy not found" >&2; exit 1
+fi
+if [ ! -f "${INSTALL_DIR}/setup.bash" ]; then
+    echo "> ERROR: Workspace not built. Run build-all first." >&2; exit 1
+fi
+
+set +u
+source /opt/ros/jazzy/setup.bash
+source "${INSTALL_DIR}/setup.bash"
+set -u
+
+echo "[ODIN-LOC] Starting Odin + radar_lidar ..."
+ros2 launch radar_bringup odin_localization.launch.py "$@"

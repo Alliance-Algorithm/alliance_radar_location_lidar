@@ -9,8 +9,12 @@
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <depend>rclcpp</depend>
-  <depend>rclcpp_components</depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>rclcpp</exec_depend>
+  <exec_depend>rclcpp_components</exec_depend>
+  <exec_depend>radar_lidar</exec_depend>
+  <exec_depend>odin_ros_driver</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

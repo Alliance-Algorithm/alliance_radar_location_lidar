@@ -27,6 +27,10 @@ private:
     std::shared_ptr<const MapData> map_;
     LocalizationStage localization_;
 
+    std::string scan_topic_;
+    std::string hardware_id_;
+    std::string output_frame_;
+
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr sub_scan_;
     rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pub_pose_;
     rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticStatus>::SharedPtr pub_diag_;
