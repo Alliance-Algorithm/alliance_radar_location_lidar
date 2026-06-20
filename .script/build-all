@@ -4,7 +4,23 @@
 set -euo pipefail
 
 : "${RADAR_WS:=/workspace}"
-BUILD_TYPE="${1:-Release}"
+BUILD_TYPE="Release"
+CLEAN=false
+
+for arg in "$@"; do
+    case "$arg" in
+        Release|Debug)
+            BUILD_TYPE="$arg"
+            ;;
+        --clean)
+            CLEAN=true
+            ;;
+        *)
+            echo "> ERROR: Unknown argument: $arg" >&2
+            exit 2
+            ;;
+    esac
+done
 
 if [[ ! -d "${RADAR_WS}/ros_ws" ]]; then
     echo "> ERROR: Workspace not found: ${RADAR_WS}/ros_ws"
@@ -12,6 +28,10 @@ if [[ ! -d "${RADAR_WS}/ros_ws" ]]; then
 fi
 
 cd "${RADAR_WS}"/ros_ws || exit 1
+
+if [[ "$CLEAN" == true ]]; then
+    rm -rf build install log
+fi
 
 # ── ROS env ──────────────────────────────────────────────────────
 export COLCON_LOG_PATH="${RADAR_WS}/ros_ws/log"

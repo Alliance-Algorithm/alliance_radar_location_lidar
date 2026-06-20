@@ -1,7 +1,6 @@
 #!/bin/bash
 # env_setup.bash - Environment setup for RADAR-LOCATION-LIDAR container
 # Sourced by both bash and zsh (via env_setup.zsh)
-# Reference: Alliance-Algorithm/RMCS .script/template/env_setup.bash
 
 : "${RADAR_WS:=/workspace}"
 
@@ -20,13 +19,15 @@ export RADAR_MODEL_DIR="${RADAR_WS}/model"
 
 # ── Build scripts ────────────────────────────────────────────────
 if [ -d "${HOME}/.script" ]; then
-    export PATH="${HOME}/.script:${PATH}"
+    if [[ ":${PATH}:" != *":${HOME}/.script:"* ]]; then
+        export PATH="${HOME}/.script:${PATH}"
+    fi
 fi
 
 # ── Tools ────────────────────────────────────────────────────────
 for tool in opencode codex mimocode; do
     dir="${HOME}/.${tool}/bin"
-    if [ -d "${dir}" ]; then
+    if [ -d "${dir}" ] && [[ ":${PATH}:" != *":${dir}:"* ]]; then
         export PATH="${dir}:${PATH}"
     fi
 done

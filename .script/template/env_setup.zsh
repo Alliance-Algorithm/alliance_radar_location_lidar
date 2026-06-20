@@ -1,7 +1,5 @@
 #!/bin/zsh
 # env_setup.zsh - Zsh environment setup for RADAR-LOCATION-LIDAR container
-# Reference: Alliance-Algorithm/RMCS .script/template/env_setup.zsh
-
 : "${RADAR_WS:=/workspace}"
 
 # ── ROS 2 discovery ──────────────────────────────────────────────
@@ -23,7 +21,10 @@ if [ -f "${RADAR_WS}/ros_ws/install/local_setup.zsh" ]; then
 fi
 
 # ── Bash-compatible env ──────────────────────────────────────────
-source ~/env_setup.bash 2>/dev/null || true
+if [ -f "${HOME}/env_setup.bash" ]; then
+    source "${HOME}/env_setup.bash" 2>/dev/null || \
+        echo "[WARN] Failed to source ${HOME}/env_setup.bash" >&2
+fi
 
 # ── Python argcomplete ───────────────────────────────────────────
 if command -v register-python-argcomplete &>/dev/null; then
@@ -37,8 +38,12 @@ export RADAR_SENSOR_TYPE
 
 # ── Zsh completions ──────────────────────────────────────────────
 if [ -d "${HOME}/.script/complete" ]; then
-    fpath=("${HOME}/.script/complete" $fpath)
+    if [[ " ${fpath[*]} " != *" ${HOME}/.script/complete "* ]]; then
+        fpath=("${HOME}/.script/complete" "${fpath[@]}")
+    fi
 fi
 if [ -d "${HOME}/.opencode/bin" ]; then
-    fpath+=("${HOME}/.opencode/bin")
+    if [[ " ${fpath[*]} " != *" ${HOME}/.opencode/bin "* ]]; then
+        fpath+=("${HOME}/.opencode/bin")
+    fi
 fi

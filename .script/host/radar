@@ -1,8 +1,6 @@
 #!/bin/bash
 # radar - Host-side entry for RADAR-LOCATION-LIDAR container
 # Usage: radar [zsh|nvim|neovide|build|foxglove]
-# Reference: Alliance-Algorithm/RMCS .script/host/rmcs
-
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -39,6 +37,11 @@ function radar_nvim() {
     local timeout=15
     local success=0
     local port=$NVIM_PORT
+
+    if ! command -v nc >/dev/null 2>&1; then
+        echo "ERROR: 'nc' is required for port probing (please install netcat)." >&2
+        exit 1
+    fi
 
     echo "Starting container..."
     docker compose -f "$COMPOSE_FILE" up -d
@@ -79,7 +82,10 @@ function radar_exec() {
     if ! docker compose -f "$COMPOSE_FILE" ps --status running 2>/dev/null | grep -q "$SERVICE"; then
         docker compose -f "$COMPOSE_FILE" up -d
     fi
-    docker compose -f "$COMPOSE_FILE" exec "$SERVICE" zsh -i -c "source ~/env_setup.zsh 2>/dev/null; hash -r; $*"
+    local cmd_escaped
+    printf -v cmd_escaped '%q ' "$@"
+    docker compose -f "$COMPOSE_FILE" exec "$SERVICE" \
+        zsh -i -c "source ~/env_setup.zsh 2>/dev/null; hash -r; ${cmd_escaped% }"
 }
 
 function main() {
@@ -93,10 +99,10 @@ function main() {
             radar_nvim
             ;;
         build)
-            radar_exec "build-radar Release"
+            radar_exec build-radar Release
             ;;
         foxglove)
-            radar_exec "foxglove"
+            radar_exec foxglove
             ;;
         *)
             show_help
