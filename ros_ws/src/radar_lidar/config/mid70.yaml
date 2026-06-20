@@ -1,10 +1,11 @@
-# Mid-70 LiDAR 定位配置
-map_path: "/workspace/model/generated/map.pcd"
-scan_topic: "/livox/lidar"
-hardware_id: "livox_mid70"
-output_frame: "map"
+/**:
+  ros__parameters:
+    map_path: "/workspace/model/generated/map.pcd"
+    scan_topic: "/livox/lidar"
+    hardware_id: "livox_mid70"
+    output_frame: "map"
 
-gicp:
-  num_threads: 4
-  max_corr_distance: 1.0
-  max_iterations: 48
+    gicp:
+      num_threads: 4
+      max_corr_distance: 1.0
+      max_iterations: 48
