@@ -1,13 +1,14 @@
 CompileFlags:
+  CompilationDatabase: ./
+  Remove:
+    - -march=native
+    - -fopenmp
+    - -flto*
+    - -fno-fat-lto-objects
   Add:
-    - -I/workspace/lidar_ros_driver/livox_ros_driver2/src/include
-    - -I/workspace/lidar_ros_driver/odin_ros_driver/include
-    - -I/workspace/lidar_ros_driver/ws_30pcd_et3_ros2/include
-    - -I/workspace/ros_ws/third-party/hikcamera_sdk/include
-    - -I/workspace/ros_ws/third-party/hikcamera_sdk/src
-    - -I/workspace/ros_ws/third-party/small_gicp/include
-    - -isystem/usr/include/opencv4
-    - -isystem/usr/include/eigen3
     - -std=gnu++23
+    - -I/usr/lib/gcc/x86_64-linux-gnu/14/include
 Diagnostics:
-  Suppress: []
+  UnusedIncludes: None
+  ClangTidy:
+    Remove: [modernize-use-trailing-return-type]

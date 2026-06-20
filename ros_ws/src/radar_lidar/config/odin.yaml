@@ -1,8 +1,8 @@
 /**:
   ros__parameters:
     map_path: "/workspace/model/generated/map.pcd"
-    scan_topic: "/livox/lidar"
-    hardware_id: "livox_mid70"
+    scan_topic: "/odin1/cloud_raw"
+    hardware_id: "odin1"
     output_frame: "map"
 
     gicp:

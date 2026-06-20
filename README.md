@@ -102,7 +102,9 @@ docker exec -it RADAR zsh
 
 ### clangd 配置
 
-构建脚本已内置 `-DCMAKE_EXPORT_COMPILE_COMMANDS=1`，编译后在 `/workspace/ros_ws/build/radar_calibration/` 生成 `compile_commands.json`，clangd 自动读取。
+- 容器内 VSCode clangd 使用 `/workspace/ros_ws/build/radar_lidar/compile_commands.json`
+- 宿主机 Neovim clangd 先运行 `export-compile-commands`，在项目根生成 `compile_commands.json`
+- `export-compile-commands` 会把编译数据库里的 `/workspace/...` 路径自动改写成宿主机项目路径，供宿主机 clangd 直接读取
 
 ---
 

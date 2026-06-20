@@ -2,10 +2,13 @@
 # foxglove - Launch Foxglove Bridge
 set -euo pipefail
 
-: "${RADAR_WS:=/workspace}"
+if [ ! -f /opt/ros/jazzy/setup.bash ]; then
+    echo "> ERROR: ROS2 Jazzy not found" >&2; exit 1
+fi
 
 set +u
-source ~/env_setup.bash
+source /opt/ros/jazzy/setup.bash
 set -u
 
+echo "[FOXGLOVE] Starting bridge on :8765 ..."
 ros2 launch foxglove_bridge foxglove_bridge_launch.xml port:=8765

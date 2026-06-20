@@ -1,5 +1,6 @@
 #include "radar_lidar/pipeline.hpp"
 
+#include <cfloat>
 #include <chrono>
 
 #include <pcl_conversions/pcl_conversions.h>
@@ -11,7 +12,17 @@ LidarPipeline::LidarPipeline()
     , map_(nullptr)
     , localization_(nullptr, { }) {
 
+    // ── node params ────────────────────────────────────────────────
     this->declare_parameter("map_path", "");
+    this->declare_parameter("scan_topic", "/livox/lidar");
+    this->declare_parameter("hardware_id", "livox_mid70");
+    this->declare_parameter("output_frame", "map");
+
+    scan_topic_   = this->get_parameter("scan_topic").as_string();
+    hardware_id_  = this->get_parameter("hardware_id").as_string();
+    output_frame_ = this->get_parameter("output_frame").as_string();
+
+    // ── map ────────────────────────────────────────────────────────
     const auto map_path = this->get_parameter("map_path").as_string();
     if (map_path.empty()) {
         RCLCPP_FATAL(get_logger(), "map_path parameter is required!");
@@ -25,6 +36,7 @@ LidarPipeline::LidarPipeline()
     map_ = *map_result;
     RCLCPP_INFO(get_logger(), "Map loaded: %zu points", map_->size());
 
+    // ── GICP config ────────────────────────────────────────────────
     this->declare_parameter("gicp.num_threads", 4);
     this->declare_parameter("gicp.max_corr_distance", 1.0);
     this->declare_parameter("gicp.max_iterations", 48);
@@ -36,7 +48,8 @@ LidarPipeline::LidarPipeline()
 
     localization_ = LocalizationStage(map_, loc_cfg);
 
-    sub_scan_ = this->create_subscription<sensor_msgs::msg::PointCloud2>("/livox/lidar",
+    // ── subscription ───────────────────────────────────────────────
+    sub_scan_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(scan_topic_,
         rclcpp::SensorDataQoS(),
         [this](const sensor_msgs::msg::PointCloud2::SharedPtr msg) { on_scan(msg); });
 
@@ -44,7 +57,7 @@ LidarPipeline::LidarPipeline()
         this->create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("/lidar/pose", 10);
     pub_diag_ = this->create_publisher<diagnostic_msgs::msg::DiagnosticStatus>("/diagnostics", 10);
 
-    RCLCPP_INFO(get_logger(), "radar_lidar ready. Listening on /livox/lidar");
+    RCLCPP_INFO(get_logger(), "radar_lidar ready. Listening on %s", scan_topic_.c_str());
 }
 
 void LidarPipeline::on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg) {
@@ -57,7 +70,10 @@ void LidarPipeline::on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg)
         pcl::fromROSMsg(*msg, *cloud);
         frame.points.reserve(cloud->size());
         for (const auto& pt : cloud->points) {
-            if (std::isfinite(pt.x) && std::isfinite(pt.y) && std::isfinite(pt.z))
+            // filter NaN/Inf *and* zero-placeholder points injected by
+            // some drivers (Odin writes (0,0,0) for low-confidence bins)
+            if (std::isfinite(pt.x) && std::isfinite(pt.y) && std::isfinite(pt.z)
+                && (pt.x * pt.x + pt.y * pt.y + pt.z * pt.z) > DBL_EPSILON)
                 frame.points.emplace_back(pt.x, pt.y, pt.z);
         }
         frame.stamp    = rclcpp::Time(msg->header.stamp).nanoseconds();
@@ -81,7 +97,7 @@ void LidarPipeline::on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg)
 void LidarPipeline::publish_pose(const types::PoseEstimate& pose, types::Timestamp stamp) {
     geometry_msgs::msg::PoseWithCovarianceStamped msg;
     msg.header.stamp    = rclcpp::Time(stamp);
-    msg.header.frame_id = "map";
+    msg.header.frame_id = output_frame_;
 
     const auto& T            = pose.T;
     msg.pose.pose.position.x = T.translation().x();
@@ -106,7 +122,7 @@ void LidarPipeline::publish_diagnostics(
     diag.level       = pose.converged ? diagnostic_msgs::msg::DiagnosticStatus::OK
                                       : diagnostic_msgs::msg::DiagnosticStatus::WARN;
     diag.name        = "radar_lidar/localization";
-    diag.hardware_id = "livox_mid70";
+    diag.hardware_id = hardware_id_;
     diag.message     = pose.converged ? "TRACKING" : "INIT";
 
     auto add_kv = [&](const char* k, const std::string& v) {

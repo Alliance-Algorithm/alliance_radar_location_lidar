@@ -1,0 +1,28 @@
+#!/bin/bash
+# odin - Launch Odin driver (raw cloud only)
+set -euo pipefail
+
+: "${RADAR_WS:=/workspace}"
+
+ODIN_INSTALL="${RADAR_WS}/ros_ws/install/setup.bash"
+ODIN_CONFIG="${RADAR_WS}/ros_ws/install/radar_bringup/share/radar_bringup/config/lidar/odin_driver.yaml"
+
+if [ ! -f /opt/ros/jazzy/setup.bash ]; then
+    echo "> ERROR: ROS2 Jazzy not found" >&2; exit 1
+fi
+if [ ! -f "$ODIN_INSTALL" ]; then
+    echo "> ERROR: Workspace not built. Run build-all first." >&2; exit 1
+fi
+if [ ! -f "$ODIN_CONFIG" ]; then
+    echo "> ERROR: Odin config not found: $ODIN_CONFIG" >&2; exit 1
+fi
+
+set +u
+source /opt/ros/jazzy/setup.bash
+source "$ODIN_INSTALL"
+set -u
+
+echo "[ODIN] Starting driver (raw cloud only) ..."
+ros2 run odin_ros_driver host_sdk_sample --ros-args \
+    -p config_file:="$ODIN_CONFIG" \
+    "$@"

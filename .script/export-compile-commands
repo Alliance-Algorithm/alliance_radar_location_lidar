@@ -1,0 +1,57 @@
+#!/bin/bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+: "${CONTAINER_WORKSPACE:=/workspace}"
+: "${HOST_WORKSPACE:=${REPO_ROOT}}"
+
+BUILD_ROOT="${HOST_WORKSPACE}/ros_ws/build"
+OUTPUT_PATH="${1:-${HOST_WORKSPACE}/compile_commands.json}"
+
+if [[ ! -d "${BUILD_ROOT}" ]]; then
+    echo "> ERROR: Build directory not found: ${BUILD_ROOT}" >&2
+    echo "> Run build-all or build-radar inside the container first." >&2
+    exit 1
+fi
+
+mapfile -t COMPILE_DB_FILES < <(find "${BUILD_ROOT}" -mindepth 2 -maxdepth 2 -name compile_commands.json | sort)
+
+if [[ ${#COMPILE_DB_FILES[@]} -eq 0 ]]; then
+    echo "> ERROR: No compile_commands.json files found under ${BUILD_ROOT}" >&2
+    echo "> Run build-all or build-radar inside the container first." >&2
+    exit 1
+fi
+
+python3 - <<'PY' "${HOST_WORKSPACE}" "${CONTAINER_WORKSPACE}" "${OUTPUT_PATH}" "${COMPILE_DB_FILES[@]}"
+import json
+import os
+import sys
+from pathlib import Path
+
+host_workspace = sys.argv[1]
+container_workspace = sys.argv[2]
+output_path = Path(sys.argv[3])
+db_files = [Path(path) for path in sys.argv[4:]]
+
+def rewrite(value):
+    if isinstance(value, str):
+        return value.replace(container_workspace, host_workspace)
+    if isinstance(value, list):
+        return [rewrite(item) for item in value]
+    if isinstance(value, dict):
+        return {key: rewrite(item) for key, item in value.items()}
+    return value
+
+merged = []
+for db_file in db_files:
+    with db_file.open() as handle:
+        data = json.load(handle)
+    merged.extend(rewrite(entry) for entry in data)
+
+output_path.write_text(json.dumps(merged, indent=2) + "\n")
+print(f"merged_files={len(db_files)}")
+print(f"merged_entries={len(merged)}")
+print(f"output={output_path}")
+PY

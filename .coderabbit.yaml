@@ -50,7 +50,7 @@ reviews:
         - PATH/source correctness inside the Docker container (/workspace paths).
         - Scripts should be idempotent and safe to re-run.
 
-    - path: "ros_ws/src/radar_localization_lidar/src/**/*.cpp"
+    - path: "ros_ws/src/radar_lidar/src/**/*.cpp"
       instructions: |
         Review C++ source files from modern C++ and design patterns perspective:
 
@@ -87,7 +87,7 @@ reviews:
         2. Fail fast with descriptive messages, no silent swallowing of errors.
         3. [[nodiscard]] on all functions whose return values must not be ignored.
 
-    - path: "ros_ws/src/radar_localization_lidar/src/**/*.hpp"
+    - path: "ros_ws/src/radar_lidar/include/**/*.hpp"
       instructions: |
         Review C++ header files from modern C++ and design patterns perspective:
 
@@ -115,7 +115,7 @@ reviews:
         2. Avoid circular dependencies via forward declarations and dependency inversion.
         3. PIMPL: class definition has only forward-declared Impl, no impl details in header.
 
-    - path: "ros_ws/src/radar_localization_lidar/CMakeLists.txt"
+    - path: "ros_ws/src/radar_lidar/CMakeLists.txt"
       instructions: |
         Review CMakeLists.txt for:
         - Modern CMake practices (target_* instead of directory-level).
@@ -125,7 +125,7 @@ reviews:
         - ROS2 ament conventions compliance.
         - No duplicate link targets between target_link_libraries and ament_target_dependencies.
 
-    - path: "ros_ws/src/radar_localization_lidar/config/**/*.yaml"
+    - path: "ros_ws/src/radar_lidar/config/**/*.yaml"
       instructions: |
         Review YAML config files for:
         - Schema consistency: are all fields documented?
