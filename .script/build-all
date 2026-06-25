@@ -1,26 +1,30 @@
 #!/bin/bash
-# build-all - Build all packages (third-party + lidar drivers + radar modules)
-# Usage: build-all [Release|Debug] [--clean]
+# build-all - Build all packages (colcon + offline tools)
+# Usage: build-all [Release|Debug] [extra colcon args...]
+#
+# Incremental build: only recompiles changed files.
+# For a clean rebuild, run clean-radar first.
 set -euo pipefail
 
 : "${RADAR_WS:=/workspace}"
 BUILD_TYPE="Release"
-CLEAN=false
 
+EXTRA_ARGS=()
 for arg in "$@"; do
     case "$arg" in
         Release|Debug)
             BUILD_TYPE="$arg"
             ;;
         --clean)
-            CLEAN=true
+            echo "> ERROR: --clean is removed. Use 'clean-radar' script instead." >&2
+            exit 2
             ;;
         *)
-            echo "> ERROR: Unknown argument: $arg" >&2
-            exit 2
+            EXTRA_ARGS+=("$arg")
             ;;
     esac
 done
+set -- "${EXTRA_ARGS[@]}"
 
 if [[ ! -d "${RADAR_WS}/ros_ws" ]]; then
     echo "> ERROR: Workspace not found: ${RADAR_WS}/ros_ws"
@@ -28,10 +32,6 @@ if [[ ! -d "${RADAR_WS}/ros_ws" ]]; then
 fi
 
 cd "${RADAR_WS}"/ros_ws || exit 1
-
-if [[ "$CLEAN" == true ]]; then
-    rm -rf build install log
-fi
 
 # ── ROS env ──────────────────────────────────────────────────────
 export COLCON_LOG_PATH="${RADAR_WS}/ros_ws/log"
@@ -54,44 +54,77 @@ for src_dir in \
     fi
 done
 
-# ── discover packages from all source paths ──────────────────────
-COLON_ARGS=(
-    --base-paths
-        src
-        third-party
-        "${RADAR_WS}/lidar_ros_driver/odin_ros_driver"
-    --packages-skip
-        direct_visual_lidar_calibration
-    --symlink-install
-)
-
-CMAKE_ARGS=(
-    -DBUILD_SYSTEM=ROS2
-    -DCMAKE_BUILD_TYPE="${BUILD_TYPE}"
-    -DCMAKE_EXPORT_COMPILE_COMMANDS=1
-    -DCMAKE_CXX_FLAGS="-Wno-missing-field-initializers -Wno-unused-parameter"
-    -Wno-dev
-)
-
-# ── build ────────────────────────────────────────────────────────
+# ── colcon build (incremental) ───────────────────────────────────
 echo "> Building all packages (${BUILD_TYPE}) ..."
 
 CLICOLOR_FORCE=1 colcon build \
-    "${COLON_ARGS[@]}" \
-    --cmake-args "${CMAKE_ARGS[@]}"
+    --base-paths \
+        src \
+        third-party \
+        "${RADAR_WS}/lidar_ros_driver/odin_ros_driver" \
+    --packages-skip \
+        direct_visual_lidar_calibration \
+    --symlink-install \
+    --cmake-args \
+        -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
+        -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
+        -DCMAKE_CXX_FLAGS="-Wno-missing-field-initializers -Wno-unused-parameter" \
+        -Wno-dev \
+    "$@"
 
 # ── generate root compile_commands.json for clangd ──────────────
 python3 - <<'PY'
-import json
+import json, os
 from pathlib import Path
+
 build_root = Path("build")
 merged = []
 for f in sorted(build_root.glob("*/compile_commands.json")):
     merged.extend(json.loads(f.read_text()))
+
+host_ws = os.environ.get("HOST_WORKSPACE", "")
+cache = Path(host_ws) / ".clangd-headers" if host_ws else Path("/workspace") / ".clangd-headers"
+
 if merged:
-    (Path("/workspace") / "compile_commands.json").write_text(
-        json.dumps(merged, indent=2) + "\n")
+    out = Path("/workspace") / "compile_commands.json"
+    out.write_text(json.dumps(merged, indent=2) + "\n")
     print(f"> clangd: {len(merged)} entries -> /workspace/compile_commands.json")
+
+if host_ws:
+    for entry in merged:
+        for key in ("command", "arguments"):
+            if key in entry:
+                if isinstance(entry[key], str):
+                    entry[key] = entry[key].replace("/workspace", host_ws)
+                    entry[key] = entry[key].replace("/usr/include/eigen3", str(cache / "usr/include/eigen3"))
+                    entry[key] = entry[key].replace("/usr/include/pcl-1.14", str(cache / "usr/include/pcl-1.14"))
+                    entry[key] = entry[key].replace("/usr/include/assimp", str(cache / "usr/include/assimp"))
+                elif isinstance(entry[key], list):
+                    entry[key] = [a.replace("/workspace", host_ws).replace("/usr/include/eigen3", str(cache / "usr/include/eigen3")).replace("/usr/include/pcl-1.14", str(cache / "usr/include/pcl-1.14")).replace("/usr/include/assimp", str(cache / "usr/include/assimp")) for a in entry[key]]
+        if "directory" in entry:
+            entry["directory"] = entry["directory"].replace("/workspace", host_ws)
+        if "file" in entry:
+            entry["file"] = entry["file"].replace("/workspace", host_ws)
+        if "output" in entry:
+            entry["output"] = entry["output"].replace("/workspace", host_ws)
+    out = Path(host_ws) / "compile_commands.json"
+    out.write_text(json.dumps(merged, indent=2) + "\n")
+    print(f"> clangd: {len(merged)} host entries -> {out}")
 PY
+
+# ── build offline tools (pure CMake, not ament packages) ────────
+for tool_dir in \
+    "${RADAR_WS}/tools/model_to_map"; do
+    if [[ ! -d "$tool_dir" ]]; then
+        echo "> WARNING: Tool dir not found: $tool_dir"
+        continue
+    fi
+    echo "> Building tool: $(basename "$tool_dir")"
+    cmake -S "$tool_dir" -B "$tool_dir/build" \
+        -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
+        -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
+        -Wno-dev 2>&1 | tail -3
+    cmake --build "$tool_dir/build" -j"$(nproc)" 2>&1 | tail -5
+done
 
 echo ">>"

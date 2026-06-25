@@ -1,0 +1,39 @@
+#!/bin/bash
+# setup-clangd-headers — 从 RADAR 容器提取 C++ 头文件到本地缓存，供宿主机 clangd 使用
+# 用法: .script/setup-clangd-headers
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+CACHE_DIR="${REPO_ROOT}/.clangd-headers"
+
+CONTAINER="${RADAR_CONTAINER:-RADAR}"
+
+echo "[setup-clangd-headers] Extracting headers from container: ${CONTAINER}"
+echo "[setup-clangd-headers] Cache dir: ${CACHE_DIR}"
+
+rm -rf "${CACHE_DIR}"
+mkdir -p "${CACHE_DIR}"
+
+PULL_PATHS=(
+    "/usr/include/eigen3"
+    "/usr/include/pcl-1.14"
+    "/usr/include/assimp"
+    "/workspace/ros_ws/install/small_gicp/include"
+)
+
+for src in "${PULL_PATHS[@]}"; do
+    if docker exec "${CONTAINER}" test -d "${src}" 2>/dev/null; then
+        rel="${src#/}"
+        dest="${CACHE_DIR}/${rel}"
+        mkdir -p "$(dirname "${dest}")"
+        echo "[setup-clangd-headers] Copying ${src} ..."
+        docker cp "${CONTAINER}:${src}" "${dest}"
+    else
+        echo "[setup-clangd-headers] SKIP (not in container): ${src}"
+    fi
+done
+
+echo "[setup-clangd-headers] Done."
+echo "[setup-clangd-headers] .clangd 已配置指向 ${CACHE_DIR}"
+echo "[setup-clangd-headers] 如果更换了容器或依赖，重新运行此脚本即可刷新缓存。"

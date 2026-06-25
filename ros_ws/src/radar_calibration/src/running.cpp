@@ -2,16 +2,31 @@
 #include <ament_index_cpp/get_package_share_directory.hpp>
 #include <filesystem>
 #include <rclcpp/rclcpp.hpp>
+
 int main() {
     auto model_processor = std::make_unique<Radar::process::model::ModelProcess>();
     YAML::Node model_config;
+
+    // Try installed config first, fall back to source-tree path
+    std::filesystem::path config_path = "/workspace/ros_ws/src/radar_calibration/config/"
+                                        "setting.yaml";
     try {
-        const auto config_path = ament_index_cpp::get_package_share_directory("radar_calibration")
-            + "/config/setting.yaml";
-        model_config = YAML::LoadFile(config_path);
+        const auto installed =
+            std::filesystem::path { ament_index_cpp::get_package_share_directory("radar_"
+                                                                                 "calibration") }
+            / "config" / "setting.yaml";
+        if (std::filesystem::exists(installed)) {
+            config_path = installed;
+        }
+    } catch (const std::exception&) {
+        // ament index unavailable — use source-tree fallback
+    }
+
+    try {
+        model_config = YAML::LoadFile(config_path.string());
     } catch (const std::exception& e) {
-        RCLCPP_ERROR(rclcpp::get_logger("model_preprocess"),
-            "Failed to resolve/load model config: %s", e.what());
+        RCLCPP_ERROR(rclcpp::get_logger("model_preprocess"), "Failed to load model config %s: %s",
+            config_path.string().c_str(), e.what());
         return 1;
     }
     auto result = model_processor->ConfigLoader(model_config);
@@ -20,27 +35,15 @@ int main() {
             result.error().c_str());
         return 1;
     }
-    result = model_processor->ProcessModel();
+    result = model_processor->LoadPointCloud();
     if (!result) {
-        RCLCPP_ERROR(rclcpp::get_logger("model_preprocess"), "Failed to process model: %s",
+        RCLCPP_ERROR(rclcpp::get_logger("model_preprocess"), "Failed to load point cloud: %s",
             result.error().c_str());
         return 1;
     }
-    result = model_processor->TransformModeltoPointCloud();
-    if (!result) {
-        RCLCPP_ERROR(rclcpp::get_logger("model_preprocess"),
-            "Failed to transform model to point cloud: %s", result.error().c_str());
-        return 1;
-    }
     const auto& point_cloud = model_processor->GetPointCloud();
-#ifdef RADAR_DEBUG
-    RCLCPP_INFO(rclcpp::get_logger("model_preprocess"), "Generated %zu points", point_cloud.size());
-    for (const auto& point : point_cloud) {
-        RCLCPP_INFO(rclcpp::get_logger("model_preprocess"), "Point: [%f, %f, %f]", point.x(),
-            point.y(), point.z());
-    }
-#else
     (void)point_cloud;
-#endif
+    RCLCPP_INFO(rclcpp::get_logger("model_preprocess"), "Model preprocess done: %zu points from %s",
+        point_cloud.size(), model_processor->GetMapPath().string().c_str());
     return 0;
 }

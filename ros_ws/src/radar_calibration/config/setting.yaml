@@ -21,6 +21,5 @@ Camera_Lidar:
       camera_lidar_rotation: [0.000, 0.000, 0.000]
       camera_lidar_translation: [0.000, 0.000, 0.000]
 Model:
-    model_name: "RMUC-2026-National"
-    model_path: "/workspace/model/RMUC2026.fbx"
-    model_type: "fbx"
+    model_name: "RMUC-2026-National-L"
+    map_path: "/workspace/model/generated/map.pcd"

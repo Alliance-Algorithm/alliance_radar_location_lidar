@@ -15,3 +15,5 @@ compile_commands.json
 .vscode/settings.json
 .mimocode/
 .omo/
+.clangd-headers/
+tools/model_to_map/build/
