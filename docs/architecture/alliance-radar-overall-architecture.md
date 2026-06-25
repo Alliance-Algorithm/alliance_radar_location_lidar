@@ -42,7 +42,7 @@ alliance_radar_location_lidar/
 │
 ├── model/                                    ← 离线资产
 │   └── models/
-│       └── RMUC2026.fbx                       ← 赛场 3D 模型资产
+│       └── RMUC2026_l.fbx                     ← 赛场 3D 模型资产
 │
 ├── docs/                                      ← 文档
 │   ├── architecture/
@@ -103,7 +103,7 @@ alliance_radar_location_lidar/
     │       │   ├── setting.yaml               ← 算法参数
     │       │   └── hikcamera_config.yaml      ← 海康相机参数
     │       ├── model/
-    │       │   └── RMUC2026.fbx               ← 赛场 3D 模型资产
+    │       │   └── RMUC2026_l.fbx             ← 赛场 3D 模型资产
     │       └── src/
     │           ├── running.cpp                ← 主节点入口
     │           ├── pointcloud_process.cpp/hpp ← 点云处理管线
@@ -279,7 +279,7 @@ alliance_radar_location_lidar/
 │
 ├── model/                                    ← 离线资产
 │   └── model/
-│       ├── RMUC2026.fbx                       ← 赛场 3D 模型资产
+│       ├── RMUC2026_l.fbx                     ← 赛场 3D 模型资产
 │       └── generated/                         ← 离线生成的地图点云资产
 │
 ├── tools/                                     ← 离线工具

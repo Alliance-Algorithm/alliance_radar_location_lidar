@@ -1,0 +1,10 @@
+#!/bin/bash
+# build-all-host — build inside RADAR container, then export compile_commands for host clangd
+# Usage: ./script/build-all-host [Release|Debug] [extra colcon args...]
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+echo "[build-all-host] Building in RADAR container..."
+docker exec -e HOST_WORKSPACE="$PWD" RADAR zsh -lc "build-all $*"
+echo "[build-all-host] Done. Run :LspRestart in neovim to refresh clangd."

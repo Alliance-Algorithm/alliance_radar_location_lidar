@@ -1,0 +1,10 @@
+#!/bin/bash
+# build-radar-host — build radar packages in RADAR container, then export compile_commands for host clangd
+# Usage: ./script/build-radar-host [Release|Debug] [--clean]
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+echo "[build-radar-host] Building in RADAR container..."
+docker exec -e HOST_WORKSPACE="$PWD" RADAR zsh -lc "build-radar $@"
+echo "[build-radar-host] Done. Run :LspRestart in neovim to refresh clangd."

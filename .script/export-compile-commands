@@ -37,7 +37,12 @@ db_files = [Path(path) for path in sys.argv[4:]]
 
 def rewrite(value):
     if isinstance(value, str):
-        return value.replace(container_workspace, host_workspace)
+        value = value.replace(container_workspace, host_workspace)
+        cache = Path(host_workspace) / ".clangd-headers"
+        value = value.replace("/usr/include/eigen3", str(cache / "usr/include/eigen3"))
+        value = value.replace("/usr/include/pcl-1.14", str(cache / "usr/include/pcl-1.14"))
+        value = value.replace("/usr/include/assimp", str(cache / "usr/include/assimp"))
+        return value
     if isinstance(value, list):
         return [rewrite(item) for item in value]
     if isinstance(value, dict):
