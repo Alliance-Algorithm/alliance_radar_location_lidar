@@ -23,9 +23,11 @@ FusionNode::FusionNode()
     cfg_.max_tracks          = this->get_parameter("max_tracks").as_int();
     tracks_.reserve(static_cast<std::size_t>(cfg_.max_tracks));
 
-    sub_lidar_pose_ = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
-        "/lidar/pose", 10,
-        [this](const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg) {
+    sub_lidar_pose_ = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>("/li"
+                                                                                               "dar"
+                                                                                               "/po"
+                                                                                               "se",
+        10, [this](const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg) {
             on_lidar_pose(msg);
         });
 
@@ -48,7 +50,8 @@ void FusionNode::on_lidar_pose(const geometry_msgs::msg::PoseWithCovarianceStamp
 }
 
 void FusionNode::on_cluster(const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
-    auto now = std::chrono::steady_clock::now();
+    auto stamp  = rclcpp::Time(msg->header.stamp);
+    auto now_ns = stamp.nanoseconds();
 
     // 解析聚类质心点云
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
@@ -64,7 +67,7 @@ void FusionNode::on_cluster(const sensor_msgs::msg::PointCloud2::SharedPtr msg) 
 
     // 1. 预测所有现有轨迹
     for (auto& track : tracks_) {
-        track.predict(now);
+        track.predict(now_ns);
     }
 
     // 2. 数据关联（最近邻贪婪匹配）
@@ -84,7 +87,7 @@ void FusionNode::on_cluster(const sensor_msgs::msg::PointCloud2::SharedPtr msg) 
         }
 
         if (min_idx >= 0) {
-            tracks_[i].update(measurements[min_idx], now);
+            tracks_[i].update(measurements[min_idx], now_ns);
             matched_meas[min_idx] = true;
         }
     }
@@ -95,18 +98,18 @@ void FusionNode::on_cluster(const sensor_msgs::msg::PointCloud2::SharedPtr msg) 
         if (tracks_.size() >= static_cast<size_t>(cfg_.max_tracks)) break;
 
         KalmanTracker new_track(next_track_id_++);
-        new_track.update(measurements[j], now);
+        new_track.update(measurements[j], now_ns);
         tracks_.push_back(new_track);
     }
 
     // 4. 删除超时轨迹
-    tracks_.erase(
-        std::remove_if(tracks_.begin(), tracks_.end(),
-            [&](const KalmanTracker& t) { return t.state().is_stale(cfg_.track_timeout_sec); }),
+    tracks_.erase(std::remove_if(tracks_.begin(), tracks_.end(),
+                      [&](const KalmanTracker& t) {
+                          return t.state().is_stale(now_ns, cfg_.track_timeout_sec);
+                      }),
         tracks_.end());
 
     // 5. 发布
-    auto stamp = rclcpp::Time(msg->header.stamp);
     publish_tracks(tracks_, stamp);
 }
 

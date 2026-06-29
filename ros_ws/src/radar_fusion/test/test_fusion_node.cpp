@@ -15,6 +15,7 @@
 #include <rclcpp/executors/single_threaded_executor.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
+#include <visualization_msgs/msg/marker_array.hpp>
 
 #include "radar_fusion/fusion_node.hpp"
 
@@ -44,17 +45,26 @@ protected:
 
         cluster_pub_ =
             publisher_node_->create_publisher<sensor_msgs::msg::PointCloud2>("/lidar/cluster", 10);
-        lidar_pose_pub_ = publisher_node_->create_publisher<
-            geometry_msgs::msg::PoseWithCovarianceStamped>("/lidar/pose", 10);
+        lidar_pose_pub_ =
+            publisher_node_->create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(
+                "/lidar/pose", 10);
 
         pose_sub_ = subscriber_node_->create_subscription<geometry_msgs::msg::PoseStamped>(
-            "/localization/pose", 10,
-            [this](const geometry_msgs::msg::PoseStamped::SharedPtr msg) {
+            "/localization/pose", 10, [this](const geometry_msgs::msg::PoseStamped::SharedPtr msg) {
                 std::lock_guard<std::mutex> lock(mutex_);
                 last_pose_ = *msg;
                 ++pose_count_;
                 cv_.notify_all();
             });
+        tracks_sub_ =
+            subscriber_node_->create_subscription<visualization_msgs::msg::MarkerArray>("/fusion/"
+                                                                                        "tracks",
+                10, [this](const visualization_msgs::msg::MarkerArray::SharedPtr msg) {
+                    std::lock_guard<std::mutex> lock(mutex_);
+                    last_track_marker_count_ = msg->markers.size();
+                    ++track_publish_count_;
+                    cv_.notify_all();
+                });
 
         executor_.add_node(fusion_node_);
         executor_.add_node(publisher_node_);
@@ -74,6 +84,7 @@ protected:
         executor_.remove_node(fusion_node_);
 
         pose_sub_.reset();
+        tracks_sub_.reset();
         cluster_pub_.reset();
         lidar_pose_pub_.reset();
         subscriber_node_.reset();
@@ -82,17 +93,19 @@ protected:
 
         {
             std::lock_guard<std::mutex> lock(mutex_);
-            pose_count_ = 0;
-            last_pose_  = geometry_msgs::msg::PoseStamped();
+            pose_count_              = 0;
+            track_publish_count_     = 0;
+            last_track_marker_count_ = 0;
+            last_pose_               = geometry_msgs::msg::PoseStamped();
         }
     }
 
     auto wait_for_discovery() -> bool {
         const auto deadline = std::chrono::steady_clock::now() + 2s;
         while (std::chrono::steady_clock::now() < deadline) {
-            if (cluster_pub_->get_subscription_count() > 0 &&
-                lidar_pose_pub_->get_subscription_count() > 0 &&
-                pose_sub_->get_publisher_count() > 0) {
+            if (cluster_pub_->get_subscription_count() > 0
+                && lidar_pose_pub_->get_subscription_count() > 0
+                && pose_sub_->get_publisher_count() > 0 && tracks_sub_->get_publisher_count() > 0) {
                 return true;
             }
             std::this_thread::sleep_for(20ms);
@@ -100,12 +113,28 @@ protected:
         return false;
     }
 
-    auto wait_for_pose_count(std::size_t expected_count, std::chrono::milliseconds timeout) -> bool {
+    auto wait_for_pose_count(std::size_t expected_count, std::chrono::milliseconds timeout)
+        -> bool {
         std::unique_lock<std::mutex> lock(mutex_);
         return cv_.wait_for(lock, timeout, [&]() { return pose_count_ >= expected_count; });
     }
 
-    auto make_cluster_msg(double x, double y, double z) -> sensor_msgs::msg::PointCloud2 {
+    auto wait_for_track_marker_count(
+        std::size_t expected_marker_count, std::chrono::milliseconds timeout) -> bool {
+        std::unique_lock<std::mutex> lock(mutex_);
+        return cv_.wait_for(
+            lock, timeout, [&]() { return last_track_marker_count_ >= expected_marker_count; });
+    }
+
+    auto wait_for_track_publish_count(
+        std::size_t expected_publish_count, std::chrono::milliseconds timeout) -> bool {
+        std::unique_lock<std::mutex> lock(mutex_);
+        return cv_.wait_for(
+            lock, timeout, [&]() { return track_publish_count_ >= expected_publish_count; });
+    }
+
+    auto make_cluster_msg(double x, double y, double z, int32_t sec, uint32_t nanosec)
+        -> sensor_msgs::msg::PointCloud2 {
         pcl::PointCloud<pcl::PointXYZ> cloud;
         cloud.emplace_back(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z));
         cloud.width    = cloud.size();
@@ -114,9 +143,9 @@ protected:
 
         sensor_msgs::msg::PointCloud2 msg;
         pcl::toROSMsg(cloud, msg);
-        msg.header.stamp.sec     = 0;
-        msg.header.stamp.nanosec = 123456789u;
-        msg.header.frame_id = "map";
+        msg.header.stamp.sec     = sec;
+        msg.header.stamp.nanosec = nanosec;
+        msg.header.frame_id      = "map";
         return msg;
     }
 
@@ -127,28 +156,55 @@ protected:
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr cluster_pub_;
     rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr lidar_pose_pub_;
     rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;
+    rclcpp::Subscription<visualization_msgs::msg::MarkerArray>::SharedPtr tracks_sub_;
     std::thread spin_thread_;
 
     std::mutex mutex_;
     std::condition_variable cv_;
-    std::size_t pose_count_ = 0;
+    std::size_t pose_count_              = 0;
+    std::size_t track_publish_count_     = 0;
+    std::size_t last_track_marker_count_ = 0;
     geometry_msgs::msg::PoseStamped last_pose_;
 };
 
 }
 
 TEST_F(FusionNodeTest, ClusterOnlyInputDoesNotPublishLocalizationPose) {
-    auto cluster_msg = make_cluster_msg(1.0, 2.0, 0.0);
+    auto cluster_msg = make_cluster_msg(1.0, 2.0, 0.0, 0, 123456789u);
     cluster_pub_->publish(cluster_msg);
 
     EXPECT_FALSE(wait_for_pose_count(1, 300ms));
 }
 
+TEST_F(FusionNodeTest, ClusterTrackingUsesMessageTimeInsteadOfWallTime) {
+    cluster_pub_->publish(make_cluster_msg(0.0, 0.0, 0.0, 0, 0u));
+    std::this_thread::sleep_for(1000ms);
+    cluster_pub_->publish(make_cluster_msg(0.8, 0.0, 0.0, 1, 0u));
+    std::this_thread::sleep_for(1000ms);
+    cluster_pub_->publish(make_cluster_msg(1.6, 0.0, 0.0, 2, 0u));
+
+    ASSERT_TRUE(wait_for_track_marker_count(3, 500ms));
+
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        track_publish_count_     = 0;
+        last_track_marker_count_ = 0;
+    }
+
+    std::this_thread::sleep_for(1700ms);
+    cluster_pub_->publish(make_cluster_msg(1.68, 0.0, 0.0, 2, 100000000u));
+
+    ASSERT_TRUE(wait_for_track_publish_count(1, 500ms));
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    EXPECT_EQ(last_track_marker_count_, 3u);
+}
+
 TEST_F(FusionNodeTest, LidarPoseIsForwardedToLocalizationPose) {
     geometry_msgs::msg::PoseWithCovarianceStamped lidar_pose;
-    lidar_pose.header.stamp.sec     = 0;
-    lidar_pose.header.stamp.nanosec = 987654321u;
-    lidar_pose.header.frame_id = "map";
+    lidar_pose.header.stamp.sec        = 0;
+    lidar_pose.header.stamp.nanosec    = 987654321u;
+    lidar_pose.header.frame_id         = "map";
     lidar_pose.pose.pose.position.x    = 1.25;
     lidar_pose.pose.pose.position.y    = -0.75;
     lidar_pose.pose.pose.position.z    = 0.5;
