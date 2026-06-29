@@ -7,7 +7,6 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -DNDEBUG")
 
 find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_auto REQUIRED)
-find_package(PCL REQUIRED COMPONENTS common io)
 find_package(Eigen3 REQUIRED)
 
 ament_auto_find_build_dependencies()
@@ -18,7 +17,6 @@ ament_auto_add_executable(${PROJECT_NAME}_node
     src/kalman_tracker.cpp
 )
 target_link_libraries(${PROJECT_NAME}_node
-    ${PCL_LIBRARIES}
     Eigen3::Eigen
 )
 
@@ -29,6 +27,7 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 
   find_package(ament_cmake_gtest REQUIRED)
+  find_package(PCL REQUIRED COMPONENTS common io)
   ament_add_gtest(radar_fusion_tests
       test/test_fusion_node.cpp
       src/fusion_node.cpp
