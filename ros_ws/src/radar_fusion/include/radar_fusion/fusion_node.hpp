@@ -15,10 +15,11 @@
 namespace radar::fusion {
 
 struct FusionConfig {
-    double gate_distance     = 1.0; // 数据关联门限（米）
-    double track_timeout_sec = 1.5; // 轨迹超时删除
-    int min_hits_to_confirm  = 3;   // 确认轨迹所需命中次数
-    int max_tracks           = 20;  // 最大轨迹数
+    double gate_distance         = 1.0; // 数据关联门限（米）
+    double track_timeout_sec     = 1.5; // 轨迹超时删除
+    int min_hits_to_confirm      = 3;   // 确认轨迹所需命中次数
+    int max_misses_before_delete = 2;
+    int max_tracks               = 20; // 最大轨迹数
 };
 
 class FusionNode : public rclcpp::Node {

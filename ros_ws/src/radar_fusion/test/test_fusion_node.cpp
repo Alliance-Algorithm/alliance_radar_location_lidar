@@ -1,7 +1,3 @@
-#include <pcl/point_cloud.h>
-#include <pcl/point_types.h>
-#include <pcl_conversions/pcl_conversions.h>
-
 #include <gtest/gtest.h>
 
 #include <chrono>
@@ -9,9 +5,13 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <tuple>
 
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
+#include <pcl_conversions/pcl_conversions.h>
 #include <rclcpp/executors/single_threaded_executor.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
@@ -135,18 +135,31 @@ protected:
 
     auto make_cluster_msg(double x, double y, double z, int32_t sec, uint32_t nanosec)
         -> sensor_msgs::msg::PointCloud2 {
-        pcl::PointCloud<pcl::PointXYZ> cloud;
-        cloud.emplace_back(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z));
-        cloud.width    = cloud.size();
-        cloud.height   = 1;
-        cloud.is_dense = true;
+        return make_cluster_array_msg({ { x, y, z } }, sec, nanosec);
+    }
+
+    auto make_cluster_array_msg(const std::vector<std::tuple<double, double, double>>& points,
+        int32_t sec, uint32_t nanosec) -> sensor_msgs::msg::PointCloud2 {
+        pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>());
+        cloud->reserve(points.size());
+        for (const auto& [x, y, z] : points) {
+            cloud->emplace_back(
+                static_cast<float>(x), static_cast<float>(y), static_cast<float>(z));
+        }
+        cloud->width    = cloud->size();
+        cloud->height   = 1;
+        cloud->is_dense = true;
 
         sensor_msgs::msg::PointCloud2 msg;
-        pcl::toROSMsg(cloud, msg);
+        pcl::toROSMsg(*cloud, msg);
         msg.header.stamp.sec     = sec;
         msg.header.stamp.nanosec = nanosec;
         msg.header.frame_id      = "map";
         return msg;
+    }
+
+    auto make_empty_cluster_msg(int32_t sec, uint32_t nanosec) -> sensor_msgs::msg::PointCloud2 {
+        return make_cluster_array_msg({ }, sec, nanosec);
     }
 
     rclcpp::executors::SingleThreadedExecutor executor_;
@@ -198,6 +211,75 @@ TEST_F(FusionNodeTest, ClusterTrackingUsesMessageTimeInsteadOfWallTime) {
 
     std::lock_guard<std::mutex> lock(mutex_);
     EXPECT_EQ(last_track_marker_count_, 3u);
+}
+
+TEST_F(FusionNodeTest, TentativeTrackIsDroppedAfterSingleMiss) {
+    cluster_pub_->publish(make_cluster_msg(0.0, 0.0, 0.0, 0, 0u));
+    std::this_thread::sleep_for(200ms);
+
+    auto empty_msg = make_empty_cluster_msg(0, 100000000u);
+    cluster_pub_->publish(empty_msg);
+    std::this_thread::sleep_for(200ms);
+
+    ASSERT_FALSE(wait_for_track_marker_count(3, 200ms));
+}
+
+TEST_F(FusionNodeTest, ConfirmedTrackSurvivesSingleMissButDropsAfterSecondMiss) {
+    cluster_pub_->publish(make_cluster_msg(0.0, 0.0, 0.0, 0, 0u));
+    std::this_thread::sleep_for(1000ms);
+    cluster_pub_->publish(make_cluster_msg(0.8, 0.0, 0.0, 1, 0u));
+    std::this_thread::sleep_for(1000ms);
+    cluster_pub_->publish(make_cluster_msg(1.6, 0.0, 0.0, 2, 0u));
+
+    ASSERT_TRUE(wait_for_track_marker_count(3, 500ms));
+
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        track_publish_count_     = 0;
+        last_track_marker_count_ = 0;
+    }
+
+    auto first_miss = make_empty_cluster_msg(2, 100000000u);
+    cluster_pub_->publish(first_miss);
+
+    ASSERT_TRUE(wait_for_track_publish_count(1, 500ms));
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        EXPECT_EQ(last_track_marker_count_, 3u);
+        track_publish_count_     = 0;
+        last_track_marker_count_ = 0;
+    }
+
+    auto second_miss = make_empty_cluster_msg(2, 200000000u);
+    cluster_pub_->publish(second_miss);
+
+    ASSERT_TRUE(wait_for_track_publish_count(1, 500ms));
+    std::lock_guard<std::mutex> lock(mutex_);
+    EXPECT_EQ(last_track_marker_count_, 0u);
+}
+
+TEST_F(FusionNodeTest, GlobalGreedyAssociationKeepsTwoConfirmedTracks) {
+    cluster_pub_->publish(make_cluster_array_msg({ { 0.0, 0.0, 0.0 }, { 1.5, 0.0, 0.0 } }, 0, 0u));
+    std::this_thread::sleep_for(1000ms);
+
+    cluster_pub_->publish(make_cluster_array_msg({ { 0.4, 0.0, 0.0 }, { 1.9, 0.0, 0.0 } }, 1, 0u));
+    std::this_thread::sleep_for(1000ms);
+
+    cluster_pub_->publish(make_cluster_array_msg({ { 0.8, 0.0, 0.0 }, { 2.3, 0.0, 0.0 } }, 2, 0u));
+
+    ASSERT_TRUE(wait_for_track_marker_count(6, 500ms));
+
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        track_publish_count_     = 0;
+        last_track_marker_count_ = 0;
+    }
+
+    cluster_pub_->publish(make_cluster_array_msg({ { 1.1, 0.0, 0.0 }, { 1.2, 0.0, 0.0 } }, 3, 0u));
+
+    ASSERT_TRUE(wait_for_track_publish_count(1, 500ms));
+    std::lock_guard<std::mutex> lock(mutex_);
+    EXPECT_EQ(last_track_marker_count_, 6u);
 }
 
 TEST_F(FusionNodeTest, LidarPoseIsForwardedToLocalizationPose) {
