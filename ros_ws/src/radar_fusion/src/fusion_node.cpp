@@ -23,6 +23,12 @@ FusionNode::FusionNode()
     cfg_.max_tracks          = this->get_parameter("max_tracks").as_int();
     tracks_.reserve(static_cast<std::size_t>(cfg_.max_tracks));
 
+    sub_lidar_pose_ = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
+        "/lidar/pose", 10,
+        [this](const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg) {
+            on_lidar_pose(msg);
+        });
+
     sub_cluster_ = this->create_subscription<sensor_msgs::msg::PointCloud2>("/lidar/cluster", 10,
         [this](const sensor_msgs::msg::PointCloud2::SharedPtr msg) { on_cluster(msg); });
 
@@ -32,6 +38,13 @@ FusionNode::FusionNode()
 
     RCLCPP_INFO(get_logger(), "radar_fusion ready. gate=%.1fm timeout=%.1fs", cfg_.gate_distance,
         cfg_.track_timeout_sec);
+}
+
+void FusionNode::on_lidar_pose(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg) {
+    geometry_msgs::msg::PoseStamped pose;
+    pose.header = msg->header;
+    pose.pose   = msg->pose.pose;
+    pub_pose_->publish(pose);
 }
 
 void FusionNode::on_cluster(const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
@@ -95,7 +108,6 @@ void FusionNode::on_cluster(const sensor_msgs::msg::PointCloud2::SharedPtr msg) 
     // 5. 发布
     auto stamp = rclcpp::Time(msg->header.stamp);
     publish_tracks(tracks_, stamp);
-    publish_pose(stamp);
 }
 
 void FusionNode::publish_tracks(
@@ -191,16 +203,6 @@ void FusionNode::publish_tracks(
     }
 
     pub_tracks_->publish(markers);
-}
-
-void FusionNode::publish_pose(const rclcpp::Time& stamp) {
-    // Phase 1: 单输入透传（只有 LiDAR 定位结果，没有融合）
-    // 后续 Phase 会在这里融合 LiDAR + camera
-    geometry_msgs::msg::PoseStamped pose;
-    pose.header.stamp       = stamp;
-    pose.header.frame_id    = "map";
-    pose.pose.orientation.w = 1.0;
-    pub_pose_->publish(pose);
 }
 
 } // namespace radar::fusion

@@ -1,0 +1,174 @@
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
+#include <pcl_conversions/pcl_conversions.h>
+
+#include <gtest/gtest.h>
+
+#include <chrono>
+#include <condition_variable>
+#include <memory>
+#include <mutex>
+#include <thread>
+
+#include <geometry_msgs/msg/pose_stamped.hpp>
+#include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
+#include <rclcpp/executors/single_threaded_executor.hpp>
+#include <rclcpp/rclcpp.hpp>
+#include <sensor_msgs/msg/point_cloud2.hpp>
+
+#include "radar_fusion/fusion_node.hpp"
+
+namespace {
+
+using namespace std::chrono_literals;
+
+class FusionNodeTest : public ::testing::Test {
+protected:
+    static void SetUpTestSuite() {
+        if (!rclcpp::ok()) {
+            int argc = 0;
+            rclcpp::init(argc, nullptr);
+        }
+    }
+
+    static void TearDownTestSuite() {
+        if (rclcpp::ok()) {
+            rclcpp::shutdown();
+        }
+    }
+
+    void SetUp() override {
+        fusion_node_     = std::make_shared<radar::fusion::FusionNode>();
+        publisher_node_  = std::make_shared<rclcpp::Node>("fusion_node_test_publisher");
+        subscriber_node_ = std::make_shared<rclcpp::Node>("fusion_node_test_subscriber");
+
+        cluster_pub_ =
+            publisher_node_->create_publisher<sensor_msgs::msg::PointCloud2>("/lidar/cluster", 10);
+        lidar_pose_pub_ = publisher_node_->create_publisher<
+            geometry_msgs::msg::PoseWithCovarianceStamped>("/lidar/pose", 10);
+
+        pose_sub_ = subscriber_node_->create_subscription<geometry_msgs::msg::PoseStamped>(
+            "/localization/pose", 10,
+            [this](const geometry_msgs::msg::PoseStamped::SharedPtr msg) {
+                std::lock_guard<std::mutex> lock(mutex_);
+                last_pose_ = *msg;
+                ++pose_count_;
+                cv_.notify_all();
+            });
+
+        executor_.add_node(fusion_node_);
+        executor_.add_node(publisher_node_);
+        executor_.add_node(subscriber_node_);
+        spin_thread_ = std::thread([this]() { executor_.spin(); });
+
+        ASSERT_TRUE(wait_for_discovery()) << "ROS entities failed to discover each other";
+    }
+
+    void TearDown() override {
+        executor_.cancel();
+        if (spin_thread_.joinable()) {
+            spin_thread_.join();
+        }
+        executor_.remove_node(subscriber_node_);
+        executor_.remove_node(publisher_node_);
+        executor_.remove_node(fusion_node_);
+
+        pose_sub_.reset();
+        cluster_pub_.reset();
+        lidar_pose_pub_.reset();
+        subscriber_node_.reset();
+        publisher_node_.reset();
+        fusion_node_.reset();
+
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            pose_count_ = 0;
+            last_pose_  = geometry_msgs::msg::PoseStamped();
+        }
+    }
+
+    auto wait_for_discovery() -> bool {
+        const auto deadline = std::chrono::steady_clock::now() + 2s;
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (cluster_pub_->get_subscription_count() > 0 &&
+                lidar_pose_pub_->get_subscription_count() > 0 &&
+                pose_sub_->get_publisher_count() > 0) {
+                return true;
+            }
+            std::this_thread::sleep_for(20ms);
+        }
+        return false;
+    }
+
+    auto wait_for_pose_count(std::size_t expected_count, std::chrono::milliseconds timeout) -> bool {
+        std::unique_lock<std::mutex> lock(mutex_);
+        return cv_.wait_for(lock, timeout, [&]() { return pose_count_ >= expected_count; });
+    }
+
+    auto make_cluster_msg(double x, double y, double z) -> sensor_msgs::msg::PointCloud2 {
+        pcl::PointCloud<pcl::PointXYZ> cloud;
+        cloud.emplace_back(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z));
+        cloud.width    = cloud.size();
+        cloud.height   = 1;
+        cloud.is_dense = true;
+
+        sensor_msgs::msg::PointCloud2 msg;
+        pcl::toROSMsg(cloud, msg);
+        msg.header.stamp.sec     = 0;
+        msg.header.stamp.nanosec = 123456789u;
+        msg.header.frame_id = "map";
+        return msg;
+    }
+
+    rclcpp::executors::SingleThreadedExecutor executor_;
+    std::shared_ptr<radar::fusion::FusionNode> fusion_node_;
+    rclcpp::Node::SharedPtr publisher_node_;
+    rclcpp::Node::SharedPtr subscriber_node_;
+    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr cluster_pub_;
+    rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr lidar_pose_pub_;
+    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;
+    std::thread spin_thread_;
+
+    std::mutex mutex_;
+    std::condition_variable cv_;
+    std::size_t pose_count_ = 0;
+    geometry_msgs::msg::PoseStamped last_pose_;
+};
+
+}
+
+TEST_F(FusionNodeTest, ClusterOnlyInputDoesNotPublishLocalizationPose) {
+    auto cluster_msg = make_cluster_msg(1.0, 2.0, 0.0);
+    cluster_pub_->publish(cluster_msg);
+
+    EXPECT_FALSE(wait_for_pose_count(1, 300ms));
+}
+
+TEST_F(FusionNodeTest, LidarPoseIsForwardedToLocalizationPose) {
+    geometry_msgs::msg::PoseWithCovarianceStamped lidar_pose;
+    lidar_pose.header.stamp.sec     = 0;
+    lidar_pose.header.stamp.nanosec = 987654321u;
+    lidar_pose.header.frame_id = "map";
+    lidar_pose.pose.pose.position.x    = 1.25;
+    lidar_pose.pose.pose.position.y    = -0.75;
+    lidar_pose.pose.pose.position.z    = 0.5;
+    lidar_pose.pose.pose.orientation.x = 0.1;
+    lidar_pose.pose.pose.orientation.y = -0.2;
+    lidar_pose.pose.pose.orientation.z = 0.3;
+    lidar_pose.pose.pose.orientation.w = 0.9;
+
+    lidar_pose_pub_->publish(lidar_pose);
+    ASSERT_TRUE(wait_for_pose_count(1, 1s));
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    EXPECT_EQ(last_pose_.header.frame_id, lidar_pose.header.frame_id);
+    EXPECT_EQ(last_pose_.header.stamp.sec, lidar_pose.header.stamp.sec);
+    EXPECT_EQ(last_pose_.header.stamp.nanosec, lidar_pose.header.stamp.nanosec);
+    EXPECT_DOUBLE_EQ(last_pose_.pose.position.x, lidar_pose.pose.pose.position.x);
+    EXPECT_DOUBLE_EQ(last_pose_.pose.position.y, lidar_pose.pose.pose.position.y);
+    EXPECT_DOUBLE_EQ(last_pose_.pose.position.z, lidar_pose.pose.pose.position.z);
+    EXPECT_DOUBLE_EQ(last_pose_.pose.orientation.x, lidar_pose.pose.pose.orientation.x);
+    EXPECT_DOUBLE_EQ(last_pose_.pose.orientation.y, lidar_pose.pose.pose.orientation.y);
+    EXPECT_DOUBLE_EQ(last_pose_.pose.orientation.z, lidar_pose.pose.pose.orientation.z);
+    EXPECT_DOUBLE_EQ(last_pose_.pose.orientation.w, lidar_pose.pose.pose.orientation.w);
+}

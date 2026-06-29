@@ -22,5 +22,32 @@ target_link_libraries(${PROJECT_NAME}_node
     Eigen3::Eigen
 )
 
+if(BUILD_TESTING)
+  find_package(ament_lint_auto REQUIRED)
+  set(ament_cmake_copyright_FOUND TRUE)
+  set(ament_cmake_cpplint_FOUND TRUE)
+  ament_lint_auto_find_test_dependencies()
+
+  find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(radar_fusion_tests
+      test/test_fusion_node.cpp
+      src/fusion_node.cpp
+      src/kalman_tracker.cpp
+  )
+  target_include_directories(radar_fusion_tests PRIVATE include ${PCL_INCLUDE_DIRS})
+  ament_target_dependencies(radar_fusion_tests
+      rclcpp
+      geometry_msgs
+      sensor_msgs
+      visualization_msgs
+      pcl_conversions
+      tf2_geometry_msgs
+  )
+  target_link_libraries(radar_fusion_tests
+      ${PCL_LIBRARIES}
+      Eigen3::Eigen
+  )
+endif()
+
 install(TARGETS ${PROJECT_NAME}_node DESTINATION lib/${PROJECT_NAME})
 ament_package()
