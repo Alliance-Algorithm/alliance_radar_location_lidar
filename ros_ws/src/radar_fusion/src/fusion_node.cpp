@@ -2,10 +2,21 @@
 
 #include <algorithm>
 #include <cmath>
+#include <tuple>
 
 #include <sensor_msgs/point_cloud2_iterator.hpp>
 
 namespace radar::fusion {
+
+namespace {
+
+    struct AssociationCandidate {
+        std::size_t track_idx;
+        std::size_t measurement_idx;
+        double distance_sq;
+    };
+
+}
 
 FusionNode::FusionNode()
     : Node("radar_fusion_node") {
@@ -13,12 +24,14 @@ FusionNode::FusionNode()
     this->declare_parameter("gate_distance", 1.0);
     this->declare_parameter("track_timeout_sec", 1.5);
     this->declare_parameter("min_hits_to_confirm", 3);
+    this->declare_parameter("max_misses_before_delete", 2);
     this->declare_parameter("max_tracks", 20);
 
-    cfg_.gate_distance       = this->get_parameter("gate_distance").as_double();
-    cfg_.track_timeout_sec   = this->get_parameter("track_timeout_sec").as_double();
-    cfg_.min_hits_to_confirm = this->get_parameter("min_hits_to_confirm").as_int();
-    cfg_.max_tracks          = this->get_parameter("max_tracks").as_int();
+    cfg_.gate_distance            = this->get_parameter("gate_distance").as_double();
+    cfg_.track_timeout_sec        = this->get_parameter("track_timeout_sec").as_double();
+    cfg_.min_hits_to_confirm      = this->get_parameter("min_hits_to_confirm").as_int();
+    cfg_.max_misses_before_delete = this->get_parameter("max_misses_before_delete").as_int();
+    cfg_.max_tracks               = this->get_parameter("max_tracks").as_int();
     tracks_.reserve(static_cast<std::size_t>(cfg_.max_tracks));
 
     sub_lidar_pose_ = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>("/li"
@@ -68,24 +81,40 @@ void FusionNode::on_cluster(const sensor_msgs::msg::PointCloud2::SharedPtr msg) 
     }
 
     // 2. 数据关联（最近邻贪婪匹配）
+    std::vector<bool> matched_tracks(tracks_.size(), false);
     std::vector<bool> matched_meas(measurements.size(), false);
     const double gate_distance_sq = cfg_.gate_distance * cfg_.gate_distance;
+    std::vector<AssociationCandidate> candidates;
+    candidates.reserve(tracks_.size() * measurements.size());
 
     for (size_t i = 0; i < tracks_.size(); ++i) {
-        double min_dist_sq = gate_distance_sq;
-        int min_idx        = -1;
         for (size_t j = 0; j < measurements.size(); ++j) {
-            if (matched_meas[j]) continue;
             const double d_sq = tracks_[i].distance_squared_to(measurements[j]);
-            if (d_sq < min_dist_sq) {
-                min_dist_sq = d_sq;
-                min_idx     = static_cast<int>(j);
+            if (d_sq < gate_distance_sq) {
+                candidates.push_back({ i, j, d_sq });
             }
         }
+    }
 
-        if (min_idx >= 0) {
-            tracks_[i].update(measurements[min_idx], now_ns);
-            matched_meas[min_idx] = true;
+    std::sort(candidates.begin(), candidates.end(),
+        [](const AssociationCandidate& lhs, const AssociationCandidate& rhs) {
+            return lhs.distance_sq < rhs.distance_sq;
+        });
+
+    for (const auto& candidate : candidates) {
+        if (matched_tracks[candidate.track_idx] || matched_meas[candidate.measurement_idx]) {
+            continue;
+        }
+
+        tracks_[candidate.track_idx].update(
+            measurements[candidate.measurement_idx], now_ns, cfg_.min_hits_to_confirm);
+        matched_tracks[candidate.track_idx]     = true;
+        matched_meas[candidate.measurement_idx] = true;
+    }
+
+    for (size_t i = 0; i < tracks_.size(); ++i) {
+        if (!matched_tracks[i]) {
+            tracks_[i].mark_missed(cfg_.max_misses_before_delete);
         }
     }
 
@@ -95,14 +124,15 @@ void FusionNode::on_cluster(const sensor_msgs::msg::PointCloud2::SharedPtr msg) 
         if (tracks_.size() >= static_cast<size_t>(cfg_.max_tracks)) break;
 
         KalmanTracker new_track(next_track_id_++);
-        new_track.update(measurements[j], now_ns);
+        new_track.update(measurements[j], now_ns, cfg_.min_hits_to_confirm);
         tracks_.push_back(new_track);
     }
 
     // 4. 删除超时轨迹
     tracks_.erase(std::remove_if(tracks_.begin(), tracks_.end(),
                       [&](const KalmanTracker& t) {
-                          return t.state().is_stale(now_ns, cfg_.track_timeout_sec);
+                          return t.state().is_deleted()
+                              || t.state().is_stale(now_ns, cfg_.track_timeout_sec);
                       }),
         tracks_.end());
 
@@ -116,7 +146,7 @@ void FusionNode::publish_tracks(
 
     for (size_t i = 0; i < tracks.size(); ++i) {
         const auto& s = tracks[i].state();
-        if (s.hit_count < cfg_.min_hits_to_confirm) continue;
+        if (!s.is_confirmed()) continue;
 
         // 轨迹位置（球体）
         visualization_msgs::msg::Marker m;
