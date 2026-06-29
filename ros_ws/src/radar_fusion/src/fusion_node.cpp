@@ -1,11 +1,9 @@
 #include "radar_fusion/fusion_node.hpp"
 
-#include <pcl/point_cloud.h>
-#include <pcl/point_types.h>
-#include <pcl_conversions/pcl_conversions.h>
-
 #include <algorithm>
 #include <cmath>
+
+#include <sensor_msgs/point_cloud2_iterator.hpp>
 
 namespace radar::fusion {
 
@@ -53,15 +51,14 @@ void FusionNode::on_cluster(const sensor_msgs::msg::PointCloud2::SharedPtr msg) 
     auto stamp  = rclcpp::Time(msg->header.stamp);
     auto now_ns = stamp.nanoseconds();
 
-    // 解析聚类质心点云
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
-    pcl::fromROSMsg(*msg, *cloud);
-
     std::vector<Eigen::Vector2d> measurements;
-    measurements.reserve(cloud->size());
-    for (const auto& pt : cloud->points) {
-        if (std::isfinite(pt.x) && std::isfinite(pt.y)) {
-            measurements.emplace_back(pt.x, pt.y);
+    measurements.reserve(msg->width * msg->height);
+
+    sensor_msgs::PointCloud2ConstIterator<float> iter_x(*msg, "x");
+    sensor_msgs::PointCloud2ConstIterator<float> iter_y(*msg, "y");
+    for (; iter_x != iter_x.end(); ++iter_x, ++iter_y) {
+        if (std::isfinite(*iter_x) && std::isfinite(*iter_y)) {
+            measurements.emplace_back(*iter_x, *iter_y);
         }
     }
 
