@@ -15,13 +15,13 @@
 namespace radar {
 
 struct DynamicCloudConfig {
-    float distance_threshold = 0.1f; // KdTree 最近邻距离²阈值，大于则为动态点
-    int num_threads          = 12;
-    int accumulate_frames    = 3; // 滑动窗口帧数
-    bool use_roi             = true;
-    float roi_x_min = 0, roi_x_max = 30;
-    float roi_y_min = -15, roi_y_max = 15;
-    float roi_z_min = 0, roi_z_max = 1.4f;
+    double distance_threshold = 0.1;
+    int num_threads           = 12;
+    int accumulate_frames     = 3;
+    bool use_roi              = true;
+    double roi_x_min = 0, roi_x_max = 30;
+    double roi_y_min = -15, roi_y_max = 15;
+    double roi_z_min = 0, roi_z_max = 1.4;
 };
 
 /// @brief 动态点提取

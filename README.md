@@ -96,6 +96,7 @@ docker exec -it RADAR zsh
 |------|------|
 | `build-all [Release\|Debug]` | 编译所有包（third-party + 全部 radar 包） |
 | `build-radar [Release\|Debug]` | 编译 radar_calibration |
+| `offline-registration <scan.pcd> --map <map.pcd>` | 启动离线配准可视化节点，发布 `/offline/*` 话题给 Foxglove |
 | `run-radar` | 运行标定定位节点 |
 | `format-radar` | 格式化 C++ 源文件 |
 | `banner` | 显示 ALLIANCE RADAR ASCII art |
@@ -113,6 +114,28 @@ docker exec -it RADAR zsh
 ```bash
 ros2 launch foxglove_bridge foxglove_bridge_launch.xml port:=8765
 ```
+
+### 离线配准可视化
+
+```bash
+offline-registration /path/to/scan.pcd --map /path/to/map.pcd
+```
+
+或直接使用 launch：
+
+```bash
+ros2 launch radar_bringup offline_registration.launch.py \
+  map_path:=/path/to/map.pcd \
+  scan_path:=/path/to/scan.pcd
+```
+
+Foxglove 里主要查看这些话题：
+
+- `/offline/map`
+- `/offline/scan_raw`
+- `/offline/scan_aligned`
+- `/offline/overlay`
+- `/offline/pose`
 
 ---
 

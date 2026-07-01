@@ -10,5 +10,8 @@ CompileFlags:
     - -I/usr/lib/gcc/x86_64-linux-gnu/14/include
 Diagnostics:
   UnusedIncludes: None
+  Suppress:
+    - conflicting_types
+    - builtin_definition
   ClangTidy:
     Remove: [modernize-use-trailing-return-type]

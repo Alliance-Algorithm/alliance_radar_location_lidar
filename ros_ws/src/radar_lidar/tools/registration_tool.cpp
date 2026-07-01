@@ -1,17 +1,22 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 
+#include <pcl/filters/voxel_grid.h>
 #include <pcl/io/pcd_io.h>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 
-#include <small_gicp/registration/registration_helper.hpp>
-
+#include <charconv>
 #include <cmath>
+#include <expected>
+#include <format>
 #include <fstream>
 #include <iomanip>
-#include <iostream>
+#include <numbers>
+#include <print>
+#include <ranges>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "radar_lidar/localization.hpp"
@@ -20,10 +25,19 @@
 
 namespace {
 
+constexpr auto deg_to_rad(double deg) -> double {
+    return deg * std::numbers::pi / 180.0;
+}
+
+constexpr auto rad_to_deg(double rad) -> double {
+    return rad * 180.0 / std::numbers::pi;
+}
+
 struct Args {
     std::string map_path;
     std::string scan_path;
     double voxel_leaf      = 0.1;
+    double scan_voxel      = 0.1;
     double max_corr        = 1.0;
     int max_iter           = 48;
     int num_threads        = 4;
@@ -36,20 +50,44 @@ struct Args {
     bool verbose           = false;
 };
 
-auto parse_args(int argc, char** argv) -> Args {
+auto usage(std::string_view prog) -> std::string {
+    return std::format(
+        "Usage: {} <map.pcd> <scan.pcd> [options]\n"
+        "Options:\n"
+        "  --voxel <float>       map voxel size (default 0.1)\n"
+        "  --scan-voxel <float>   scan VoxelGrid downsampling (default 0.1, 0=off)\n"
+        "  --max-corr <float>    GICP max correspondence distance (default 1.0)\n"
+        "  --max-iter <int>      GICP max iterations (default 48)\n"
+        "  --num-threads <int>   parallel threads (default 4)\n"
+        "  --init-x/y/z <float>  initial pose translation (default 0)\n"
+        "  --init-yaw <float>    initial pose yaw in degrees (default 0)\n"
+        "  --output <path>       aligned PCD output (default aligned.pcd)\n"
+        "  --pose-out <path>     pose JSON output (default pose.json)\n"
+        "  --verbose             verbose GICP output\n",
+        prog);
+}
+
+template <typename T>
+auto parse_number(std::string_view sv) -> std::expected<T, std::string> {
+    T value{};
+    const auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), value);
+    if (ec != std::errc{}) {
+        return std::unexpected(std::format("Invalid number: '{}'", sv));
+    }
+    return value;
+}
+
+template <typename T>
+auto checked_assign(T& dest, std::string_view val) -> std::expected<void, std::string> {
+    auto n = parse_number<T>(val);
+    if (!n) return std::unexpected(n.error());
+    dest = *n;
+    return {};
+}
+
+auto parse_args(int argc, char** argv) -> std::expected<Args, std::string> {
     if (argc < 3) {
-        std::cerr << "Usage: " << argv[0] << " <map.pcd> <scan.pcd> [options]\n"
-                  << "Options:\n"
-                  << "  --voxel <float>       map voxel size (default 0.1)\n"
-                  << "  --max-corr <float>    GICP max correspondence distance (default 1.0)\n"
-                  << "  --max-iter <int>      GICP max iterations (default 48)\n"
-                  << "  --num-threads <int>   parallel threads (default 4)\n"
-                  << "  --init-x/y/z <float>  initial pose translation (default 0)\n"
-                  << "  --init-yaw <float>    initial pose yaw in degrees (default 0)\n"
-                  << "  --output <path>       aligned PCD output (default aligned.pcd)\n"
-                  << "  --pose-out <path>     pose JSON output (default pose.json)\n"
-                  << "  --verbose             verbose GICP output\n";
-        std::exit(1);
+        return std::unexpected(usage(argv[0]));
     }
 
     Args args;
@@ -57,100 +95,156 @@ auto parse_args(int argc, char** argv) -> Args {
     args.scan_path = argv[2];
 
     for (int i = 3; i < argc; ++i) {
-        std::string arg = argv[i];
-        if (arg == "--voxel" && i + 1 < argc) args.voxel_leaf = std::stod(argv[++i]);
-        else if (arg == "--max-corr" && i + 1 < argc) args.max_corr = std::stod(argv[++i]);
-        else if (arg == "--max-iter" && i + 1 < argc) args.max_iter = std::stoi(argv[++i]);
-        else if (arg == "--num-threads" && i + 1 < argc) args.num_threads = std::stoi(argv[++i]);
-        else if (arg == "--init-x" && i + 1 < argc) args.init_x = std::stod(argv[++i]);
-        else if (arg == "--init-y" && i + 1 < argc) args.init_y = std::stod(argv[++i]);
-        else if (arg == "--init-z" && i + 1 < argc) args.init_z = std::stod(argv[++i]);
-        else if (arg == "--init-yaw" && i + 1 < argc) args.init_yaw_deg = std::stod(argv[++i]);
-        else if (arg == "--output" && i + 1 < argc) args.output_pcd = argv[++i];
-        else if (arg == "--pose-out" && i + 1 < argc) args.pose_out = argv[++i];
-        else if (arg == "--verbose") args.verbose = true;
+        std::string_view arg = argv[i];
+
+        if (arg == "--verbose") {
+            args.verbose = true;
+            continue;
+        }
+
+        if (i + 1 >= argc) {
+            return std::unexpected(std::format("ERROR: {} requires a value\n{}", arg, usage(argv[0])));
+        }
+        const std::string val = argv[++i];
+
+        if (arg == "--output")        { args.output_pcd = val; continue; }
+        if (arg == "--pose-out")      { args.pose_out   = val; continue; }
+
+        if (arg == "--voxel")         { if (auto r = checked_assign(args.voxel_leaf,   val); !r) return std::unexpected(r.error()); }
+        else if (arg == "--scan-voxel")  { if (auto r = checked_assign(args.scan_voxel,   val); !r) return std::unexpected(r.error()); }
+        else if (arg == "--max-corr")      { if (auto r = checked_assign(args.max_corr,       val); !r) return std::unexpected(r.error()); }
+        else if (arg == "--max-iter")      { if (auto r = checked_assign(args.max_iter,       val); !r) return std::unexpected(r.error()); }
+        else if (arg == "--num-threads")   { if (auto r = checked_assign(args.num_threads,    val); !r) return std::unexpected(r.error()); }
+        else if (arg == "--init-x")        { if (auto r = checked_assign(args.init_x,         val); !r) return std::unexpected(r.error()); }
+        else if (arg == "--init-y")        { if (auto r = checked_assign(args.init_y,         val); !r) return std::unexpected(r.error()); }
+        else if (arg == "--init-z")        { if (auto r = checked_assign(args.init_z,         val); !r) return std::unexpected(r.error()); }
+        else if (arg == "--init-yaw")      { if (auto r = checked_assign(args.init_yaw_deg,   val); !r) return std::unexpected(r.error()); }
         else {
-            std::cerr << "Unknown argument: " << arg << "\n";
-            std::exit(1);
+            return std::unexpected(std::format("ERROR: unknown argument '{}'\n{}", arg, usage(argv[0])));
         }
     }
     return args;
 }
 
-void write_pose_json(const std::string& path, const radar::types::PoseEstimate& pose) {
+auto filter_valid_points(const pcl::PointCloud<pcl::PointXYZ>& pcl_cloud)
+    -> radar::types::Frame {
+    auto points = pcl_cloud.points
+        | std::views::filter([](const auto& pt) {
+              return std::isfinite(pt.x) && std::isfinite(pt.y) && std::isfinite(pt.z)
+                  && (pt.x * pt.x + pt.y * pt.y + pt.z * pt.z) > 1e-12;
+          })
+        | std::views::transform([](const auto& pt) {
+              return Eigen::Vector3d(pt.x, pt.y, pt.z);
+          })
+        | std::ranges::to<std::vector<Eigen::Vector3d>>();
+    return { .points = std::move(points) };
+}
+
+auto write_pose_json(const std::string& path, const radar::types::PoseEstimate& pose)
+    -> std::expected<void, std::string> {
     const auto& T    = pose.T;
     const auto trans = T.translation();
     const Eigen::Quaterniond q(T.rotation());
+    const auto euler = q.toRotationMatrix().eulerAngles(0, 1, 2);
+
+    auto fmt_row = [&](int i) {
+        const auto r = pose.covariance.row(i);
+        return std::format("    [{:.8f}, {:.8f}, {:.8f}, {:.8f}, {:.8f}, {:.8f}]{}",
+            r(0), r(1), r(2), r(3), r(4), r(5), i < 5 ? "," : "");
+    };
+    auto cov = std::views::iota(0, 6)
+        | std::views::transform(fmt_row)
+        | std::views::join_with('\n')
+        | std::ranges::to<std::string>();
+
+    auto json = std::format(
+        "{{\n"
+        "  \"converged\": {},\n"
+        "  \"fitness_score\": {:.8f},\n"
+        "  \"translation\": [{:.8f}, {:.8f}, {:.8f}],\n"
+        "  \"rotation_quaternion\": [{:.8f}, {:.8f}, {:.8f}, {:.8f}],\n"
+        "  \"rotation_euler_xyz_deg\": [{:.8f}, {:.8f}, {:.8f}],\n"
+        "  \"covariance\": [\n"
+        "{}\n"
+        "  ]\n"
+        "}}\n",
+        pose.converged ? "true" : "false", pose.fitness_score,
+        trans.x(), trans.y(), trans.z(),
+        q.x(), q.y(), q.z(), q.w(),
+        rad_to_deg(euler.x()), rad_to_deg(euler.y()), rad_to_deg(euler.z()),
+        cov);
 
     std::ofstream f(path);
-    f << std::fixed << std::setprecision(8);
-    f << "{\n";
-    f << "  \"converged\": " << (pose.converged ? "true" : "false") << ",\n";
-    f << "  \"fitness_score\": " << pose.fitness_score << ",\n";
-    f << "  \"translation\": [" << trans.x() << ", " << trans.y() << ", " << trans.z() << "],\n";
-    f << "  \"rotation_quaternion\": [" << q.x() << ", " << q.y() << ", " << q.z() << ", " << q.w()
-      << "],\n";
-    f << "  \"rotation_euler_xyz_deg\": ["
-      << q.toRotationMatrix().eulerAngles(0, 1, 2).x() * 180.0 / M_PI << ", "
-      << q.toRotationMatrix().eulerAngles(0, 1, 2).y() * 180.0 / M_PI << ", "
-      << q.toRotationMatrix().eulerAngles(0, 1, 2).z() * 180.0 / M_PI << "],\n";
-    f << "  \"covariance\": [\n";
-    for (int i = 0; i < 6; ++i) {
-        f << "    [";
-        for (int j = 0; j < 6; ++j) {
-            f << pose.covariance(i, j);
-            if (j < 5) f << ", ";
-        }
-        f << "]";
-        if (i < 5) f << ",";
-        f << "\n";
+    if (!f) {
+        return std::unexpected(std::format("Cannot open file: {}", path));
     }
-    f << "  ]\n";
-    f << "}\n";
+    f << json;
+    return {};
+}
+
+auto build_merged_pcd(const pcl::PointCloud<pcl::PointXYZ>& map_cloud,
+    const radar::types::PointCloud& scan, const Eigen::Isometry3d& T)
+    -> pcl::PointCloud<pcl::PointXYZI>::Ptr {
+    auto merged = pcl::make_shared<pcl::PointCloud<pcl::PointXYZI>>();
+    merged->reserve(map_cloud.size() + scan.size());
+
+    for (const auto& pt : map_cloud.points)
+        merged->emplace_back(pt.x, pt.y, pt.z, 0.0f);
+    for (const auto& pt : scan) {
+        const Eigen::Vector3d tp = T * pt;
+        merged->emplace_back(tp.x(), tp.y(), tp.z(), 1.0f);
+    }
+    merged->width    = merged->size();
+    merged->height   = 1;
+    merged->is_dense = true;
+    return merged;
 }
 
 } // namespace
 
 int main(int argc, char** argv) {
-    const auto args = parse_args(argc, argv);
+    auto args_result = parse_args(argc, argv);
+    if (!args_result) {
+        std::println(stderr, "{}", args_result.error());
+        return 1;
+    }
+    const auto& args = *args_result;
 
-    // ── 1. 加载地图 ──────────────────────────────────────────────
-    std::cout << "[registration_tool] Loading map: " << args.map_path << std::endl;
+    std::println("[registration_tool] Loading map: {}", args.map_path);
     auto map_result = radar::MapData::Load(args.map_path, args.voxel_leaf);
     if (!map_result) {
-        std::cerr << "[registration_tool] ERROR: " << map_result.error() << std::endl;
+        std::println(stderr, "[registration_tool] ERROR: {}", map_result.error());
         return 1;
     }
-    auto map = *map_result;
-    std::cout << "[registration_tool] Map loaded: " << map->size() << " points" << std::endl;
+    const auto& map = *map_result;
+    std::println("[registration_tool] Map loaded: {} points", map->size());
 
-    // ── 2. 加载扫描 ──────────────────────────────────────────────
-    std::cout << "[registration_tool] Loading scan: " << args.scan_path << std::endl;
-    pcl::PointCloud<pcl::PointXYZ>::Ptr scan_pcl(new pcl::PointCloud<pcl::PointXYZ>());
+    std::println("[registration_tool] Loading scan: {}", args.scan_path);
+    auto scan_pcl = pcl::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
     if (pcl::io::loadPCDFile<pcl::PointXYZ>(args.scan_path, *scan_pcl) == -1) {
-        std::cerr << "[registration_tool] ERROR: Failed to load scan PCD" << std::endl;
+        std::println(stderr, "[registration_tool] ERROR: Failed to load scan PCD");
         return 1;
     }
 
-    // 过滤 NaN/Inf 和零点（和 pipeline.cpp 一致）
-    radar::types::Frame frame;
-    frame.points.reserve(scan_pcl->size());
-    for (const auto& pt : scan_pcl->points) {
-        if (std::isfinite(pt.x) && std::isfinite(pt.y) && std::isfinite(pt.z)
-            && (pt.x * pt.x + pt.y * pt.y + pt.z * pt.z) > 1e-12) {
-            frame.points.emplace_back(pt.x, pt.y, pt.z);
-        }
+    if (args.scan_voxel > 0.0) {
+        auto downsampled = pcl::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
+        pcl::VoxelGrid<pcl::PointXYZ> vg;
+        vg.setLeafSize(args.scan_voxel, args.scan_voxel, args.scan_voxel);
+        vg.setInputCloud(scan_pcl);
+        vg.filter(*downsampled);
+        std::println("[registration_tool] Scan downsampled: {} → {} points (voxel={})",
+            scan_pcl->size(), downsampled->size(), args.scan_voxel);
+        scan_pcl = downsampled;
     }
-    std::cout << "[registration_tool] Scan loaded: " << frame.points.size() << " points"
-              << std::endl;
 
+    auto frame = filter_valid_points(*scan_pcl);
+    std::println("[registration_tool] Scan loaded: {} valid points", frame.points.size());
     if (frame.points.size() < 100) {
-        std::cerr << "[registration_tool] ERROR: Too few scan points: " << frame.points.size()
-                  << std::endl;
+        std::println(stderr, "[registration_tool] ERROR: Too few scan points: {}",
+            frame.points.size());
         return 1;
     }
 
-    // ── 3. 配准 ──────────────────────────────────────────────────
     radar::config::LocalizationConfig cfg;
     cfg.voxel_leaf_size   = args.voxel_leaf;
     cfg.max_corr_distance = args.max_corr;
@@ -158,27 +252,24 @@ int main(int argc, char** argv) {
     cfg.num_threads       = args.num_threads;
     cfg.verbose           = args.verbose;
 
-    // 如果给了初始位姿，通过 set_initial_pose 传入
     auto localization = radar::LocalizationStage(map, cfg);
 
     if (args.init_x != 0.0 || args.init_y != 0.0 || args.init_z != 0.0
         || args.init_yaw_deg != 0.0) {
         Eigen::Isometry3d init_pose = Eigen::Isometry3d::Identity();
         init_pose.translation()     = Eigen::Vector3d(args.init_x, args.init_y, args.init_z);
-        double yaw_rad              = args.init_yaw_deg * M_PI / 180.0;
         init_pose.linear() =
-            (Eigen::AngleAxisd(yaw_rad, Eigen::Vector3d::UnitZ())).toRotationMatrix();
+            Eigen::AngleAxisd(deg_to_rad(args.init_yaw_deg), Eigen::Vector3d::UnitZ())
+                .toRotationMatrix();
         localization.set_initial_pose(init_pose);
-        std::cout << "[registration_tool] Initial pose set: x=" << args.init_x
-                  << " y=" << args.init_y << " z=" << args.init_z << " yaw=" << args.init_yaw_deg
-                  << "deg" << std::endl;
+        std::println("[registration_tool] Initial pose: x={} y={} z={} yaw={}deg",
+            args.init_x, args.init_y, args.init_z, args.init_yaw_deg);
     }
 
-    std::cout << "[registration_tool] Running GICP..." << std::endl;
+    std::println("[registration_tool] Running GICP...");
     auto result = localization.process(frame);
-
     if (!result) {
-        std::cerr << "[registration_tool] GICP FAILED: " << result.error() << std::endl;
+        std::println(stderr, "[registration_tool] GICP FAILED: {}", result.error());
         return 2;
     }
 
@@ -187,54 +278,25 @@ int main(int argc, char** argv) {
     const auto trans = T.translation();
     const Eigen::Quaterniond q(T.rotation());
 
-    std::cout << "[registration_tool] === Result ===" << std::endl;
-    std::cout << "  converged:      " << (pose.converged ? "true" : "false") << std::endl;
-    std::cout << "  fitness_score:  " << pose.fitness_score << std::endl;
-    std::cout << "  translation:    [" << trans.x() << ", " << trans.y() << ", " << trans.z() << "]"
-              << std::endl;
-    std::cout << "  quaternion:     [" << q.x() << ", " << q.y() << ", " << q.z() << ", " << q.w()
-              << "]" << std::endl;
+    std::println("[registration_tool] === Result ===");
+    std::println("  converged:      {}", pose.converged ? "true" : "false");
+    std::println("  fitness_score:  {}", pose.fitness_score);
+    std::println("  translation:    [{}, {}, {}]", trans.x(), trans.y(), trans.z());
+    std::println("  quaternion:     [{}, {}, {}, {}]", q.x(), q.y(), q.z(), q.w());
 
-    // ── 4. 写位姿 JSON ───────────────────────────────────────────
-    write_pose_json(args.pose_out, pose);
-    std::cout << "[registration_tool] Pose written: " << args.pose_out << std::endl;
-
-    // ── 5. 变换扫描并写叠加 PCD ──────────────────────────────────
-    // 用配准结果变换扫描点云，和地图合并成一个 PCD
-    pcl::PointCloud<pcl::PointXYZI>::Ptr merged(new pcl::PointCloud<pcl::PointXYZI>());
-
-    // 地图点 intensity=0
-    for (const auto& pt : map->pcl_cloud().points) {
-        pcl::PointXYZI p;
-        p.x         = pt.x;
-        p.y         = pt.y;
-        p.z         = pt.z;
-        p.intensity = 0.0f;
-        merged->push_back(p);
-    }
-
-    // 变换后的扫描点 intensity=1
-    for (const auto& pt : frame.points) {
-        Eigen::Vector3d transformed = T * pt;
-        pcl::PointXYZI p;
-        p.x         = transformed.x();
-        p.y         = transformed.y();
-        p.z         = transformed.z();
-        p.intensity = 1.0f;
-        merged->push_back(p);
-    }
-
-    merged->width    = merged->size();
-    merged->height   = 1;
-    merged->is_dense = true;
-
-    if (pcl::io::savePCDFileBinary(args.output_pcd, *merged) != 0) {
-        std::cerr << "[registration_tool] ERROR: Failed to write aligned PCD" << std::endl;
+    if (auto r = write_pose_json(args.pose_out, pose); !r) {
+        std::println(stderr, "[registration_tool] ERROR: {}", r.error());
         return 1;
     }
+    std::println("[registration_tool] Pose written: {}", args.pose_out);
 
-    std::cout << "[registration_tool] Aligned PCD written: " << args.output_pcd << " ("
-              << merged->size() << " points, intensity 0=map 1=scan)" << std::endl;
+    auto merged = build_merged_pcd(map->pcl_cloud(), frame.points, T);
+    if (pcl::io::savePCDFileBinary(args.output_pcd, *merged) != 0) {
+        std::println(stderr, "[registration_tool] ERROR: Failed to write aligned PCD");
+        return 1;
+    }
+    std::println("[registration_tool] Aligned PCD: {} ({} points, intensity 0=map 1=scan)",
+        args.output_pcd, merged->size());
 
     return 0;
 }

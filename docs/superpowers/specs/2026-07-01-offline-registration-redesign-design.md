@@ -2,7 +2,7 @@
 
 日期: 2026-07-01
 状态: 待评审
-作者: Sisyphus (与 @Yukikaze 协作 brainstorming)
+作者:  @Yukikaze2233
 
 ---
 

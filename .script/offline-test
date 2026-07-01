@@ -1,119 +1,89 @@
 #!/bin/bash
-# offline-test — 离线配准全流程一键脚本
+# offline-test - launch offline registration visualization node
 #
-# 流程: FBX→PCD → 离线GICP配准 → Open3D可视化
+# Usage:
+#   offline-test <scan.pcd> --map <map.pcd> [extra ros2 launch args...]
 #
-# 用法:
-#   offline-test <scan.pcd> [options]
-#   offline-test <scan.pcd> --map <map.pcd>  # 使用已有地图
-#
-# 选项:
-#   --map <path>        地图PCD（默认从FBX生成）
-#   --fbx <path>        FBX文件路径（默认 /workspace/model/RMUC2026_l.fbx）
-#   --voxel <float>     地图下采样格大小（默认0.1）
-#   --max-corr <float>  GICP最大对应距离（默认1.0）
-#   --max-iter <int>    GICP最大迭代次数（默认48）
-#   --init-x <float>    初始位姿X
-#   --init-y <float>    初始位姿Y
-#   --init-yaw <float>  初始位姿偏航角(度)
-#
-# 输出文件（到 /tmp/radar_offline/）：
-#   pose.json     — 配准位姿（translation + quaternion + covariance）
-#   aligned.pcd   — 配准后叠加PCD（intensity 0=地图 1=扫描）
-#
-# 本机可视化：用 Open3D 查看输出文件
-#   python3 tools/visualize/view_registration.py <map.pcd> <scan.pcd> <pose.json>
-#   python3 tools/visualize/view_pcd.py aligned.pcd
+# Result:
+#   publishes /offline/map /offline/scan_raw /offline/scan_aligned /offline/overlay
+#   and /offline/pose for Foxglove inspection
 
 set -euo pipefail
 
-: "${RADAR_WS:=/workspace}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+: "${RADAR_WS:=$(cd "${SCRIPT_DIR}/.." && pwd -P)}"
+DEFAULT_MAP_PCD="${RADAR_WS}/model/generated/map.pcd"
 
 SCAN_PCD=""
 MAP_PCD=""
-FBX_PATH="${RADAR_WS}/model/RMUC2026_l.fbx"
-VOXEL="0.1"
-MAX_CORR="1.0"
-MAX_ITER="48"
-INIT_X="0"
-INIT_Y="0"
-INIT_YAW="0"
+EXTRA_ARGS=()
 
-# 解析参数
+resolve_path() {
+    local input="$1"
+    if [[ "$input" = /* ]]; then
+        printf '%s\n' "$input"
+    else
+        printf '%s\n' "$(cd "$PWD" && pwd -P)/$input"
+    fi
+}
+
 while [[ $# -gt 0 ]]; do
     case $1 in
         --map)       MAP_PCD="$2"; shift 2 ;;
-        --fbx)       FBX_PATH="$2"; shift 2 ;;
-        --voxel)     VOXEL="$2"; shift 2 ;;
-        --max-corr)  MAX_CORR="$2"; shift 2 ;;
-        --max-iter)  MAX_ITER="$2"; shift 2 ;;
-        --init-x)    INIT_X="$2"; shift 2 ;;
-        --init-y)    INIT_Y="$2"; shift 2 ;;
-        --init-yaw)  INIT_YAW="$2"; shift 2 ;;
-        -*)          echo "Unknown option: $1"; exit 1 ;;
-        *)           SCAN_PCD="$1"; shift ;;
+        -*)          EXTRA_ARGS+=("$1"); shift ;;
+        *)
+            if [[ -z "$SCAN_PCD" ]]; then
+                SCAN_PCD="$1"
+            else
+                EXTRA_ARGS+=("$1")
+            fi
+            shift
+            ;;
     esac
 done
 
 if [[ -z "$SCAN_PCD" ]]; then
-    echo "Usage: offline-test <scan.pcd> [options]"
-    echo "  --map <path>        use existing map PCD (skip FBX conversion)"
-    echo "  --fbx <path>        FBX file (default: /workspace/model/RMUC2026_l.fbx)"
-    echo "  --voxel <float>     map voxel size (default: 0.1)"
-    echo ""
-    echo "Output → /tmp/radar_offline/"
-    echo "  pose.json   — registration pose"
-    echo "  aligned.pcd — overlaid PCD (intensity 0=map 1=scan)"
-    echo ""
-    echo "Visualize on host:"
-    echo "  python3 tools/visualize/view_registration.py <map.pcd> <scan.pcd> /tmp/radar_offline/pose.json"
+    echo "Usage: offline-test <scan.pcd> [--map <map.pcd>] [extra ros2 launch args...]"
     exit 1
 fi
+
+SCAN_PCD="$(resolve_path "$SCAN_PCD")"
+if [[ -z "$MAP_PCD" ]]; then
+    MAP_PCD="$DEFAULT_MAP_PCD"
+fi
+MAP_PCD="$(resolve_path "$MAP_PCD")"
 
 if [[ ! -f "$SCAN_PCD" ]]; then
-    echo "ERROR: scan PCD not found: $SCAN_PCD" >&2
+    echo "> ERROR: Scan PCD not found: $SCAN_PCD" >&2; exit 1
+fi
+if [[ ! -f "$MAP_PCD" ]]; then
+    echo "> ERROR: Map PCD not found: $MAP_PCD" >&2
+    echo "> Hint: pass --map <map.pcd> or create ${DEFAULT_MAP_PCD}" >&2
     exit 1
 fi
 
-WORK_DIR="/tmp/radar_offline"
-mkdir -p "$WORK_DIR"
-
-# ── Step 1: 准备地图 ──────────────────────────────────────────
-if [[ -z "$MAP_PCD" ]]; then
-    MAP_PCD="${RADAR_WS}/model/generated/map.pcd"
-    if [[ ! -f "$MAP_PCD" ]]; then
-        echo "[offline-test] Step 1: Generating map from FBX..."
-        mkdir -p "$(dirname "$MAP_PCD")"
-        cd "${RADAR_WS}/tools/model_to_map/build"
-        ./model_to_map "$FBX_PATH" "$MAP_PCD" --density 40000 --scale 0.01 --voxel 0.05
-    else
-        echo "[offline-test] Step 1: Using existing map: $MAP_PCD"
-    fi
-else
-    echo "[offline-test] Step 1: Using provided map: $MAP_PCD"
+if [[ ! -f /opt/ros/jazzy/setup.bash ]]; then
+    echo "> ERROR: ROS2 Jazzy not found" >&2; exit 1
+fi
+if [[ ! -f "${RADAR_WS}/ros_ws/install/setup.bash" ]]; then
+    echo "> ERROR: Workspace not built. Run build-all or build-radar first." >&2; exit 1
 fi
 
-# ── Step 2: 离线 GICP 配准 ────────────────────────────────────
-echo "[offline-test] Step 2: Running GICP registration..."
-POSE_JSON="${WORK_DIR}/pose.json"
-ALIGNED_PCD="${WORK_DIR}/aligned.pcd"
+set +u
+source /opt/ros/jazzy/setup.bash
+source "${RADAR_WS}/ros_ws/install/setup.bash"
+set -u
 
-cd "${RADAR_WS}/ros_ws/build/radar_lidar"
-./registration_tool "$MAP_PCD" "$SCAN_PCD" \
-    --voxel "$VOXEL" \
-    --max-corr "$MAX_CORR" \
-    --max-iter "$MAX_ITER" \
-    --init-x "$INIT_X" \
-    --init-y "$INIT_Y" \
-    --init-yaw "$INIT_YAW" \
-    --output "$ALIGNED_PCD" \
-    --pose-out "$POSE_JSON"
+PARAMS_FILE="${RADAR_WS}/ros_ws/install/radar_lidar/share/radar_lidar/config/offline_registration.yaml"
 
-echo ""
-echo "[offline-test] Done."
-echo "  Pose:    $POSE_JSON"
-echo "  Aligned: $ALIGNED_PCD"
-echo ""
-echo "Visualize on host:"
-echo "  python3 tools/visualize/view_registration.py \"$MAP_PCD\" \"$SCAN_PCD\" \"$POSE_JSON\""
-echo "  python3 tools/visualize/view_pcd.py \"$ALIGNED_PCD\""
+echo "[offline-test] Launching offline registration visualization ..."
+echo "[offline-test] map:  $MAP_PCD"
+echo "[offline-test] scan: $SCAN_PCD"
+
+# ros2 run 支持 -p key:=val 覆盖；--params-file 先加载默认值。
+# 将脚本收集的额外参数 (含 -p ...) 原样透传给节点。
+ros2 run radar_lidar offline_test_node --ros-args \
+    --params-file "$PARAMS_FILE" \
+    -p map_path:="$MAP_PCD" \
+    -p scan_path:="$SCAN_PCD" \
+    "${EXTRA_ARGS[@]}"

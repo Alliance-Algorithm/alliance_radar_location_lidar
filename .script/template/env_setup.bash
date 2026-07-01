@@ -17,12 +17,22 @@ export RADAR_SRC="${RADAR_ROS_WS}/src"
 export RADAR_THIRD_PARTY="${RADAR_ROS_WS}/third-party"
 export RADAR_MODEL_DIR="${RADAR_WS}/model"
 
+# ── PATH helper ──────────────────────────────────────────────────
+prepend_path() {
+    case ":${PATH}:" in
+        *":$1:"*) ;;
+        *) PATH="$1:${PATH}" ;;
+    esac
+}
+
 # ── Build scripts ────────────────────────────────────────────────
 if [ -d "${HOME}/.script" ]; then
-    if [[ ":${PATH}:" != *":${HOME}/.script:"* ]]; then
-        export PATH="${HOME}/.script:${PATH}"
-    fi
+    prepend_path "${HOME}/.script"
 fi
+if [ -d "${RADAR_WS}/.script" ]; then
+    prepend_path "${RADAR_WS}/.script"
+fi
+export PATH
 
 # ── Tools ────────────────────────────────────────────────────────
 for tool in opencode codex mimocode; do

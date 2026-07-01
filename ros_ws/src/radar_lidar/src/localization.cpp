@@ -1,6 +1,7 @@
 #include "radar_lidar/localization.hpp"
 
 #include <cmath>
+#include <print>
 
 #include <Eigen/Cholesky>
 #include <small_gicp/registration/registration_helper.hpp>
@@ -107,21 +108,22 @@ auto LocalizationStage::process(const types::Frame& scan)
 
     auto result = small_gicp::align(target_points_, source_points, prev_pose_, setting);
 
-    if (!result.converged && result.error > 1e-10) {
-        return std::unexpected(
-            "GICP did not converge (score=" + std::to_string(result.error) + ")");
+    if (!result.converged) {
+        std::println("[localization] GICP did not converge (score={:.4f}, iter={}) -- using best available transform",
+            result.error, result.iterations);
+    } else {
+        prev_pose_ = result.T_target_source;
     }
-    prev_pose_ = result.T_target_source;
 
-    // 锁定策略：fitness 足够好则锁定
-    if (cfg_.use_lock_strategy && result.error < cfg_.lock_fitness) {
+    // 锁定策略：fitness 足够好且收敛则锁定
+    if (cfg_.use_lock_strategy && result.converged && result.error < cfg_.lock_fitness) {
         locked_ = true;
     }
 
     types::PoseEstimate out;
     out.T             = result.T_target_source;
     out.fitness_score = result.error;
-    out.converged     = true;
+    out.converged     = result.converged;
 
     Eigen::Matrix<double, 6, 6> H_reg = result.H + Eigen::Matrix<double, 6, 6>::Identity() * 1e-6;
     out.covariance                    = H_reg.ldlt().solve(Eigen::Matrix<double, 6, 6>::Identity());

@@ -11,9 +11,9 @@
 namespace radar {
 
 struct ClusterConfig {
-    float cluster_tolerance = 0.25f; // 欧氏聚类距离阈值
-    int min_cluster_size    = 5;
-    int max_cluster_size    = 1000;
+    double cluster_tolerance = 0.25;
+    int min_cluster_size     = 5;
+    int max_cluster_size     = 1000;
 };
 
 struct ClusterResult {

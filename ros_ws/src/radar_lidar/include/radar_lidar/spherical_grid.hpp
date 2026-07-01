@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <numbers>
 #include <unordered_map>
 #include <vector>
 
@@ -18,7 +19,7 @@ class SphericalGrid {
 public:
     /// @param grid_size_deg 角度分辨率（度），默认 0.1°
     explicit SphericalGrid(double grid_size_deg = 0.1)
-        : grid_size_rad_(grid_size_deg * M_PI / 180.0) { }
+        : grid_size_rad_(grid_size_deg * std::numbers::pi / 180.0) { }
 
     /// @brief 添加一帧点云到网格中
     void add(const types::PointCloud& points);

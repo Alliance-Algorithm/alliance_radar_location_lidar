@@ -121,7 +121,7 @@ alliance_radar_location_lidar/
     └── tool/
         └── logger/
             ├── logger.hpp                     ← 日志工具头文件
-            └── logger_config.hpp              ← 日志配置
+            └── radar_common/                  ← 公共头文件工具包（含 logger）
 ```
 
 ## Overview

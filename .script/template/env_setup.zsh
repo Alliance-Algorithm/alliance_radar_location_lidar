@@ -26,6 +26,14 @@ if [ -f "${HOME}/env_setup.bash" ]; then
         echo "[WARN] Failed to source ${HOME}/env_setup.bash" >&2
 fi
 
+# ── Prefer workspace scripts over the synced home copy ───────────
+if [ -d "${RADAR_WS}/.script" ]; then
+    case ":${PATH}:" in
+        *":${RADAR_WS}/.script:"*) ;;
+        *) PATH="${RADAR_WS}/.script:${PATH}" ;;
+    esac
+fi
+
 # ── Python argcomplete ───────────────────────────────────────────
 if command -v register-python-argcomplete &>/dev/null; then
     eval "$(register-python-argcomplete ros2)"

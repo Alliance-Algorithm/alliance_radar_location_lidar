@@ -17,3 +17,8 @@ compile_commands.json
 .omo/
 .clangd-headers/
 tools/model_to_map/build/
+
+# Large point-cloud / map assets (never commit binary data)
+/model/*.pcd
+/model/*.fbx
+/model/generated/
