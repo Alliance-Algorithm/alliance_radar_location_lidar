@@ -41,6 +41,7 @@ struct Args {
     double voxel_leaf     = 0.0;
     std::optional<Roi> roi;
     bool write_shm        = false;
+    bool y_up             = false;
 };
 
 struct TriangleRecord {
@@ -63,7 +64,8 @@ auto parse_args(int argc, char** argv) -> std::expected<Args, std::string> {
             "  --scale <float>     coordinate scale factor (e.g. 0.01 for cm→m, default 1.0)\n"
             "  --voxel <float>     VoxelGrid leaf size, 0=skip (default 0)\n"
             "  --roi <6 floats>    x_min,x_max,y_min,y_max,z_min,z_max\n"
-            "  --shm               write point cloud to /pointcloud_frame SHM\n");
+            "  --shm               write point cloud to /pointcloud_frame SHM\n"
+            "  --y-up              FBX uses Y-up, convert to Z-up for PCD\n");
     }
 
     Args args;
@@ -80,6 +82,8 @@ auto parse_args(int argc, char** argv) -> std::expected<Args, std::string> {
             args.scale = std::stod(argv[++i]);
         } else if (arg == "--shm") {
             args.write_shm = true;
+        } else if (arg == "--y-up") {
+            args.y_up = true;
         } else if (arg == "--roi" && i + 6 < argc) {
             args.roi = Roi {
                 .min = Eigen::Vector3f(
@@ -156,7 +160,7 @@ inline float pack_rgb(const Eigen::Vector3f& normal) {
 }
 
 void append_subdivided_triangle_samples(const TriangleRecord& triangle, std::size_t sample_count,
-    float scale, pcl::PointCloud<pcl::PointXYZRGBNormal>& cloud) {
+    float scale, pcl::PointCloud<pcl::PointXYZRGBNormal>& cloud, bool y_up) {
     if (sample_count == 0) {
         return;
     }
@@ -171,13 +175,22 @@ void append_subdivided_triangle_samples(const TriangleRecord& triangle, std::siz
 
     auto make_point = [&](const Eigen::Vector3f& pos) -> pcl::PointXYZRGBNormal {
         pcl::PointXYZRGBNormal pt;
-        pt.x = pos.x();
-        pt.y = pos.y();
-        pt.z = pos.z();
+        if (y_up) {
+            pt.x =  pos.x();
+            pt.y = -pos.z();
+            pt.z =  pos.y();
+            pt.normal_x  =  normal.x();
+            pt.normal_y  = -normal.z();
+            pt.normal_z  =  normal.y();
+        } else {
+            pt.x = pos.x();
+            pt.y = pos.y();
+            pt.z = pos.z();
+            pt.normal_x  = normal.x();
+            pt.normal_y  = normal.y();
+            pt.normal_z  = normal.z();
+        }
         pt.rgb       = packed;
-        pt.normal_x  = normal.x();
-        pt.normal_y  = normal.y();
-        pt.normal_z  = normal.z();
         return pt;
     };
 
@@ -408,7 +421,7 @@ int main(int argc, char** argv) {
     for (std::size_t i = 0; i < triangles.size(); ++i) {
         const auto& triangle = triangles[i];
         append_subdivided_triangle_samples(
-            triangle, num_samples_per_triangle[i], static_cast<float>(args.scale), *cloud);
+            triangle, num_samples_per_triangle[i], static_cast<float>(args.scale), *cloud, args.y_up);
     }
 
     std::cout << "[model_to_map] Total triangles: " << triangles.size() << std::endl;

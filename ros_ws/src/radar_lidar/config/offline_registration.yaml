@@ -1,0 +1,57 @@
+offline_test_node:
+  ros__parameters:
+    map_path: ""
+    scan_path: ""
+    output_frame: "map"
+
+    # 地图: 默认加载已规范化的 Z-up 地图 (model_to_map --y-up 从 FBX 生成)。
+    # map_y_up 保留为兼容开关, 推荐用规范地图并保持 false。
+    map_y_up: false
+
+    # 精配准 GICP (最优候选上收敛用)
+    voxel_leaf: 0.1
+    max_corr_distance: 2.0
+    max_iterations: 50
+    num_threads: 4
+    scan_voxel: 0.5
+    use_spherical_grid: false
+    spherical_grid_deg: 0.1
+    accumulate_frames: 0
+    verbose: false
+
+    # 粗配准 GICP (yaw 多起点搜索时每个候选跑一次, 大 voxel/大 corr/少迭代)
+    coarse_voxel: 0.5
+    coarse_max_corr: 5.0
+    coarse_max_iter: 20
+
+    # 扇形 ROI 裁剪 (雷达在原点，指向 +X)
+    use_roi: false
+    roi_half_fov_deg: 60.0
+    roi_min_range: 1.0
+    roi_max_range: 30.0
+    roi_z_min: 0.0
+    roi_z_max: 7.0
+
+    # 初始位姿 (工作系, 米/度). 雷达: 短边中心, 4m 高, 指向场地中心.
+    initial_x: -14.0
+    initial_y: 0.0
+    initial_z: 4.0
+
+    # look-at 初值: 由雷达位置指向注视点, 自动算 yaw+pitch (修复旧版丢 z/pitch).
+    use_look_at: true
+    look_at_x: 0.0
+    look_at_y: 0.0
+    look_at_z: 0.5
+    # use_look_at=false 时用下列显式角度 (pitch 负=低头)
+    initial_yaw_deg: 0.0
+    initial_pitch_deg: 0.0
+
+    # yaw 局部多起点搜索 (围绕 look-at 的 yaw, 非 360 盲搜)
+    yaw_search_range_deg: 30.0
+    yaw_search_step_deg: 10.0
+
+    # 候选评分: 地图 KdTree 内点率 + 内点 RMSE (归一化, 可跨起点比较)
+    inlier_threshold: 0.3
+
+    # 输出
+    pose_out: ""

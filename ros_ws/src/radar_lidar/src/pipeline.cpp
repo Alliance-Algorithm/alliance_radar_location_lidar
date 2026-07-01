@@ -2,32 +2,29 @@
 
 #include <cfloat>
 #include <chrono>
+#include <ranges>
 
 #include <pcl_conversions/pcl_conversions.h>
 
 namespace radar {
 
 LidarPipeline::LidarPipeline()
-    : Node("radar_lidar_node")
+    : Node("radar_lidar_node",
+          rclcpp::NodeOptions { }.automatically_declare_parameters_from_overrides(true))
     , map_(nullptr)
     , localization_(nullptr, { })
     , dynamic_stage_({ })
     , cluster_stage_({ }) {
 
     // ── node params ────────────────────────────────────────────────
-    this->declare_parameter("map_path", "");
-    this->declare_parameter("scan_topic", "/livox/lidar");
-    this->declare_parameter("hardware_id", "livox_mid70");
-    this->declare_parameter("output_frame", "map");
-    this->declare_parameter("detection_enabled", true);
-
-    scan_topic_        = this->get_parameter("scan_topic").as_string();
-    hardware_id_       = this->get_parameter("hardware_id").as_string();
-    output_frame_      = this->get_parameter("output_frame").as_string();
-    detection_enabled_ = this->get_parameter("detection_enabled").as_bool();
+    get_parameter("scan_topic", scan_topic_);
+    get_parameter("hardware_id", hardware_id_);
+    get_parameter("output_frame", output_frame_);
+    get_parameter("detection_enabled", detection_enabled_);
 
     // ── map ────────────────────────────────────────────────────────
-    const auto map_path = this->get_parameter("map_path").as_string();
+    std::string map_path;
+    get_parameter("map_path", map_path);
     if (map_path.empty()) {
         RCLCPP_FATAL(get_logger(), "map_path parameter is required!");
         return;
@@ -41,82 +38,47 @@ LidarPipeline::LidarPipeline()
     RCLCPP_INFO(get_logger(), "Map loaded: %zu points", map_->size());
 
     // ── GICP config ────────────────────────────────────────────────
-    this->declare_parameter("gicp.num_threads", 4);
-    this->declare_parameter("gicp.max_corr_distance", 1.0);
-    this->declare_parameter("gicp.max_iterations", 48);
-
-    // 预处理参数
-    this->declare_parameter("gicp.use_spherical_grid", true);
-    this->declare_parameter("gicp.spherical_grid_deg", 0.1);
-    this->declare_parameter("gicp.accumulate_frames", 20);
-    this->declare_parameter("gicp.use_lock_strategy", false);
-    this->declare_parameter("gicp.lock_fitness", 0.2);
-
-    // ROI
-    this->declare_parameter("gicp.use_roi", false);
-    this->declare_parameter("gicp.roi_x_min", 0.0);
-    this->declare_parameter("gicp.roi_x_max", 30.0);
-    this->declare_parameter("gicp.roi_y_min", -15.0);
-    this->declare_parameter("gicp.roi_y_max", 15.0);
-    this->declare_parameter("gicp.roi_z_min", 0.0);
-    this->declare_parameter("gicp.roi_z_max", 7.0);
-
     config::LocalizationConfig loc_cfg;
-    loc_cfg.num_threads        = this->get_parameter("gicp.num_threads").as_int();
-    loc_cfg.max_corr_distance  = this->get_parameter("gicp.max_corr_distance").as_double();
-    loc_cfg.max_iterations     = this->get_parameter("gicp.max_iterations").as_int();
-    loc_cfg.use_spherical_grid = this->get_parameter("gicp.use_spherical_grid").as_bool();
-    loc_cfg.spherical_grid_deg = this->get_parameter("gicp.spherical_grid_deg").as_double();
-    loc_cfg.accumulate_frames  = this->get_parameter("gicp.accumulate_frames").as_int();
-    loc_cfg.use_lock_strategy  = this->get_parameter("gicp.use_lock_strategy").as_bool();
-    loc_cfg.lock_fitness       = this->get_parameter("gicp.lock_fitness").as_double();
-    loc_cfg.use_roi            = this->get_parameter("gicp.use_roi").as_bool();
-    loc_cfg.roi_x_min          = this->get_parameter("gicp.roi_x_min").as_double();
-    loc_cfg.roi_x_max          = this->get_parameter("gicp.roi_x_max").as_double();
-    loc_cfg.roi_y_min          = this->get_parameter("gicp.roi_y_min").as_double();
-    loc_cfg.roi_y_max          = this->get_parameter("gicp.roi_y_max").as_double();
-    loc_cfg.roi_z_min          = this->get_parameter("gicp.roi_z_min").as_double();
-    loc_cfg.roi_z_max          = this->get_parameter("gicp.roi_z_max").as_double();
+    get_parameter("gicp_num_threads", loc_cfg.num_threads);
+    get_parameter("gicp_max_corr_distance", loc_cfg.max_corr_distance);
+    get_parameter("gicp_max_iterations", loc_cfg.max_iterations);
+    get_parameter("gicp_use_spherical_grid", loc_cfg.use_spherical_grid);
+    get_parameter("gicp_spherical_grid_deg", loc_cfg.spherical_grid_deg);
+    get_parameter("gicp_accumulate_frames", loc_cfg.accumulate_frames);
+    get_parameter("gicp_use_lock_strategy", loc_cfg.use_lock_strategy);
+    get_parameter("gicp_lock_fitness", loc_cfg.lock_fitness);
+    get_parameter("gicp_use_roi", loc_cfg.use_roi);
+    get_parameter("gicp_roi_x_min", loc_cfg.roi_x_min);
+    get_parameter("gicp_roi_x_max", loc_cfg.roi_x_max);
+    get_parameter("gicp_roi_y_min", loc_cfg.roi_y_min);
+    get_parameter("gicp_roi_y_max", loc_cfg.roi_y_max);
+    get_parameter("gicp_roi_z_min", loc_cfg.roi_z_min);
+    get_parameter("gicp_roi_z_max", loc_cfg.roi_z_max);
 
     localization_ = LocalizationStage(map_, loc_cfg);
 
     // ── detection config ───────────────────────────────────────────
-    this->declare_parameter("dynamic.distance_threshold", 0.1);
-    this->declare_parameter("dynamic.num_threads", 12);
-    this->declare_parameter("dynamic.accumulate_frames", 3);
-    this->declare_parameter("dynamic.use_roi", true);
-    this->declare_parameter("dynamic.roi_x_min", 0.0);
-    this->declare_parameter("dynamic.roi_x_max", 30.0);
-    this->declare_parameter("dynamic.roi_y_min", -15.0);
-    this->declare_parameter("dynamic.roi_y_max", 15.0);
-    this->declare_parameter("dynamic.roi_z_min", 0.0);
-    this->declare_parameter("dynamic.roi_z_max", 1.4);
-
     DynamicCloudConfig dyn_cfg;
-    dyn_cfg.distance_threshold =
-        static_cast<float>(this->get_parameter("dynamic.distance_threshold").as_double());
-    dyn_cfg.num_threads       = this->get_parameter("dynamic.num_threads").as_int();
-    dyn_cfg.accumulate_frames = this->get_parameter("dynamic.accumulate_frames").as_int();
-    dyn_cfg.use_roi           = this->get_parameter("dynamic.use_roi").as_bool();
-    dyn_cfg.roi_x_min = static_cast<float>(this->get_parameter("dynamic.roi_x_min").as_double());
-    dyn_cfg.roi_x_max = static_cast<float>(this->get_parameter("dynamic.roi_x_max").as_double());
-    dyn_cfg.roi_y_min = static_cast<float>(this->get_parameter("dynamic.roi_y_min").as_double());
-    dyn_cfg.roi_y_max = static_cast<float>(this->get_parameter("dynamic.roi_y_max").as_double());
-    dyn_cfg.roi_z_min = static_cast<float>(this->get_parameter("dynamic.roi_z_min").as_double());
-    dyn_cfg.roi_z_max = static_cast<float>(this->get_parameter("dynamic.roi_z_max").as_double());
+    get_parameter("dynamic_distance_threshold", dyn_cfg.distance_threshold);
+    get_parameter("dynamic_num_threads", dyn_cfg.num_threads);
+    get_parameter("dynamic_accumulate_frames", dyn_cfg.accumulate_frames);
+    get_parameter("dynamic_use_roi", dyn_cfg.use_roi);
+    get_parameter("dynamic_roi_x_min", dyn_cfg.roi_x_min);
+    get_parameter("dynamic_roi_x_max", dyn_cfg.roi_x_max);
+    get_parameter("dynamic_roi_y_min", dyn_cfg.roi_y_min);
+    get_parameter("dynamic_roi_y_max", dyn_cfg.roi_y_max);
+    get_parameter("dynamic_roi_z_min", dyn_cfg.roi_z_min);
+    get_parameter("dynamic_roi_z_max", dyn_cfg.roi_z_max);
 
     dynamic_stage_ = DynamicCloudStage(dyn_cfg);
     dynamic_stage_.set_map(std::make_shared<pcl::PointCloud<pcl::PointXYZ>>(map_->pcl_cloud()));
 
-    this->declare_parameter("cluster.tolerance", 0.25);
-    this->declare_parameter("cluster.min_size", 5);
-    this->declare_parameter("cluster.max_size", 1000);
+    // ── cluster config ─────────────────────────────────────────────
     ClusterConfig cl_cfg;
-    cl_cfg.cluster_tolerance =
-        static_cast<float>(this->get_parameter("cluster.tolerance").as_double());
-    cl_cfg.min_cluster_size = this->get_parameter("cluster.min_size").as_int();
-    cl_cfg.max_cluster_size = this->get_parameter("cluster.max_size").as_int();
-    cluster_stage_          = ClusterStage(cl_cfg);
+    get_parameter("cluster_tolerance", cl_cfg.cluster_tolerance);
+    get_parameter("cluster_min_size", cl_cfg.min_cluster_size);
+    get_parameter("cluster_max_size", cl_cfg.max_cluster_size);
+    cluster_stage_ = ClusterStage(cl_cfg);
 
     // ── subscription ───────────────────────────────────────────────
     sub_scan_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(scan_topic_,
@@ -143,12 +105,15 @@ void LidarPipeline::on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg)
     {
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>());
         pcl::fromROSMsg(*msg, *cloud);
-        frame.points.reserve(cloud->size());
-        for (const auto& pt : cloud->points) {
-            if (std::isfinite(pt.x) && std::isfinite(pt.y) && std::isfinite(pt.z)
-                && (pt.x * pt.x + pt.y * pt.y + pt.z * pt.z) > DBL_EPSILON)
-                frame.points.emplace_back(pt.x, pt.y, pt.z);
-        }
+        frame.points = cloud->points
+            | std::views::filter([](const auto& pt) {
+                  return std::isfinite(pt.x) && std::isfinite(pt.y) && std::isfinite(pt.z)
+                      && (pt.x * pt.x + pt.y * pt.y + pt.z * pt.z) > DBL_EPSILON;
+              })
+            | std::views::transform([](const auto& pt) {
+                  return Eigen::Vector3d(pt.x, pt.y, pt.z);
+              })
+            | std::ranges::to<types::PointCloud>();
         frame.stamp    = rclcpp::Time(msg->header.stamp).nanoseconds();
         frame.frame_id = msg->header.frame_id;
     }
@@ -194,11 +159,9 @@ void LidarPipeline::on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg)
 
 void LidarPipeline::transform_scan_to_map(const types::PointCloud& scan,
     const types::PoseEstimate& pose, types::PointCloud& transformed) {
-    transformed.clear();
-    transformed.reserve(scan.size());
-    for (const auto& p : scan) {
-        transformed.push_back(pose.T * p);
-    }
+    transformed = scan
+        | std::views::transform([&pose](const auto& p) { return pose.T * p; })
+        | std::ranges::to<types::PointCloud>();
 }
 
 void LidarPipeline::publish_pose(const types::PoseEstimate& pose, types::Timestamp stamp) {
@@ -216,9 +179,8 @@ void LidarPipeline::publish_pose(const types::PoseEstimate& pose, types::Timesta
     msg.pose.pose.orientation.z = q.z();
     msg.pose.pose.orientation.w = q.w();
 
-    for (int i = 0; i < 6; ++i)
-        for (int j = 0; j < 6; ++j)
-            msg.pose.covariance[i * 6 + j] = pose.covariance(i, j);
+    Eigen::Map<Eigen::Matrix<double, 6, 6, Eigen::RowMajor>>(
+        msg.pose.covariance.data()) = pose.covariance;
 
     pub_pose_->publish(msg);
 }

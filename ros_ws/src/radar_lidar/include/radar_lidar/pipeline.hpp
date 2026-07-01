@@ -36,11 +36,11 @@ private:
     LocalizationStage localization_;
     DynamicCloudStage dynamic_stage_;
     ClusterStage cluster_stage_;
-    bool detection_enabled_ = true;
 
-    std::string scan_topic_;
-    std::string hardware_id_;
-    std::string output_frame_;
+    std::string scan_topic_   = "/livox/lidar";
+    std::string hardware_id_  = "livox_mid70";
+    std::string output_frame_ = "map";
+    bool detection_enabled_   = true;
 
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr sub_scan_;
     rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pub_pose_;

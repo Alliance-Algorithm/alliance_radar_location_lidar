@@ -3,7 +3,6 @@
 #include <pcl/point_types.h>
 
 #include <cmath>
-#include <cstdio>
 #include <filesystem>
 #include <gtest/gtest.h>
 
@@ -11,31 +10,27 @@
 
 namespace {
 
-// 生成一个临时 PCD 文件用于测试
-std::string make_test_pcd(const std::string& path, int n_points, float spacing = 0.2f) {
-    pcl::PointCloud<pcl::PointXYZ> cloud;
-    cloud.width    = n_points;
-    cloud.height   = 1;
-    cloud.is_dense = true;
-    int side       = static_cast<int>(std::sqrt(static_cast<float>(n_points)));
-    for (int i = 0; i < side; ++i) {
-        for (int j = 0; j < side; ++j) {
-            cloud.emplace_back(i * spacing, j * spacing, 0.0f);
-        }
-    }
-    cloud.width = cloud.size();
-    pcl::io::savePCDFileBinary(path, cloud);
+auto make_test_pcd(const std::string& path, int n_points, double spacing = 0.2)
+    -> const std::string& {
+    auto cloud = pcl::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
+    const int side = static_cast<int>(std::sqrt(static_cast<double>(n_points)));
+    cloud->reserve(static_cast<size_t>(side) * side);
+    for (int i = 0; i < side; ++i)
+        for (int j = 0; j < side; ++j)
+            cloud->emplace_back(i * spacing, j * spacing, 0.0);
+    cloud->width    = cloud->size();
+    cloud->height   = 1;
+    cloud->is_dense = true;
+    pcl::io::savePCDFileBinary(path, *cloud);
     return path;
 }
 
 class MapDataTest : public ::testing::Test {
 protected:
-    void SetUp() override {
-        test_pcd_ = "/tmp/radar_test_map.pcd";
-        make_test_pcd(test_pcd_, 100, 0.2f);
-    }
+    void SetUp() override { make_test_pcd(test_pcd_, 100, 0.2); }
     void TearDown() override { std::filesystem::remove(test_pcd_); }
-    std::string test_pcd_;
+
+    static constexpr const char* test_pcd_ = "/tmp/radar_test_map.pcd";
 };
 
 } // namespace
@@ -73,11 +68,10 @@ TEST_F(MapDataTest, KdTreeAccessible) {
     const auto& tree = map->sgicp_tree();
     EXPECT_EQ(tree.kdtree.indices.size(), map->size());
 
-    // 验证 PCL KdTree 可用
     const auto& pcl_tree = map->pcl_tree();
     std::vector<int> idx(1);
     std::vector<float> dist(1);
-    pcl::PointXYZ query(0.0f, 0.0f, 0.0f);
+    const pcl::PointXYZ query(0.0f, 0.0f, 0.0f);
     int found = pcl_tree.nearestKSearch(query, 1, idx, dist);
     EXPECT_EQ(found, 1);
     EXPECT_EQ(idx[0], 0);

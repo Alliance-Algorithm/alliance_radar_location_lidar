@@ -39,11 +39,17 @@ ament_auto_add_executable(${PROJECT_NAME}_node
 )
 target_link_libraries(${PROJECT_NAME}_node ${PROJECT_NAME}_core)
 
-# ── Offline tool ─────────────────────────────────────────────────
+# ── Offline tool (CLI) ────────────────────────────────────────────
 add_executable(registration_tool
     tools/registration_tool.cpp
 )
 target_link_libraries(registration_tool ${PROJECT_NAME}_core)
+
+# ── Offline test node (ROS2, Foxglove) ───────────────────────────
+ament_auto_add_executable(offline_test_node
+    tools/offline_test_node.cpp
+)
+target_link_libraries(offline_test_node ${PROJECT_NAME}_core)
 
 # ── Tests ────────────────────────────────────────────────────────
 if(BUILD_TESTING)
@@ -57,10 +63,11 @@ if(BUILD_TESTING)
       test/test_map_data.cpp
       test/test_localization.cpp
       test/test_detection.cpp
+      test/test_offline_visualization.cpp
   )
   target_link_libraries(radar_tests ${PROJECT_NAME}_core)
 endif()
 
-install(TARGETS ${PROJECT_NAME}_node registration_tool DESTINATION lib/${PROJECT_NAME})
-install(DIRECTORY config/ DESTINATION ${PROJECT_NAME})
+install(TARGETS ${PROJECT_NAME}_node registration_tool offline_test_node DESTINATION lib/${PROJECT_NAME})
+install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
 ament_package()

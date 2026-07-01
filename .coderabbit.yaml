@@ -4,6 +4,11 @@
 language: "zh-CN"
 
 reviews:
+  context: |
+    阅读 README.md 了解当前系统范围和已实现模块。
+    阅读 docs/architecture/alliance-radar-overall-architecture.md 了解分阶段架构。
+    阅读 docs/todo.md 对照当前实现进度；评审时检查遗漏、过期或已完成未更新的任务。
+
   profile: "chill"
   request_changes_workflow: false
   high_level_summary: true
@@ -134,13 +139,20 @@ reviews:
         - Default values: are they sensible for production?
         - Validate sensor extrinsic/intrinsic naming conventions.
 
+    - path: "docs/todo.md"
+      instructions: |
+        Review the development todo for:
+        - alignment with the architecture phases and current implementation
+        - stale, duplicate, or missing tasks
+        - unclear acceptance criteria or mislabeled status
+
   path_filters:
     - "!ros_ws/build/**"
     - "!ros_ws/install/**"
     - "!ros_ws/log/**"
     - "!ros_ws/third-party/**"
     - "!lidar_ros_driver/**"
-    - "!docs/**"
+    - "!docs/SLAM-learn/**"
     - "!.vscode/**"
 
 chat:

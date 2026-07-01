@@ -1,5 +1,7 @@
 #include "radar_lidar/frame_accumulator.hpp"
 
+#include <ranges>
+
 namespace radar {
 
 void FrameAccumulator::push(types::PointCloud points) {
@@ -10,16 +12,9 @@ void FrameAccumulator::push(types::PointCloud points) {
 }
 
 auto FrameAccumulator::all_points() const -> types::PointCloud {
-    types::PointCloud result;
-    size_t total = 0;
-    for (const auto& frame : frames_) {
-        total += frame.size();
-    }
-    result.reserve(total);
-    for (const auto& frame : frames_) {
-        result.insert(result.end(), frame.begin(), frame.end());
-    }
-    return result;
+    return frames_
+        | std::views::join
+        | std::ranges::to<types::PointCloud>();
 }
 
 } // namespace radar

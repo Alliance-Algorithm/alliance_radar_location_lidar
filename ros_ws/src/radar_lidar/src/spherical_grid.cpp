@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <ranges>
 
 static auto pack_key(int azimuth_idx, int elevation_idx) -> std::uint64_t {
     return (static_cast<std::uint64_t>(static_cast<std::uint32_t>(azimuth_idx)) << 32)
@@ -33,13 +34,11 @@ void SphericalGrid::add(const types::PointCloud& points) {
 }
 
 auto SphericalGrid::extract() -> types::PointCloud {
-    types::PointCloud result;
-    result.reserve(grid_map_.size());
-    for (const auto& entry : grid_map_) {
-        if (entry.second.max_distance_sq >= 0.0) {
-            result.push_back(entry.second.farthest_point);
-        }
-    }
+    auto result = grid_map_
+        | std::views::values
+        | std::views::filter([](const auto& cell) { return cell.max_distance_sq >= 0.0; })
+        | std::views::transform([](const auto& cell) { return cell.farthest_point; })
+        | std::ranges::to<types::PointCloud>();
     grid_map_.clear();
     return result;
 }
