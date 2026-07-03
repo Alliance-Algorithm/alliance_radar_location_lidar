@@ -42,7 +42,7 @@ offline_test_node:
     look_at_x: 0.0
     look_at_y: 0.0
     look_at_z: 0.5
-    # use_look_at=false 时用下列显式角度 (pitch 负=低头)
+    # use_look_at=false 时用下列显式角度 (pitch 正=低头)
     initial_yaw_deg: 0.0
     initial_pitch_deg: 0.0
 
