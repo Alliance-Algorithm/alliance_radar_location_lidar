@@ -157,3 +157,4 @@ reviews:
 
 chat:
   auto_reply: true
+  create_issues: true
