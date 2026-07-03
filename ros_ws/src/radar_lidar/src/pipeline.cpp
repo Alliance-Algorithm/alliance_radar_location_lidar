@@ -109,14 +109,10 @@ void LidarPipeline::on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg)
     {
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>());
         pcl::fromROSMsg(*msg, *cloud);
-        frame.points = cloud->points
-            | std::views::filter([](const auto& pt) {
-                  return std::isfinite(pt.x) && std::isfinite(pt.y) && std::isfinite(pt.z)
-                      && (pt.x * pt.x + pt.y * pt.y + pt.z * pt.z) > DBL_EPSILON;
-              })
-            | std::views::transform([](const auto& pt) {
-                  return Eigen::Vector3d(pt.x, pt.y, pt.z);
-              })
+        frame.points = cloud->points | std::views::filter([](const auto& pt) {
+            return std::isfinite(pt.x) && std::isfinite(pt.y) && std::isfinite(pt.z)
+                && (pt.x * pt.x + pt.y * pt.y + pt.z * pt.z) > DBL_EPSILON;
+        }) | std::views::transform([](const auto& pt) { return Eigen::Vector3d(pt.x, pt.y, pt.z); })
             | std::ranges::to<types::PointCloud>();
         frame.stamp    = rclcpp::Time(msg->header.stamp).nanoseconds();
         frame.frame_id = msg->header.frame_id;
@@ -163,8 +159,7 @@ void LidarPipeline::on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg)
 
 void LidarPipeline::transform_scan_to_map(const types::PointCloud& scan,
     const types::PoseEstimate& pose, types::PointCloud& transformed) {
-    transformed = scan
-        | std::views::transform([&pose](const auto& p) { return pose.T * p; })
+    transformed = scan | std::views::transform([&pose](const auto& p) { return pose.T * p; })
         | std::ranges::to<types::PointCloud>();
 }
 
@@ -183,8 +178,8 @@ void LidarPipeline::publish_pose(const types::PoseEstimate& pose, types::Timesta
     msg.pose.pose.orientation.z = q.z();
     msg.pose.pose.orientation.w = q.w();
 
-    Eigen::Map<Eigen::Matrix<double, 6, 6, Eigen::RowMajor>>(
-        msg.pose.covariance.data()) = pose.covariance;
+    Eigen::Map<Eigen::Matrix<double, 6, 6, Eigen::RowMajor>>(msg.pose.covariance.data()) =
+        pose.covariance;
 
     pub_pose_->publish(msg);
 }
