@@ -16,6 +16,9 @@ compile_commands.json
 .mimocode/
 .omo/
 .clangd-headers/
+# 由 .script/setup-clangd-headers 从 .script/template/clangd.template
+# 生成, 含本机绝对路径, 不进版本控制 (clangd 不支持路径变量替换)。
+/.clangd
 tools/model_to_map/build/
 
 # Large point-cloud / map assets (never commit binary data)

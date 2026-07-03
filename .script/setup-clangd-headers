@@ -7,7 +7,29 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CACHE_DIR="${REPO_ROOT}/.clangd-headers"
 
-CONTAINER="${RADAR_CONTAINER:-RADAR}"
+is_running() {
+    [[ "$(docker inspect -f '{{.State.Running}}' "$1" 2>/dev/null)" == "true" ]]
+}
+
+# 手动 docker run (README 方式二) 用容器名 RADAR；
+# Dev Container (README 推荐方式，docker compose) 用
+# devcontainer-radar-develop-1。自动探测，可用 RADAR_CONTAINER 覆盖。
+if [[ -n "${RADAR_CONTAINER:-}" ]]; then
+    CONTAINER="${RADAR_CONTAINER}"
+    if ! is_running "${CONTAINER}"; then
+        echo "[setup-clangd-headers] ERROR: container '${CONTAINER}' (from \$RADAR_CONTAINER) is not running." >&2
+        exit 1
+    fi
+elif is_running RADAR; then
+    CONTAINER="RADAR"
+elif is_running devcontainer-radar-develop-1; then
+    CONTAINER="devcontainer-radar-develop-1"
+else
+    echo "[setup-clangd-headers] ERROR: no running RADAR container found." >&2
+    echo "[setup-clangd-headers] Tried: RADAR, devcontainer-radar-develop-1" >&2
+    echo "[setup-clangd-headers] Start the container first, or set RADAR_CONTAINER=<name>." >&2
+    exit 1
+fi
 
 echo "[setup-clangd-headers] Extracting headers from container: ${CONTAINER}"
 echo "[setup-clangd-headers] Cache dir: ${CACHE_DIR}"
@@ -19,6 +41,23 @@ PULL_PATHS=(
     "/usr/include/eigen3"
     "/usr/include/pcl-1.14"
     "/usr/include/assimp"
+    "/usr/include/boost"
+    "/usr/include/flann"
+    # 容器装的是项目所需子集 ROS2 包，宿主机若是完整源码构建的桌面版
+    # ROS2 Jazzy 则会缺这些 (PCL/CV 桥接、Foxglove 相关)。
+    "/opt/ros/jazzy/include/pcl_conversions"
+    "/opt/ros/jazzy/include/pcl_msgs"
+    "/opt/ros/jazzy/include/pcl_ros"
+    "/opt/ros/jazzy/include/cv_bridge"
+    "/opt/ros/jazzy/include/rosx_introspection"
+    # 容器 GCC 14 的真实头文件搜索顺序 (Debian 布局)。宿主机若非同架构/版本
+    # 的 GCC (例如 Arch 上的 GCC 16, x86_64-pc-linux-gnu 布局)，clang 会
+    # 自动探测宿主机 GCC 并混入不兼容的 STL 头文件，需要靠 .clangd 里的
+    # -nostdinc++ + 下列缓存路径整体替换掉，缺一个都会导致 STL 内部结构不匹配。
+    "/usr/include/c++/14"
+    "/usr/include/x86_64-linux-gnu/c++/14"
+    "/usr/include/c++/14/backward"
+    "/usr/lib/gcc/x86_64-linux-gnu/14/include"
     "/workspace/ros_ws/install/small_gicp/include"
 )
 
@@ -33,6 +72,17 @@ for src in "${PULL_PATHS[@]}"; do
         echo "[setup-clangd-headers] SKIP (not in container): ${src}"
     fi
 done
+
+# ── 生成 .clangd (本机专属, 不进版本控制) ──────────────────────────
+# clangd 的 CompileFlags.Add 不支持路径变量替换, 必须是每台机器的
+# 真实绝对路径, 所以从模板生成而不是直接提交固定路径。
+TEMPLATE="${SCRIPT_DIR}/template/clangd.template"
+if [[ -f "${TEMPLATE}" ]]; then
+    sed "s|__REPO_ROOT__|${REPO_ROOT}|g" "${TEMPLATE}" > "${REPO_ROOT}/.clangd"
+    echo "[setup-clangd-headers] Generated ${REPO_ROOT}/.clangd from template"
+else
+    echo "[setup-clangd-headers] WARNING: template not found: ${TEMPLATE}" >&2
+fi
 
 echo "[setup-clangd-headers] Done."
 echo "[setup-clangd-headers] .clangd 已配置指向 ${CACHE_DIR}"

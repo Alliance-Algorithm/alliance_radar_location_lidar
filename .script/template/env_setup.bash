@@ -5,10 +5,16 @@
 : "${RADAR_WS:=/workspace}"
 
 # ── ROS 2 ────────────────────────────────────────────────────────
-if [ -f /opt/ros/jazzy/setup.bash ]; then
-    source /opt/ros/jazzy/setup.bash 2>/dev/null
-else
-    echo "[ERROR] ROS2 Jazzy not found at /opt/ros/jazzy/setup.bash" >&2
+# Skip when ROS is already sourced (e.g. env_setup.zsh already ran
+# /opt/ros/jazzy/setup.zsh before sourcing this file). Re-sourcing
+# setup.bash from zsh breaks its ${BASH_SOURCE[0]} lookup (unset under
+# zsh) and fails with "no such file or directory: $PWD/setup.sh".
+if [ -z "${AMENT_PREFIX_PATH:-}" ]; then
+    if [ -f /opt/ros/jazzy/setup.bash ]; then
+        source /opt/ros/jazzy/setup.bash 2>/dev/null
+    else
+        echo "[ERROR] ROS2 Jazzy not found at /opt/ros/jazzy/setup.bash" >&2
+    fi
 fi
 
 # ── Workspace ────────────────────────────────────────────────────
