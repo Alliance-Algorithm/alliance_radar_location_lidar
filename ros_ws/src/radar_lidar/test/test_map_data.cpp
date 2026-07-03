@@ -12,7 +12,7 @@ namespace {
 
 auto make_test_pcd(const std::string& path, int n_points, double spacing = 0.2)
     -> const std::string& {
-    auto cloud = pcl::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
+    auto cloud     = pcl::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
     const int side = static_cast<int>(std::sqrt(static_cast<double>(n_points)));
     cloud->reserve(static_cast<size_t>(side) * side);
     for (int i = 0; i < side; ++i)

@@ -36,9 +36,8 @@ TEST(OfflineVisualizationTest, ColoredCloudUsesRequestedBgrColor) {
 }
 
 TEST(OfflineVisualizationTest, OverlayCloudSeparatesMapAndScanColors) {
-    const auto overlay = radar::offline::make_overlay_cloud(
-        make_map_cloud(), make_aligned_scan(), radar::offline::kMapColorBgr,
-        radar::offline::kAlignedScanColorBgr);
+    const auto overlay = radar::offline::make_overlay_cloud(make_map_cloud(), make_aligned_scan(),
+        radar::offline::kMapColorBgr, radar::offline::kAlignedScanColorBgr);
 
     ASSERT_EQ(overlay.size(), 3u);
 
