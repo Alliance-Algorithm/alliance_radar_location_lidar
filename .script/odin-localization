@@ -7,6 +7,13 @@ set -euo pipefail
 
 INSTALL_DIR="${RADAR_WS}/ros_ws/install"
 
+for arg in "$@"; do
+    if [[ "$arg" == sensor:=* ]]; then
+        echo "> ERROR: odin-localization does not accept sensor:=..." >&2
+        exit 1
+    fi
+done
+
 if [ ! -f /opt/ros/jazzy/setup.bash ]; then
     echo "> ERROR: ROS2 Jazzy not found" >&2; exit 1
 fi
@@ -20,4 +27,4 @@ source "${INSTALL_DIR}/setup.bash"
 set -u
 
 echo "[ODIN-LOC] Starting Odin + radar_lidar ..."
-ros2 launch radar_bringup localization.launch.py sensor:=odin "$@"
+ros2 launch radar_bringup localization.launch.py "$@" sensor:=odin

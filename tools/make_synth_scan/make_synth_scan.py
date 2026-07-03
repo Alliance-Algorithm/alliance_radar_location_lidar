@@ -59,6 +59,10 @@ def rot_y(deg):
 
 
 def main():
+    if len(sys.argv) != 3:
+        print(f"Usage: {sys.argv[0]} <map.pcd> <out.pcd>", file=sys.stderr)
+        return 1
+
     map_path = sys.argv[1]
     out_path = sys.argv[2]
 
@@ -116,7 +120,8 @@ def main():
     qy = (R[0, 2] - R[2, 0]) / (4 * w)
     qz = (R[1, 0] - R[0, 1]) / (4 * w)
     print(f"[synth] GT quat xyzw = [{qx:.4f}, {qy:.4f}, {qz:.4f}, {w:.4f}]")
+    return 0
 
 
 if __name__ == '__main__':
-    main()
+    raise SystemExit(main())
