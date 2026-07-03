@@ -14,22 +14,19 @@
 
 namespace {
 
-constexpr auto deg_to_rad(double deg) -> double {
-    return deg * std::numbers::pi / 180.0;
-}
+constexpr auto deg_to_rad(double deg) -> double { return deg * std::numbers::pi / 180.0; }
 
-auto make_cube_surface(double size, double step)
-    -> pcl::PointCloud<pcl::PointXYZ>::Ptr {
-    auto cloud = pcl::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
+auto make_cube_surface(double size, double step) -> pcl::PointCloud<pcl::PointXYZ>::Ptr {
+    auto cloud        = pcl::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
     const double half = size / 2.0;
     for (double x = -half; x <= half; x += step) {
         for (double y = -half; y <= half; y += step) {
             cloud->emplace_back(x, y, -half);
-            cloud->emplace_back(x, y,  half);
+            cloud->emplace_back(x, y, half);
             cloud->emplace_back(x, -half, y);
-            cloud->emplace_back(x,  half, y);
+            cloud->emplace_back(x, half, y);
             cloud->emplace_back(-half, x, y);
-            cloud->emplace_back( half, x, y);
+            cloud->emplace_back(half, x, y);
         }
     }
     cloud->width    = cloud->size();
@@ -38,12 +35,9 @@ auto make_cube_surface(double size, double step)
     return cloud;
 }
 
-auto make_frame_from_cloud(const pcl::PointCloud<pcl::PointXYZ>& cloud)
-    -> radar::types::Frame {
+auto make_frame_from_cloud(const pcl::PointCloud<pcl::PointXYZ>& cloud) -> radar::types::Frame {
     auto points = cloud.points
-        | std::views::transform([](const auto& pt) {
-              return Eigen::Vector3d(pt.x, pt.y, pt.z);
-          })
+        | std::views::transform([](const auto& pt) { return Eigen::Vector3d(pt.x, pt.y, pt.z); })
         | std::ranges::to<std::vector<Eigen::Vector3d>>();
     return { .points = std::move(points) };
 }
@@ -74,7 +68,7 @@ TEST_F(LocalizationTest, IdentityTransform) {
     cfg.accumulate_frames  = 0;
 
     auto localization = radar::LocalizationStage(map, cfg);
-    auto frame = make_frame_from_cloud(map->pcl_cloud());
+    auto frame        = make_frame_from_cloud(map->pcl_cloud());
 
     auto result = localization.process(frame);
     ASSERT_TRUE(result.has_value()) << result.error();
@@ -106,12 +100,10 @@ TEST_F(LocalizationTest, KnownTranslation) {
     localization.set_initial_pose(init_pose);
 
     const Eigen::Vector3d shift(0.5, 0.3, 0.0);
-    auto points = map->pcl_cloud().points
-        | std::views::transform([&shift](const auto& pt) {
-              return Eigen::Vector3d(pt.x + shift.x(), pt.y + shift.y(), pt.z + shift.z());
-          })
-        | std::ranges::to<std::vector<Eigen::Vector3d>>();
-    auto frame = radar::types::Frame{ .points = std::move(points) };
+    auto points = map->pcl_cloud().points | std::views::transform([&shift](const auto& pt) {
+        return Eigen::Vector3d(pt.x + shift.x(), pt.y + shift.y(), pt.z + shift.z());
+    }) | std::ranges::to<std::vector<Eigen::Vector3d>>();
+    auto frame  = radar::types::Frame { .points = std::move(points) };
 
     auto result = localization.process(frame);
     ASSERT_TRUE(result.has_value()) << result.error();
@@ -119,7 +111,7 @@ TEST_F(LocalizationTest, KnownTranslation) {
     auto trans = result->T.translation();
     EXPECT_NEAR(trans.x(), -0.5, 0.1) << "Expected T.x ~ -0.5, got " << trans.x();
     EXPECT_NEAR(trans.y(), -0.3, 0.1) << "Expected T.y ~ -0.3, got " << trans.y();
-    EXPECT_NEAR(trans.z(),  0.0, 0.1) << "Expected T.z ~  0.0, got " << trans.z();
+    EXPECT_NEAR(trans.z(), 0.0, 0.1) << "Expected T.z ~  0.0, got " << trans.z();
     EXPECT_TRUE(result->converged);
 }
 
@@ -145,12 +137,10 @@ TEST_F(LocalizationTest, KnownRotation) {
     const Eigen::Matrix3d R =
         Eigen::AngleAxisd(deg_to_rad(15.0), Eigen::Vector3d::UnitZ()).toRotationMatrix();
 
-    auto points = map->pcl_cloud().points
-        | std::views::transform([&R](const auto& pt) {
-              return R * Eigen::Vector3d(pt.x, pt.y, pt.z);
-          })
-        | std::ranges::to<std::vector<Eigen::Vector3d>>();
-    auto frame = radar::types::Frame{ .points = std::move(points) };
+    auto points = map->pcl_cloud().points | std::views::transform([&R](const auto& pt) {
+        return R * Eigen::Vector3d(pt.x, pt.y, pt.z);
+    }) | std::ranges::to<std::vector<Eigen::Vector3d>>();
+    auto frame  = radar::types::Frame { .points = std::move(points) };
 
     auto result = localization.process(frame);
     ASSERT_TRUE(result.has_value()) << result.error();

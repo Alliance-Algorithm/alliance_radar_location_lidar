@@ -80,9 +80,7 @@ auto DynamicCloudStage::process(const types::PointCloud& scan)
     }
 
     // 合并线程结果
-    auto dynamic_points = thread_clouds
-        | std::views::join
-        | std::ranges::to<types::PointCloud>();
+    auto dynamic_points = thread_clouds | std::views::join | std::ranges::to<types::PointCloud>();
 
     // 帧累积
     if (cfg_.accumulate_frames > 0) {
@@ -99,9 +97,7 @@ auto DynamicCloudStage::process(const types::PointCloud& scan)
 }
 
 auto DynamicCloudStage::accumulated() const -> types::PointCloud {
-    return frames_
-        | std::views::join
-        | std::ranges::to<types::PointCloud>();
+    return frames_ | std::views::join | std::ranges::to<types::PointCloud>();
 }
 
 } // namespace radar

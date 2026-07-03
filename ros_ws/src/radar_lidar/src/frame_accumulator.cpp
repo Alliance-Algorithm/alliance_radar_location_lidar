@@ -12,9 +12,7 @@ void FrameAccumulator::push(types::PointCloud points) {
 }
 
 auto FrameAccumulator::all_points() const -> types::PointCloud {
-    return frames_
-        | std::views::join
-        | std::ranges::to<types::PointCloud>();
+    return frames_ | std::views::join | std::ranges::to<types::PointCloud>();
 }
 
 } // namespace radar

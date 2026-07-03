@@ -1,7 +1,7 @@
 #pragma once
 
-#include <cstdint>
 #include <cmath>
+#include <cstdint>
 
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
@@ -29,65 +29,59 @@ inline auto is_valid_xyz(const Eigen::Vector3d& pt) -> bool {
     return std::isfinite(pt.x()) && std::isfinite(pt.y()) && std::isfinite(pt.z());
 }
 
-inline auto make_colored_point(float x, float y, float z, BgrColor color)
-    -> pcl::PointXYZRGB {
+inline auto make_colored_point(float x, float y, float z, BgrColor color) -> pcl::PointXYZRGB {
     auto point = pcl::PointXYZRGB();
-    point.x = x;
-    point.y = y;
-    point.z = z;
-    point.b = color.b;
-    point.g = color.g;
-    point.r = color.r;
-    point.a = 255;
+    point.x    = x;
+    point.y    = y;
+    point.z    = z;
+    point.b    = color.b;
+    point.g    = color.g;
+    point.r    = color.r;
+    point.a    = 255;
     return point;
 }
 
-inline auto make_colored_cloud(
-    const pcl::PointCloud<pcl::PointXYZ>& input, BgrColor color) -> pcl::PointCloud<pcl::PointXYZRGB> {
+inline auto make_colored_cloud(const pcl::PointCloud<pcl::PointXYZ>& input, BgrColor color)
+    -> pcl::PointCloud<pcl::PointXYZRGB> {
     pcl::PointCloud<pcl::PointXYZRGB> output;
     output.reserve(input.size());
     for (const auto& pt : input.points) {
-        if (!is_valid_xyz(pt.x, pt.y, pt.z))
-            continue;
+        if (!is_valid_xyz(pt.x, pt.y, pt.z)) continue;
         output.push_back(make_colored_point(pt.x, pt.y, pt.z, color));
     }
-    output.width = output.size();
-    output.height = 1;
+    output.width    = output.size();
+    output.height   = 1;
     output.is_dense = true;
     return output;
 }
 
-inline auto make_colored_cloud(
-    const radar::types::PointCloud& input, BgrColor color) -> pcl::PointCloud<pcl::PointXYZRGB> {
+inline auto make_colored_cloud(const radar::types::PointCloud& input, BgrColor color)
+    -> pcl::PointCloud<pcl::PointXYZRGB> {
     pcl::PointCloud<pcl::PointXYZRGB> output;
     output.reserve(input.size());
     for (const auto& pt : input) {
-        if (!is_valid_xyz(pt))
-            continue;
-        output.push_back(make_colored_point(
-            static_cast<float>(pt.x()), static_cast<float>(pt.y()), static_cast<float>(pt.z()),
-            color));
+        if (!is_valid_xyz(pt)) continue;
+        output.push_back(make_colored_point(static_cast<float>(pt.x()), static_cast<float>(pt.y()),
+            static_cast<float>(pt.z()), color));
     }
-    output.width = output.size();
-    output.height = 1;
+    output.width    = output.size();
+    output.height   = 1;
     output.is_dense = true;
     return output;
 }
 
 inline auto make_overlay_cloud(const pcl::PointCloud<pcl::PointXYZ>& map_cloud,
-    const radar::types::PointCloud& aligned_scan, BgrColor map_color,
-    BgrColor scan_color) -> pcl::PointCloud<pcl::PointXYZRGB> {
+    const radar::types::PointCloud& aligned_scan, BgrColor map_color, BgrColor scan_color)
+    -> pcl::PointCloud<pcl::PointXYZRGB> {
     auto output = make_colored_cloud(map_cloud, map_color);
     output.reserve(output.size() + aligned_scan.size());
     for (const auto& pt : aligned_scan) {
-        if (!is_valid_xyz(pt))
-            continue;
-        output.push_back(make_colored_point(
-            static_cast<float>(pt.x()), static_cast<float>(pt.y()), static_cast<float>(pt.z()),
-            scan_color));
+        if (!is_valid_xyz(pt)) continue;
+        output.push_back(make_colored_point(static_cast<float>(pt.x()), static_cast<float>(pt.y()),
+            static_cast<float>(pt.z()), scan_color));
     }
-    output.width = output.size();
-    output.height = 1;
+    output.width    = output.size();
+    output.height   = 1;
     output.is_dense = true;
     return output;
 }

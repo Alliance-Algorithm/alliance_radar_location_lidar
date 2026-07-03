@@ -34,8 +34,7 @@ void SphericalGrid::add(const types::PointCloud& points) {
 }
 
 auto SphericalGrid::extract() -> types::PointCloud {
-    auto result = grid_map_
-        | std::views::values
+    auto result = grid_map_ | std::views::values
         | std::views::filter([](const auto& cell) { return cell.max_distance_sq >= 0.0; })
         | std::views::transform([](const auto& cell) { return cell.farthest_point; })
         | std::ranges::to<types::PointCloud>();

@@ -10,8 +10,7 @@
 
 namespace {
 
-auto make_wall(int nx, int ny, double step)
-    -> pcl::PointCloud<pcl::PointXYZ>::Ptr {
+auto make_wall(int nx, int ny, double step) -> pcl::PointCloud<pcl::PointXYZ>::Ptr {
     auto cloud = pcl::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
     cloud->reserve(static_cast<size_t>(nx) * ny);
     for (int i = 0; i < nx; ++i)
