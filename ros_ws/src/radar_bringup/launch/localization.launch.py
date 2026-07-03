@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """radar_lidar 通用定位启动文件。
 
-按 sensor 参数选择对应的参数 YAML，并按需启动传感器驱动。
+按 sensor 参数选择对应的参数 YAML, 并按需启动传感器驱动。
 
 用法:
     ros2 launch radar_bringup localization.launch.py sensor:=odin map_path:=/path/to/map.pcd

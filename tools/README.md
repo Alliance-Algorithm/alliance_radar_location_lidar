@@ -52,7 +52,7 @@ python3 tools/make_synth_scan/make_synth_scan.py \
     model/generated/map_zup.pcd model/generated/synth_scan_odin.pcd
 ```
 
-生成后用 `offline_test_node`（在 `radar_lidar/tools/`）配准，比对输出 pose 与脚本打印的真值。
+生成后用 `offline-test <synth_scan.pcd> --map <map_zup.pcd>`（见项目根 README「离线配准可视化」）配准，比对输出 pose 与脚本打印的真值。
 
 ## logger
 
