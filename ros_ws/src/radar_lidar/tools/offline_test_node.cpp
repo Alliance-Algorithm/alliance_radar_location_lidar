@@ -13,8 +13,8 @@
 
 #include <algorithm>
 #include <cmath>
-#include <fstream>
 #include <format>
+#include <fstream>
 #include <numbers>
 #include <print>
 #include <ranges>
@@ -64,9 +64,9 @@ auto pose_from_yaw_pitch(const Eigen::Vector3d& translation, double yaw, double 
     -> Eigen::Isometry3d {
     Eigen::Isometry3d pose = Eigen::Isometry3d::Identity();
     pose.translation()     = translation;
-    pose.linear() = (Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ())
-                     * Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitY()))
-                        .toRotationMatrix();
+    pose.linear()          = (Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ())
+        * Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitY()))
+                                 .toRotationMatrix();
     return pose;
 }
 
@@ -92,12 +92,12 @@ auto score_alignment(const pcl::KdTreeFLANN<pcl::PointXYZ>& map_tree,
     const double th2 = inlier_threshold * inlier_threshold;
     std::vector<int> idx(1);
     std::vector<float> sq_dist(1);
-    size_t inliers      = 0;
-    double sq_dist_sum  = 0.0;
+    size_t inliers     = 0;
+    double sq_dist_sum = 0.0;
     for (const auto& p : source) {
         const Eigen::Vector3d tp = T * p;
-        pcl::PointXYZ query(static_cast<float>(tp.x()), static_cast<float>(tp.y()),
-            static_cast<float>(tp.z()));
+        pcl::PointXYZ query(
+            static_cast<float>(tp.x()), static_cast<float>(tp.y()), static_cast<float>(tp.z()));
         if (map_tree.nearestKSearch(query, 1, idx, sq_dist) > 0 && sq_dist[0] <= th2) {
             ++inliers;
             sq_dist_sum += sq_dist[0];
@@ -127,19 +127,19 @@ auto write_pose_json(const std::string& path, const Eigen::Isometry3d& T,
     ofs << std::format("  \"frame\": \"work_center_origin_zup_meters\",\n");
     ofs << std::format("  \"direction\": \"T_map_lidar (lidar point -> map)\",\n");
     ofs << std::format("  \"translation\": [{:.6f}, {:.6f}, {:.6f}],\n", t.x(), t.y(), t.z());
-    ofs << std::format("  \"quaternion_xyzw\": [{:.6f}, {:.6f}, {:.6f}, {:.6f}],\n",
-        q.x(), q.y(), q.z(), q.w());
+    ofs << std::format(
+        "  \"quaternion_xyzw\": [{:.6f}, {:.6f}, {:.6f}, {:.6f}],\n", q.x(), q.y(), q.z(), q.w());
     ofs << std::format("  \"matrix\": [\n");
     for (int r = 0; r < 4; ++r) {
-        ofs << std::format("    [{:.6f}, {:.6f}, {:.6f}, {:.6f}]{}\n",
-            m(r, 0), m(r, 1), m(r, 2), m(r, 3), r < 3 ? "," : "");
+        ofs << std::format("    [{:.6f}, {:.6f}, {:.6f}, {:.6f}]{}\n", m(r, 0), m(r, 1), m(r, 2),
+            m(r, 3), r < 3 ? "," : "");
     }
     ofs << std::format("  ],\n");
     ofs << std::format("  \"inlier_ratio\": {:.6f},\n", score.inlier_ratio);
     ofs << std::format("  \"rmse\": {:.6f},\n", score.rmse);
     ofs << std::format("  \"converged\": {}\n", converged);
     ofs << std::format("}}\n");
-    return {};
+    return { };
 }
 
 } // namespace
@@ -190,7 +190,8 @@ private:
             // 兼容回退（已弃用）：推荐改用 model_to_map --y-up 从 FBX 直接生成 Z-up 地图。
             // 该分支每次运行都重转+落临时文件，仅为兼容旧的 Y-up 地图保留。
             std::println(stderr,
-                "[offline] WARNING: map_y_up=true 已弃用，请改用 model_to_map --y-up 生成 Z-up 地图。");
+                "[offline] WARNING: map_y_up=true 已弃用，请改用 model_to_map --y-up 生成 Z-up "
+                "地图。");
             auto raw = pcl::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
             if (pcl::io::loadPCDFile<pcl::PointXYZ>(map_path, *raw) == -1) {
                 std::println(stderr, "ERROR: Failed to load map PCD for rotation");
@@ -199,7 +200,8 @@ private:
             }
             for (auto& pt : raw->points) {
                 const float y = pt.y, z = pt.z;
-                pt.y = -z; pt.z = y;
+                pt.y = -z;
+                pt.z = y;
             }
             map_path = "/tmp/map_z_up.pcd";
             pcl::io::savePCDFileBinary(map_path, *raw);
@@ -229,8 +231,8 @@ private:
             vg.setLeafSize(scan_voxel, scan_voxel, scan_voxel);
             vg.setInputCloud(scan_pcl);
             vg.filter(*downsampled);
-            std::println("[offline] Scan downsampled: {} → {} points (voxel={})",
-                scan_pcl->size(), downsampled->size(), scan_voxel);
+            std::println("[offline] Scan downsampled: {} → {} points (voxel={})", scan_pcl->size(),
+                downsampled->size(), scan_voxel);
             scan_pcl = downsampled;
         }
         auto frame = filter_valid_points(*scan_pcl);
@@ -266,14 +268,14 @@ private:
         get_parameter("roi_origin_y", roi_origin_y);
         get_parameter("roi_origin_yaw_deg", roi_origin_yaw_deg);
         if (use_roi) {
-            const double yaw_rad = deg_to_rad(roi_origin_yaw_deg);
-            const double cos_yaw = std::cos(yaw_rad);
-            const double sin_yaw = std::sin(yaw_rad);
-            const double half_fov = deg_to_rad(roi_half_fov_deg);
+            const double yaw_rad   = deg_to_rad(roi_origin_yaw_deg);
+            const double cos_yaw   = std::cos(yaw_rad);
+            const double sin_yaw   = std::sin(yaw_rad);
+            const double half_fov  = deg_to_rad(roi_half_fov_deg);
             const double tan2_half = std::tan(half_fov) * std::tan(half_fov);
-            const double min_r2 = roi_min_range * roi_min_range;
-            const double max_r2 = roi_max_range * roi_max_range;
-            auto clipped = radar::types::PointCloud();
+            const double min_r2    = roi_min_range * roi_min_range;
+            const double max_r2    = roi_max_range * roi_max_range;
+            auto clipped           = radar::types::PointCloud();
             clipped.reserve(frame.points.size());
             for (const auto& p : frame.points) {
                 if (p.z() < roi_z_min || p.z() > roi_z_max) continue;
@@ -281,14 +283,16 @@ private:
                 const double dy = p.y() - roi_origin_y;
                 const double r2 = dx * dx + dy * dy;
                 if (r2 < min_r2 || r2 > max_r2) continue;
-                const double fx =  dx * cos_yaw + dy * sin_yaw;
+                const double fx = dx * cos_yaw + dy * sin_yaw;
                 const double fy = -dx * sin_yaw + dy * cos_yaw;
                 if (fx <= 0.0) continue;
                 if (fy * fy > fx * fx * tan2_half) continue;
                 clipped.push_back(p);
             }
-            std::println("[offline] ROI sector: {} → {} points (origin=({:.1f},{:.1f}) yaw={}° FOV=±{}°)",
-                frame.points.size(), clipped.size(), roi_origin_x, roi_origin_y, roi_origin_yaw_deg, roi_half_fov_deg);
+            std::println("[offline] ROI sector: {} → {} points (origin=({:.1f},{:.1f}) yaw={}° "
+                         "FOV=±{}°)",
+                frame.points.size(), clipped.size(), roi_origin_x, roi_origin_y, roi_origin_yaw_deg,
+                roi_half_fov_deg);
             if (clipped.size() < 100) {
                 std::println(stderr, "ERROR: Too few points after ROI");
                 rclcpp::shutdown();
@@ -335,7 +339,8 @@ private:
             base_yaw                = yaw;
             base_pitch              = pitch;
         }
-        std::println("[offline] Init pose: eye=({:.2f},{:.2f},{:.2f}) yaw={:.2f}° pitch={:.2f}° (look_at={})",
+        std::println("[offline] Init pose: eye=({:.2f},{:.2f},{:.2f}) yaw={:.2f}° pitch={:.2f}° "
+                     "(look_at={})",
             init_x, init_y, init_z, rad_to_deg(base_yaw), rad_to_deg(base_pitch), use_look_at);
 
         // 粗配准: yaw 多起点搜索时每个候选跑一次 (大 voxel/大 corr/少迭代)
@@ -351,7 +356,7 @@ private:
         std::vector<double> yaw_offsets;
         if (yaw_search_step_deg > 0.0 && yaw_search_range_deg > 0.0) {
             for (double off = -yaw_search_range_deg; off <= yaw_search_range_deg + 1e-9;
-                 off += yaw_search_step_deg) {
+                off += yaw_search_step_deg) {
                 yaw_offsets.push_back(deg_to_rad(off));
             }
         } else {
@@ -368,21 +373,21 @@ private:
         std::vector<Candidate> candidates;
         candidates.reserve(yaw_offsets.size());
         for (const double yaw_off : yaw_offsets) {
-            auto init_pose = pose_from_yaw_pitch(eye, base_yaw + yaw_off, base_pitch);
+            auto init_pose    = pose_from_yaw_pitch(eye, base_yaw + yaw_off, base_pitch);
             auto coarse_stage = radar::LocalizationStage(map_, coarse_cfg);
             coarse_stage.set_initial_pose(init_pose);
-            auto coarse_result = coarse_stage.process(frame);
+            auto coarse_result             = coarse_stage.process(frame);
             const Eigen::Isometry3d cand_T = coarse_result ? coarse_result->T : init_pose;
-            const auto score = score_alignment(map_->pcl_tree(), frame.points, cand_T, inlier_threshold);
+            const auto score =
+                score_alignment(map_->pcl_tree(), frame.points, cand_T, inlier_threshold);
             candidates.push_back({ cand_T, score, rad_to_deg(yaw_off),
                 coarse_result ? coarse_result->converged : false });
             std::println("[offline]   yaw_off={:+.1f}° → inlier={:.3f} rmse={:.4f}",
                 rad_to_deg(yaw_off), score.inlier_ratio, score.rmse);
         }
 
-        const auto best = std::ranges::max_element(candidates, [](const auto& a, const auto& b) {
-            return is_better_score(b.score, a.score);
-        });
+        const auto best = std::ranges::max_element(candidates,
+            [](const auto& a, const auto& b) { return is_better_score(b.score, a.score); });
         std::println("[offline] Best coarse: yaw_off={:+.1f}° inlier={:.3f} rmse={:.4f}",
             best->yaw_offset_deg, best->score.inlier_ratio, best->score.rmse);
 
@@ -395,8 +400,8 @@ private:
         fine_stage.set_initial_pose(best->T);
         auto fine_result = fine_stage.process(frame);
 
-        Eigen::Isometry3d T = best->T;
-        bool converged      = best->converged;
+        Eigen::Isometry3d T             = best->T;
+        bool converged                  = best->converged;
         Eigen::Matrix<double, 6, 6> cov = Eigen::Matrix<double, 6, 6>::Identity();
         RegistrationScore final_score   = best->score;
         if (fine_result) {
@@ -408,8 +413,8 @@ private:
                 converged   = fine_result->converged;
                 cov         = fine_result->covariance;
                 final_score = fine_sc;
-                std::println("[offline] Fine OK. inlier={:.3f} rmse={:.4f}",
-                    fine_sc.inlier_ratio, fine_sc.rmse);
+                std::println("[offline] Fine OK. inlier={:.3f} rmse={:.4f}", fine_sc.inlier_ratio,
+                    fine_sc.rmse);
             } else {
                 std::println("[offline] Fine worse (inlier={:.3f} < coarse={:.3f}), keeping coarse",
                     fine_sc.inlier_ratio, best->score.inlier_ratio);
@@ -451,9 +456,9 @@ private:
         pub_pose_->publish(pose_msg);
 
         diagnostic_msgs::msg::DiagnosticStatus diag;
-        diag.name  = "offline_registration";
-        diag.level = converged ? diagnostic_msgs::msg::DiagnosticStatus::OK
-                               : diagnostic_msgs::msg::DiagnosticStatus::WARN;
+        diag.name    = "offline_registration";
+        diag.level   = converged ? diagnostic_msgs::msg::DiagnosticStatus::OK
+                                 : diagnostic_msgs::msg::DiagnosticStatus::WARN;
         diag.message = std::format("inlier={:.3f} rmse={:.4f} converged={}",
             final_score.inlier_ratio, final_score.rmse, converged);
         pub_diag_->publish(diag);

@@ -110,7 +110,8 @@ auto LocalizationStage::process(const types::Frame& scan)
 
     prev_pose_ = result.T_target_source;
     if (!result.converged) {
-        std::println("[localization] GICP did not converge (score={:.4f}, iter={}) -- using best available transform",
+        std::println("[localization] GICP did not converge (score={:.4f}, iter={}) -- using best "
+                     "available transform",
             result.error, result.iterations);
     }
 
