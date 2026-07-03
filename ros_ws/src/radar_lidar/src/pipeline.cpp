@@ -54,6 +54,10 @@ LidarPipeline::LidarPipeline()
     get_parameter("gicp_roi_y_max", loc_cfg.roi_y_max);
     get_parameter("gicp_roi_z_min", loc_cfg.roi_z_min);
     get_parameter("gicp_roi_z_max", loc_cfg.roi_z_max);
+    get_parameter("gicp_voxel_leaf_size", loc_cfg.voxel_leaf_size);
+    get_parameter("gicp_rotation_eps", loc_cfg.rotation_eps);
+    get_parameter("gicp_translation_eps", loc_cfg.translation_eps);
+    get_parameter("gicp_verbose", loc_cfg.verbose);
 
     localization_ = LocalizationStage(map_, loc_cfg);
 

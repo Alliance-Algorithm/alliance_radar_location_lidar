@@ -71,7 +71,7 @@ template <typename T>
 auto parse_number(std::string_view sv) -> std::expected<T, std::string> {
     T value{};
     const auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), value);
-    if (ec != std::errc{}) {
+    if (ec != std::errc{} || ptr != sv.data() + sv.size()) {
         return std::unexpected(std::format("Invalid number: '{}'", sv));
     }
     return value;
@@ -81,6 +81,20 @@ template <typename T>
 auto checked_assign(T& dest, std::string_view val) -> std::expected<void, std::string> {
     auto n = parse_number<T>(val);
     if (!n) return std::unexpected(n.error());
+    dest = *n;
+    return {};
+}
+
+// 校验数值参数完全消费字符串, 且满足下界要求 (min_exclusive=true 时严格 > min)。
+template <typename T>
+auto checked_assign_bounded(T& dest, std::string_view val, std::string_view name, T min,
+    bool min_exclusive) -> std::expected<void, std::string> {
+    auto n = parse_number<T>(val);
+    if (!n) return std::unexpected(n.error());
+    if (min_exclusive ? (*n <= min) : (*n < min)) {
+        return std::unexpected(std::format(
+            "{} must be {} {}, got '{}'", name, min_exclusive ? ">" : ">=", min, val));
+    }
     dest = *n;
     return {};
 }
@@ -110,11 +124,11 @@ auto parse_args(int argc, char** argv) -> std::expected<Args, std::string> {
         if (arg == "--output")        { args.output_pcd = val; continue; }
         if (arg == "--pose-out")      { args.pose_out   = val; continue; }
 
-        if (arg == "--voxel")         { if (auto r = checked_assign(args.voxel_leaf,   val); !r) return std::unexpected(r.error()); }
-        else if (arg == "--scan-voxel")  { if (auto r = checked_assign(args.scan_voxel,   val); !r) return std::unexpected(r.error()); }
-        else if (arg == "--max-corr")      { if (auto r = checked_assign(args.max_corr,       val); !r) return std::unexpected(r.error()); }
-        else if (arg == "--max-iter")      { if (auto r = checked_assign(args.max_iter,       val); !r) return std::unexpected(r.error()); }
-        else if (arg == "--num-threads")   { if (auto r = checked_assign(args.num_threads,    val); !r) return std::unexpected(r.error()); }
+        if (arg == "--voxel")         { if (auto r = checked_assign_bounded(args.voxel_leaf, val, "--voxel", 0.0, true); !r) return std::unexpected(r.error()); }
+        else if (arg == "--scan-voxel")  { if (auto r = checked_assign_bounded(args.scan_voxel, val, "--scan-voxel", 0.0, false); !r) return std::unexpected(r.error()); }
+        else if (arg == "--max-corr")      { if (auto r = checked_assign_bounded(args.max_corr, val, "--max-corr", 0.0, true); !r) return std::unexpected(r.error()); }
+        else if (arg == "--max-iter")      { if (auto r = checked_assign_bounded(args.max_iter, val, "--max-iter", 0, true); !r) return std::unexpected(r.error()); }
+        else if (arg == "--num-threads")   { if (auto r = checked_assign_bounded(args.num_threads, val, "--num-threads", 0, true); !r) return std::unexpected(r.error()); }
         else if (arg == "--init-x")        { if (auto r = checked_assign(args.init_x,         val); !r) return std::unexpected(r.error()); }
         else if (arg == "--init-y")        { if (auto r = checked_assign(args.init_y,         val); !r) return std::unexpected(r.error()); }
         else if (arg == "--init-z")        { if (auto r = checked_assign(args.init_z,         val); !r) return std::unexpected(r.error()); }
@@ -159,6 +173,8 @@ auto write_pose_json(const std::string& path, const radar::types::PoseEstimate& 
 
     auto json = std::format(
         "{{\n"
+        "  \"frame\": \"work_center_origin_zup_meters\",\n"
+        "  \"direction\": \"T_map_lidar (lidar point -> map)\",\n"
         "  \"converged\": {},\n"
         "  \"fitness_score\": {:.8f},\n"
         "  \"translation\": [{:.8f}, {:.8f}, {:.8f}],\n"

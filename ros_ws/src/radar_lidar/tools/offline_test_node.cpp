@@ -77,6 +77,15 @@ struct RegistrationScore {
     double rmse         = std::numeric_limits<double>::max();
 };
 
+// 评分排序: 内点率优先, 内点率相近时 RMSE 次之 (数值更小更优)。
+// 粗配准候选选择与精配准是否采纳共用同一套比较规则。
+auto is_better_score(const RegistrationScore& a, const RegistrationScore& b) -> bool {
+    if (std::abs(a.inlier_ratio - b.inlier_ratio) > 1e-6) {
+        return a.inlier_ratio > b.inlier_ratio;
+    }
+    return a.rmse < b.rmse;
+}
+
 auto score_alignment(const pcl::KdTreeFLANN<pcl::PointXYZ>& map_tree,
     const radar::types::PointCloud& source, const Eigen::Isometry3d& T, double inlier_threshold)
     -> RegistrationScore {
@@ -150,6 +159,7 @@ private:
         std::string map_path;
         std::string scan_path;
         get_parameter("output_frame", output_frame_);
+        get_parameter("scan_frame", scan_frame_);
         get_parameter("map_path", map_path);
         get_parameter("scan_path", scan_path);
 
@@ -232,7 +242,7 @@ private:
         }
         const auto colored_raw =
             radar::offline::make_colored_cloud(frame.points, radar::offline::kRawScanColorBgr);
-        pub_raw_->publish(to_rosmsg(colored_raw, output_frame_));
+        pub_raw_->publish(to_rosmsg(colored_raw, scan_frame_));
 
         // 先读初始位姿——后续 ROI 扇形和 GICP 都依赖它
         double init_x = 0.0, init_y = 0.0, init_z = 0.0, init_yaw_deg = 0.0;
@@ -286,7 +296,7 @@ private:
             }
             const auto colored_roi =
                 radar::offline::make_colored_cloud(clipped, radar::offline::kRoiColorBgr);
-            pub_roi_->publish(to_rosmsg(colored_roi, output_frame_));
+            pub_roi_->publish(to_rosmsg(colored_roi, scan_frame_));
             frame.points = std::move(clipped);
         }
 
@@ -370,12 +380,8 @@ private:
                 rad_to_deg(yaw_off), score.inlier_ratio, score.rmse);
         }
 
-        // 选最优: 内点率优先, RMSE 次之
         const auto best = std::ranges::max_element(candidates, [](const auto& a, const auto& b) {
-            if (std::abs(a.score.inlier_ratio - b.score.inlier_ratio) > 1e-6) {
-                return a.score.inlier_ratio < b.score.inlier_ratio;
-            }
-            return a.score.rmse > b.score.rmse;
+            return is_better_score(b.score, a.score);
         });
         std::println("[offline] Best coarse: yaw_off={:+.1f}° inlier={:.3f} rmse={:.4f}",
             best->yaw_offset_deg, best->score.inlier_ratio, best->score.rmse);
@@ -397,7 +403,7 @@ private:
             const auto fine_sc =
                 score_alignment(map_->pcl_tree(), frame.points, fine_result->T, inlier_threshold);
             // 精配准结果更优才采纳, 否则保留粗配准 (防止精配准把好起点带偏)
-            if (fine_sc.inlier_ratio >= best->score.inlier_ratio) {
+            if (is_better_score(fine_sc, best->score)) {
                 T           = fine_result->T;
                 converged   = fine_result->converged;
                 cov         = fine_result->covariance;
@@ -413,23 +419,19 @@ private:
         }
         const double fitness_score = final_score.rmse;
 
-        // T_target_source maps scan → map; apply inverse to place map into scan frame
-        const auto T_inv = T.inverse();
-        auto map_in_scan = map_->pcl_cloud().points
-            | std::views::filter([](const auto& pt) {
-                return std::isfinite(pt.x) && std::isfinite(pt.y) && std::isfinite(pt.z);
-            })
-            | std::views::transform([&T_inv](const auto& pt) {
-                return T_inv * Eigen::Vector3d(pt.x, pt.y, pt.z);
-            })
+        // T_target_source maps scan → map; 把 scan 变换到地图系, 使 topic 名字
+        // (scan_aligned) 与内容语义一致, 且和地图共处同一 frame (output_frame_)。
+        auto scan_in_map = frame.points
+            | std::views::filter([](const auto& pt) { return radar::offline::is_valid_xyz(pt); })
+            | std::views::transform([&T](const auto& pt) { return T * pt; })
             | std::ranges::to<radar::types::PointCloud>();
         const auto colored_aligned =
-            radar::offline::make_colored_cloud(map_in_scan, radar::offline::kAlignedScanColorBgr);
+            radar::offline::make_colored_cloud(scan_in_map, radar::offline::kAlignedScanColorBgr);
         pub_aligned_->publish(to_rosmsg(colored_aligned, output_frame_));
 
-        // Overlay: scan (green) + aligned map (cyan), both in scan frame
-        const auto colored_overlay = radar::offline::make_overlay_cloud(*scan_pcl,
-            map_in_scan, radar::offline::kAlignedScanColorBgr, radar::offline::kMapColorBgr);
+        // Overlay: 地图 (固定, 青色) + scan 对齐结果 (绿色), 都在地图系
+        const auto colored_overlay = radar::offline::make_overlay_cloud(map_->pcl_cloud(),
+            scan_in_map, radar::offline::kMapColorBgr, radar::offline::kAlignedScanColorBgr);
         pub_overlay_->publish(to_rosmsg(colored_overlay, output_frame_));
 
         const auto trans = T.translation();
@@ -474,6 +476,7 @@ private:
     std::shared_ptr<const radar::MapData> map_;
     radar::LocalizationStage localization_;
     std::string output_frame_ { "map" };
+    std::string scan_frame_ { "scan" };
 
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_map_, pub_raw_, pub_roi_,
         pub_aligned_, pub_overlay_;

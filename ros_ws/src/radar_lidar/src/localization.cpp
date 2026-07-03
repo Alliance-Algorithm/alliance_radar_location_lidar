@@ -108,11 +108,10 @@ auto LocalizationStage::process(const types::Frame& scan)
 
     auto result = small_gicp::align(target_points_, source_points, prev_pose_, setting);
 
+    prev_pose_ = result.T_target_source;
     if (!result.converged) {
         std::println("[localization] GICP did not converge (score={:.4f}, iter={}) -- using best available transform",
             result.error, result.iterations);
-    } else {
-        prev_pose_ = result.T_target_source;
     }
 
     // 锁定策略：fitness 足够好且收敛则锁定
