@@ -29,7 +29,7 @@ RUN sed -i \
 
 # System packages + ROS2 deps + project deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    vim wget curl unzip \
+    vim neovim wget curl unzip \
     zsh screen tmux \
     usbutils net-tools iputils-ping \
     ripgrep htop fzf \

@@ -1,0 +1,48 @@
+CompileFlags:
+  CompilationDatabase: ./
+  Remove:
+    - -march=native
+    - -fopenmp
+    - -flto*
+    - -fno-fat-lto-objects
+  Add:
+    - -std=gnu++23
+    # 容器用 GCC 14 (Debian 布局)。宿主机 GCC 版本/发行版布局不同 (无对应路径)，
+    # 会导致 clang 混用宿主机 libstdc++ 头文件，STL 内部结构不匹配报错。
+    # -nostdinc++ 屏蔽宿主机自动探测的 libstdc++，全部换成
+    # setup-clangd-headers 从容器缓存下来的 GCC 14 头文件。
+    # 用绝对路径: compile_commands.json 里各条目的 directory 是各包的
+    # build 子目录 (如 ros_ws/build/radar_lidar), 相对路径会按那个目录解析
+    # 而不是项目根目录, 导致缓存路径找不到 (clangd 不支持路径变量替换)。
+    - -nostdinc++
+    - -I__REPO_ROOT__/.clangd-headers/usr/include/c++/14
+    - -I__REPO_ROOT__/.clangd-headers/usr/include/x86_64-linux-gnu/c++/14
+    - -I__REPO_ROOT__/.clangd-headers/usr/include/c++/14/backward
+    - -I__REPO_ROOT__/.clangd-headers/usr/lib/gcc/x86_64-linux-gnu/14/include
+    # 宿主机可能没装 boost 头文件包 (只有运行库), PCL 依赖 boost/mpl 等头文件。
+    - -I__REPO_ROOT__/.clangd-headers/usr/include
+    # 容器只装项目所需子集 ROS2 包; 宿主机若是完整桌面版源码构建则缺这些。
+    # /opt/ros/jazzy/include 属于容器 uid, 宿主机当前用户无写权限, 只能
+    # 额外加 -isystem 指向缓存, 不能覆盖原路径。
+    - -isystem
+    - __REPO_ROOT__/.clangd-headers/opt/ros/jazzy/include/pcl_conversions
+    - -isystem
+    - __REPO_ROOT__/.clangd-headers/opt/ros/jazzy/include/pcl_msgs
+    - -isystem
+    - __REPO_ROOT__/.clangd-headers/opt/ros/jazzy/include/pcl_ros
+    - -isystem
+    - __REPO_ROOT__/.clangd-headers/opt/ros/jazzy/include/cv_bridge
+    - -isystem
+    - __REPO_ROOT__/.clangd-headers/opt/ros/jazzy/include/rosx_introspection
+Diagnostics:
+  UnusedIncludes: None
+  Suppress:
+    - conflicting_types
+    - builtin_definition
+    # clang 解析 GCC14 libstdc++ views::to / forward_like 的递归
+    # decltype(auto) 类型推导时的已知限制 (GCC 允许, clang 两阶段查找报错)。
+    # 只在 std::ranges::to(...) 管道写法上出现; 真实构建走 g++-14 无此问题。
+    - auto_fn_used_before_defined
+    - typecheck_invalid_operands
+  ClangTidy:
+    Remove: [modernize-use-trailing-return-type]
