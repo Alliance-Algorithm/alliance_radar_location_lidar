@@ -89,18 +89,37 @@ ROS 组件，与 `radar_lidar` 同容器零拷贝。
 
 ### radar_calibration
 
-手动触发的一次性离线标定工具。采集相机图像 + 雷达点云，计算相机-雷达外参，
-生成 `radar_camera` 启动所需的 YAML 参数。非 spin 节点（`main()` 跑完退出），
-不常驻主运行图，不参与实时定位链路。
+手动触发的一次性离线标定工具。用已有场地地图点云 + 一张相机图像做相机-雷达
+（camera-map registration）自动标定，生成 `radar_camera` 启动所需的外参 YAML。
+非 spin 节点（`main()` 跑完退出），不常驻主运行图，不参与实时定位链路。
+
+核心标定算法复用第三方库 `direct_visual_lidar_calibration`（NID 直接图像-点云
+配准，target-less，见 `ros_ws/third-party/direct_visual_lidar_calibration/`），
+不重新实现该算法；`radar_calibration` 只负责编排 CLI 流程与外参格式转换。
+
+标定流程（`.script/calibrate-camera`，3 步，全程无人工介入）：
+
+```text
+1. preprocess_map        地图 PCD + 相机图像 + 内参 → calib.json（无外参）
+2. inject-initial-guess  把粗略初始外参（雷达站相机安装几何估算值，
+                          见 config/initial_guess.yaml）写入 calib.json
+3. calibrate --background  NID 直接配准，从初值收敛出精确外参
+   → calib.json 的 results.T_lidar_camera 即 t_map_camera
+```
+
+初值来源说明：NID 直接配准是图像级优化，收敛域较窄，必须有一个大致准确的
+初始外参才能收敛（不同于 GICP 点云配准可以从粗略初值稳定收敛）。
+`direct_visual_lidar_calibration` 官方提供两种自动初值路径——人工选点
+（`initial_guess_manual`）或 SuperGlue 特征匹配（`initial_guess_auto` +
+`find_matches_superglue.py`，需要额外 torch 依赖，且模型仅限非商业用途）。
+本项目选择第三条路径：直接注入已知的粗略安装几何估算值，零人工介入、零额外
+依赖。
 
 | 文件 | 职责 |
 |---|---|
-| `include/radar_calibration/model_preprocess.hpp` | `radar::calibration::ModelProcess`（PIMPL）：FBX/PCD 模型加载 |
-| `include/radar_calibration/camera_lidar_calibration.hpp` | 相机-雷达外参标定核心：`solve() -> std::expected<Extrinsic, string>` |
-| `include/radar_calibration/pointcloud_capture.hpp` | 标定点云采集 |
-| `include/radar_calibration/image_preprocess.hpp` | 标定图像预处理 |
-| `src/running.cpp` | CLI 入口：读 `config/setting.yaml` → 标定 → 写外参 YAML |
-| `config/setting.yaml` | 相机内参/外参、雷达外参、相机-雷达外参、模型/地图路径 |
+| `include/radar_calibration/camera_lidar_calibration.hpp` | `radar::calibration::` 标定后处理：解析/写入 calib.json、注入初值、导出外参 YAML |
+| `src/running.cpp` | CLI 入口：`inject-initial-guess` / `extract-result` 两个子命令 |
+| `config/initial_guess.yaml` | 相机相对地图系的粗略外参估算（平移 + RPY，`Rz(yaw)*Ry(pitch)*Rx(roll)`） |
 
 ### radar_bridge
 
