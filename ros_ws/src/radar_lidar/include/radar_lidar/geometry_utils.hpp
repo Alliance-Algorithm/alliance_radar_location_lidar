@@ -21,8 +21,8 @@ namespace radar::geom {
 
 /// @brief 对点云做 AABB ROI 裁剪; use_roi=false 时原样返回
 /// 替代 localization.cpp / dynamic_cloud.cpp 中重复的裁剪循环
-[[nodiscard]] inline auto clip_roi_aabb(const types::PointCloud& points,
-    const config::RoiBounds& roi) -> types::PointCloud {
+[[nodiscard]] inline auto clip_roi_aabb(
+    const types::PointCloud& points, const config::RoiBounds& roi) -> types::PointCloud {
     if (!roi.use_roi) {
         return points;
     }
@@ -43,8 +43,8 @@ namespace radar::geom {
 }
 
 /// @brief look-at: 由观察点 eye 指向注视点 target, 反解 yaw+pitch (roll=0)
-[[nodiscard]] inline auto look_at_yaw_pitch(const Eigen::Vector3d& eye,
-    const Eigen::Vector3d& target) -> std::pair<double, double> {
+[[nodiscard]] inline auto look_at_yaw_pitch(
+    const Eigen::Vector3d& eye, const Eigen::Vector3d& target) -> std::pair<double, double> {
     const Eigen::Vector3d d = (target - eye).normalized();
     const double yaw        = std::atan2(d.y(), d.x());
     const double pitch      = std::atan2(-d.z(), std::hypot(d.x(), d.y()));

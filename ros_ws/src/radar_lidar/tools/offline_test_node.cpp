@@ -308,8 +308,8 @@ private:
         if (use_look_at) {
             const auto [yaw, pitch] =
                 radar::geom::look_at_yaw_pitch(eye, { look_at_x, look_at_y, look_at_z });
-            base_yaw                = yaw;
-            base_pitch              = pitch;
+            base_yaw   = yaw;
+            base_pitch = pitch;
         }
         std::println("[offline] Init pose: eye=({:.2f},{:.2f},{:.2f}) yaw={:.2f}° pitch={:.2f}° "
                      "(look_at={})",

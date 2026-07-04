@@ -19,8 +19,13 @@ struct DynamicCloudConfig {
     double distance_threshold = 0.1;
     int num_threads           = 12;
     int accumulate_frames     = 3;
-    config::RoiBounds roi { .use_roi = true, .x_min = 0, .x_max = 30, .y_min = -15, .y_max = 15,
-        .z_min = 0, .z_max = 1.4 };
+    config::RoiBounds roi { .use_roi = true,
+        .x_min                       = 0,
+        .x_max                       = 30,
+        .y_min                       = -15,
+        .y_max                       = 15,
+        .z_min                       = 0,
+        .z_max                       = 1.4 };
 };
 
 /// @brief 动态点提取
