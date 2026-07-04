@@ -1,10 +1,11 @@
 #include "radar_lidar/pipeline.hpp"
 
-#include <cfloat>
 #include <chrono>
 #include <ranges>
 
 #include <pcl_conversions/pcl_conversions.h>
+
+#include "radar_lidar/geometry_utils.hpp"
 
 namespace radar {
 
@@ -27,11 +28,13 @@ LidarPipeline::LidarPipeline()
     get_parameter("map_path", map_path);
     if (map_path.empty()) {
         RCLCPP_FATAL(get_logger(), "map_path parameter is required!");
+        rclcpp::shutdown();
         return;
     }
     auto map_result = MapData::Load(map_path, 0.1);
     if (!map_result) {
         RCLCPP_FATAL(get_logger(), "Failed to load map: %s", map_result.error().c_str());
+        rclcpp::shutdown();
         return;
     }
     map_ = *map_result;
@@ -47,13 +50,13 @@ LidarPipeline::LidarPipeline()
     get_parameter("gicp_accumulate_frames", loc_cfg.accumulate_frames);
     get_parameter("gicp_use_lock_strategy", loc_cfg.use_lock_strategy);
     get_parameter("gicp_lock_fitness", loc_cfg.lock_fitness);
-    get_parameter("gicp_use_roi", loc_cfg.use_roi);
-    get_parameter("gicp_roi_x_min", loc_cfg.roi_x_min);
-    get_parameter("gicp_roi_x_max", loc_cfg.roi_x_max);
-    get_parameter("gicp_roi_y_min", loc_cfg.roi_y_min);
-    get_parameter("gicp_roi_y_max", loc_cfg.roi_y_max);
-    get_parameter("gicp_roi_z_min", loc_cfg.roi_z_min);
-    get_parameter("gicp_roi_z_max", loc_cfg.roi_z_max);
+    get_parameter("gicp_use_roi", loc_cfg.roi.use_roi);
+    get_parameter("gicp_roi_x_min", loc_cfg.roi.x_min);
+    get_parameter("gicp_roi_x_max", loc_cfg.roi.x_max);
+    get_parameter("gicp_roi_y_min", loc_cfg.roi.y_min);
+    get_parameter("gicp_roi_y_max", loc_cfg.roi.y_max);
+    get_parameter("gicp_roi_z_min", loc_cfg.roi.z_min);
+    get_parameter("gicp_roi_z_max", loc_cfg.roi.z_max);
     get_parameter("gicp_voxel_leaf_size", loc_cfg.voxel_leaf_size);
     get_parameter("gicp_rotation_eps", loc_cfg.rotation_eps);
     get_parameter("gicp_translation_eps", loc_cfg.translation_eps);
@@ -66,13 +69,13 @@ LidarPipeline::LidarPipeline()
     get_parameter("dynamic_distance_threshold", dyn_cfg.distance_threshold);
     get_parameter("dynamic_num_threads", dyn_cfg.num_threads);
     get_parameter("dynamic_accumulate_frames", dyn_cfg.accumulate_frames);
-    get_parameter("dynamic_use_roi", dyn_cfg.use_roi);
-    get_parameter("dynamic_roi_x_min", dyn_cfg.roi_x_min);
-    get_parameter("dynamic_roi_x_max", dyn_cfg.roi_x_max);
-    get_parameter("dynamic_roi_y_min", dyn_cfg.roi_y_min);
-    get_parameter("dynamic_roi_y_max", dyn_cfg.roi_y_max);
-    get_parameter("dynamic_roi_z_min", dyn_cfg.roi_z_min);
-    get_parameter("dynamic_roi_z_max", dyn_cfg.roi_z_max);
+    get_parameter("dynamic_use_roi", dyn_cfg.roi.use_roi);
+    get_parameter("dynamic_roi_x_min", dyn_cfg.roi.x_min);
+    get_parameter("dynamic_roi_x_max", dyn_cfg.roi.x_max);
+    get_parameter("dynamic_roi_y_min", dyn_cfg.roi.y_min);
+    get_parameter("dynamic_roi_y_max", dyn_cfg.roi.y_max);
+    get_parameter("dynamic_roi_z_min", dyn_cfg.roi.z_min);
+    get_parameter("dynamic_roi_z_max", dyn_cfg.roi.z_max);
 
     dynamic_stage_ = DynamicCloudStage(dyn_cfg);
     dynamic_stage_.set_map(std::make_shared<pcl::PointCloud<pcl::PointXYZ>>(map_->pcl_cloud()));
@@ -109,11 +112,7 @@ void LidarPipeline::on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg)
     {
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>());
         pcl::fromROSMsg(*msg, *cloud);
-        frame.points = cloud->points | std::views::filter([](const auto& pt) {
-            return std::isfinite(pt.x) && std::isfinite(pt.y) && std::isfinite(pt.z)
-                && (pt.x * pt.x + pt.y * pt.y + pt.z * pt.z) > DBL_EPSILON;
-        }) | std::views::transform([](const auto& pt) { return Eigen::Vector3d(pt.x, pt.y, pt.z); })
-            | std::ranges::to<types::PointCloud>();
+        frame          = geom::filter_valid_points(*cloud);
         frame.stamp    = rclcpp::Time(msg->header.stamp).nanoseconds();
         frame.frame_id = msg->header.frame_id;
     }
