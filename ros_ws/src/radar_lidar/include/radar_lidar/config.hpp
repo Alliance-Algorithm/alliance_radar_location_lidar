@@ -4,6 +4,15 @@
 
 namespace radar::config {
 
+/// @brief 轴对齐包围盒 (AABB) ROI 参数
+/// 被 LocalizationConfig 和 DynamicCloudConfig 共享嵌入,避免裁剪逻辑重复
+struct RoiBounds {
+    bool use_roi = false;
+    double x_min = 0, x_max = 30;
+    double y_min = -15, y_max = 15;
+    double z_min = 0, z_max = 7;
+};
+
 struct LocalizationConfig {
     double voxel_leaf_size   = 0.1;
     double max_corr_distance = 1.0;
@@ -23,10 +32,7 @@ struct LocalizationConfig {
     double lock_fitness    = 0.2;   // fitness 低于此值后锁定
 
     // ROI 裁剪（source cloud，坐标系同 scan）
-    bool use_roi     = false;
-    double roi_x_min = 0, roi_x_max = 30;
-    double roi_y_min = -15, roi_y_max = 15;
-    double roi_z_min = 0, roi_z_max = 7;
+    RoiBounds roi;
 };
 
 } // namespace radar::config

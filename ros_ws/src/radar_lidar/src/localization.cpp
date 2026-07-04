@@ -6,6 +6,7 @@
 #include <Eigen/Cholesky>
 #include <small_gicp/registration/registration_helper.hpp>
 
+#include "radar_lidar/geometry_utils.hpp"
 #include "radar_lidar/map_data.hpp"
 
 namespace radar {
@@ -28,18 +29,7 @@ LocalizationStage::LocalizationStage(
 
 auto LocalizationStage::preprocess(const types::Frame& scan) -> types::PointCloud {
     // ROI 裁剪
-    types::PointCloud roi_points;
-    if (cfg_.use_roi) {
-        roi_points.reserve(scan.points.size());
-        for (const auto& p : scan.points) {
-            if (p.x() >= cfg_.roi_x_min && p.x() <= cfg_.roi_x_max && p.y() >= cfg_.roi_y_min
-                && p.y() <= cfg_.roi_y_max && p.z() >= cfg_.roi_z_min && p.z() <= cfg_.roi_z_max) {
-                roi_points.push_back(p);
-            }
-        }
-    } else {
-        roi_points = scan.points;
-    }
+    auto roi_points = geom::clip_roi_aabb(scan.points, cfg_.roi);
 
     if (!cfg_.use_spherical_grid && cfg_.accumulate_frames == 0) {
         return roi_points;
