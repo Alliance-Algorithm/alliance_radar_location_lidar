@@ -38,12 +38,14 @@ int main(int argc, char** argv) {
     if (command == "extract-result") {
         auto t_map_camera = radar::calibration::load_t_map_camera(arg1);
         if (!t_map_camera) {
-            std::fprintf(stderr, "Failed to load calibration result: %s\n", t_map_camera.error().c_str());
+            std::fprintf(
+                stderr, "Failed to load calibration result: %s\n", t_map_camera.error().c_str());
             return 1;
         }
         auto write_result = radar::calibration::write_extrinsic_yaml(arg2, *t_map_camera);
         if (!write_result) {
-            std::fprintf(stderr, "Failed to write extrinsic YAML: %s\n", write_result.error().c_str());
+            std::fprintf(
+                stderr, "Failed to write extrinsic YAML: %s\n", write_result.error().c_str());
             return 1;
         }
         std::printf("Wrote t_map_camera to %s\n", arg2.string().c_str());
