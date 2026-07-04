@@ -59,6 +59,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libjpeg-dev \
     libfmt-dev \
     libtbb-dev \
+    nlohmann-json3-dev \
     ros-$ROS_DISTRO-cv-bridge \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /tmp/*

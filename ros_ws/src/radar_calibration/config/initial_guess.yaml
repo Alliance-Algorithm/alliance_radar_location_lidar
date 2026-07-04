@@ -1,0 +1,10 @@
+# radar_calibration initial extrinsic guess: camera pose relative to the map frame.
+# Rotation convention matches radar_lidar's initial_pose: Rz(yaw) * Ry(pitch) * Rx(roll).
+# This is a rough estimate (radar-station mounting geometry); calibrate refines it via
+# NID-based direct registration (see .script/calibrate-camera).
+initial_tx: 0.0
+initial_ty: 0.0
+initial_tz: 0.0
+initial_roll: 0.0
+initial_pitch: 0.0
+initial_yaw: 0.0
