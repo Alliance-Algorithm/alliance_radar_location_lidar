@@ -21,6 +21,7 @@
 #include <string>
 #include <vector>
 
+#include "radar_lidar/geometry_utils.hpp"
 #include "radar_lidar/localization.hpp"
 #include "radar_lidar/map_data.hpp"
 #include "radar_lidar/offline_visualization.hpp"
@@ -38,36 +39,6 @@ auto to_rosmsg(const pcl::PointCloud<PointT>& cloud, const std::string& frame_id
     pcl::toROSMsg(cloud, msg);
     msg.header.frame_id = frame_id;
     return msg;
-}
-
-auto filter_valid_points(const pcl::PointCloud<pcl::PointXYZ>& pcl_cloud) -> radar::types::Frame {
-    auto points = pcl_cloud.points | std::views::filter([](const auto& pt) {
-        return std::isfinite(pt.x) && std::isfinite(pt.y) && std::isfinite(pt.z)
-            && (pt.x * pt.x + pt.y * pt.y + pt.z * pt.z) > 1e-12;
-    }) | std::views::transform([](const auto& pt) { return Eigen::Vector3d(pt.x, pt.y, pt.z); })
-        | std::ranges::to<std::vector<Eigen::Vector3d>>();
-    return { .points = std::move(points) };
-}
-
-// look-at 初值: 由雷达位置 eye 指向注视点 target, 反解 yaw+pitch (roll=0)。
-// 相机 4m 高俯视场地中心 → d.z()<0 → pitch>0 表示低头。
-// 旋转组装 Rz(yaw)*Ry(pitch), 与场地系 (+x 前, +z 上) 一致。
-auto make_look_at_pose(const Eigen::Vector3d& eye, const Eigen::Vector3d& target)
-    -> std::pair<double, double> {
-    const Eigen::Vector3d d = (target - eye).normalized();
-    const double yaw        = std::atan2(d.y(), d.x());
-    const double pitch      = std::atan2(-d.z(), std::hypot(d.x(), d.y()));
-    return { yaw, pitch };
-}
-
-auto pose_from_yaw_pitch(const Eigen::Vector3d& translation, double yaw, double pitch)
-    -> Eigen::Isometry3d {
-    Eigen::Isometry3d pose = Eigen::Isometry3d::Identity();
-    pose.translation()     = translation;
-    pose.linear()          = (Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ())
-        * Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitY()))
-                                 .toRotationMatrix();
-    return pose;
 }
 
 // 候选评分: 把 source 点用 T 变到地图系, 在地图 KdTree 查最近邻,
@@ -235,7 +206,7 @@ private:
                 downsampled->size(), scan_voxel);
             scan_pcl = downsampled;
         }
-        auto frame = filter_valid_points(*scan_pcl);
+        auto frame = radar::geom::filter_valid_points(*scan_pcl);
         std::println("[offline] Scan: {} valid points", frame.points.size());
         if (frame.points.size() < 100) {
             std::println(stderr, "ERROR: Too few points");
@@ -335,7 +306,8 @@ private:
         double base_yaw   = deg_to_rad(init_yaw_deg);
         double base_pitch = deg_to_rad(init_pitch_deg);
         if (use_look_at) {
-            const auto [yaw, pitch] = make_look_at_pose(eye, { look_at_x, look_at_y, look_at_z });
+            const auto [yaw, pitch] =
+                radar::geom::look_at_yaw_pitch(eye, { look_at_x, look_at_y, look_at_z });
             base_yaw                = yaw;
             base_pitch              = pitch;
         }
@@ -348,7 +320,7 @@ private:
         coarse_cfg.voxel_leaf_size   = 0.5;
         coarse_cfg.max_corr_distance = 30.0;
         coarse_cfg.max_iterations    = 50;
-        coarse_cfg.use_roi           = false;
+        coarse_cfg.roi.use_roi       = false;
         get_parameter("coarse_voxel", coarse_cfg.voxel_leaf_size);
         get_parameter("coarse_max_corr", coarse_cfg.max_corr_distance);
         get_parameter("coarse_max_iter", coarse_cfg.max_iterations);
@@ -373,7 +345,7 @@ private:
         std::vector<Candidate> candidates;
         candidates.reserve(yaw_offsets.size());
         for (const double yaw_off : yaw_offsets) {
-            auto init_pose    = pose_from_yaw_pitch(eye, base_yaw + yaw_off, base_pitch);
+            auto init_pose = radar::geom::pose_from_yaw_pitch(eye, base_yaw + yaw_off, base_pitch);
             auto coarse_stage = radar::LocalizationStage(map_, coarse_cfg);
             coarse_stage.set_initial_pose(init_pose);
             auto coarse_result             = coarse_stage.process(frame);
@@ -394,7 +366,7 @@ private:
         // 精配准: 从最优候选出发收敛
         auto fine_cfg              = cfg;
         fine_cfg.max_corr_distance = 3.0;
-        fine_cfg.use_roi           = false;
+        fine_cfg.roi.use_roi       = false;
         get_parameter("fine_max_corr", fine_cfg.max_corr_distance);
         auto fine_stage = radar::LocalizationStage(map_, fine_cfg);
         fine_stage.set_initial_pose(best->T);

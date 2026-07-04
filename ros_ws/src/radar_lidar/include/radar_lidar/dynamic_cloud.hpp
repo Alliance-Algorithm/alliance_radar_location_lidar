@@ -10,6 +10,7 @@
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 
+#include "radar_lidar/config.hpp"
 #include "radar_lidar/types.hpp"
 
 namespace radar {
@@ -18,10 +19,8 @@ struct DynamicCloudConfig {
     double distance_threshold = 0.1;
     int num_threads           = 12;
     int accumulate_frames     = 3;
-    bool use_roi              = true;
-    double roi_x_min = 0, roi_x_max = 30;
-    double roi_y_min = -15, roi_y_max = 15;
-    double roi_z_min = 0, roi_z_max = 1.4;
+    config::RoiBounds roi { .use_roi = true, .x_min = 0, .x_max = 30, .y_min = -15, .y_max = 15,
+        .z_min = 0, .z_max = 1.4 };
 };
 
 /// @brief 动态点提取
@@ -50,6 +49,12 @@ private:
     bool map_set_ = false;
 
     std::deque<types::PointCloud> frames_;
+
+    // 每线程复用缓冲区（构造时按线程数一次性分配，避免每帧堆分配）
+    int thread_count_ = 1;
+    std::vector<types::PointCloud> thread_clouds_;
+    std::vector<std::vector<int>> thread_indices_;
+    std::vector<std::vector<float>> thread_dist_sq_;
 };
 
 } // namespace radar
