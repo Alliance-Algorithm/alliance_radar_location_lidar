@@ -26,13 +26,14 @@ LocalizationStage::LocalizationStage(
     }
 
     if (cfg_.has_initial_pose) {
-        prev_pose_             = Eigen::Isometry3d::Identity();
-        prev_pose_.translation() = Eigen::Vector3d(cfg_.initial_tx, cfg_.initial_ty, cfg_.initial_tz);
-        prev_pose_.linear()      = (Eigen::AngleAxisd(cfg_.initial_yaw, Eigen::Vector3d::UnitZ())
+        prev_pose_ = Eigen::Isometry3d::Identity();
+        prev_pose_.translation() =
+            Eigen::Vector3d(cfg_.initial_tx, cfg_.initial_ty, cfg_.initial_tz);
+        prev_pose_.linear() = (Eigen::AngleAxisd(cfg_.initial_yaw, Eigen::Vector3d::UnitZ())
             * Eigen::AngleAxisd(cfg_.initial_pitch, Eigen::Vector3d::UnitY())
             * Eigen::AngleAxisd(cfg_.initial_roll, Eigen::Vector3d::UnitX()))
-                                       .toRotationMatrix();
-        locked_ = true;
+                                  .toRotationMatrix();
+        locked_             = true;
     }
 }
 
@@ -80,7 +81,7 @@ auto LocalizationStage::process(const types::Frame& scan)
     // 锁定策略：已锁定则直接返回上一次位姿
     if (cfg_.use_lock_strategy && locked_) {
         types::PoseEstimate out;
-        out.t_map_lidar             = prev_pose_;
+        out.t_map_lidar   = prev_pose_;
         out.fitness_score = 0.0;
         out.converged     = true;
         out.covariance    = Eigen::Matrix<double, 6, 6>::Identity() * 1e-6;
@@ -115,7 +116,7 @@ auto LocalizationStage::process(const types::Frame& scan)
     }
 
     types::PoseEstimate out;
-    out.t_map_lidar             = result.T_target_source;
+    out.t_map_lidar   = result.T_target_source;
     out.fitness_score = result.error;
     out.converged     = result.converged;
 

@@ -17,9 +17,9 @@ protected:
         std::filesystem::remove(initial_guess_yaml_path_);
     }
 
-    static constexpr const char* calib_json_path_          = "/tmp/radar_test_calib.json";
-    static constexpr const char* yaml_path_                = "/tmp/radar_test_extrinsic.yaml";
-    static constexpr const char* initial_guess_yaml_path_   = "/tmp/radar_test_initial_guess.yaml";
+    static constexpr const char* calib_json_path_         = "/tmp/radar_test_calib.json";
+    static constexpr const char* yaml_path_               = "/tmp/radar_test_extrinsic.yaml";
+    static constexpr const char* initial_guess_yaml_path_ = "/tmp/radar_test_initial_guess.yaml";
 };
 
 auto write_calib_json(const std::string& path, const std::string& results_body) -> void {
@@ -93,7 +93,8 @@ TEST_F(CameraLidarCalibrationTest, InjectInitialGuess) {
              << "initial_yaw: 1.5707963267948966\n"; // pi/2
     }
 
-    auto result = radar::calibration::inject_initial_guess(calib_json_path_, initial_guess_yaml_path_);
+    auto result =
+        radar::calibration::inject_initial_guess(calib_json_path_, initial_guess_yaml_path_);
     ASSERT_TRUE(result.has_value()) << result.error();
 
     std::ifstream file(calib_json_path_);

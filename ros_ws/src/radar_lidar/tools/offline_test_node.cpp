@@ -372,16 +372,16 @@ private:
         fine_stage.set_initial_pose(best->t_map_lidar);
         auto fine_result = fine_stage.process(frame);
 
-        Eigen::Isometry3d t_map_lidar             = best->t_map_lidar;
+        Eigen::Isometry3d t_map_lidar   = best->t_map_lidar;
         bool converged                  = best->converged;
         Eigen::Matrix<double, 6, 6> cov = Eigen::Matrix<double, 6, 6>::Identity();
         RegistrationScore final_score   = best->score;
         if (fine_result) {
-            const auto fine_sc =
-                score_alignment(map_->pcl_tree(), frame.points, fine_result->t_map_lidar, inlier_threshold);
+            const auto fine_sc = score_alignment(
+                map_->pcl_tree(), frame.points, fine_result->t_map_lidar, inlier_threshold);
             // 精配准结果更优才采纳, 否则保留粗配准 (防止精配准把好起点带偏)
             if (is_better_score(fine_sc, best->score)) {
-                t_map_lidar           = fine_result->t_map_lidar;
+                t_map_lidar = fine_result->t_map_lidar;
                 converged   = fine_result->converged;
                 cov         = fine_result->covariance;
                 final_score = fine_sc;

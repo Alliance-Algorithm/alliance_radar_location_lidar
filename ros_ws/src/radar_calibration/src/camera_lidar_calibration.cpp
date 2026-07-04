@@ -37,9 +37,9 @@ auto load_t_map_camera(const std::filesystem::path& calib_json_path)
     return t_map_camera;
 }
 
-auto write_extrinsic_yaml(const std::filesystem::path& yaml_path, const Eigen::Isometry3d& t_map_camera)
-    -> std::expected<bool, std::string> {
-    const Eigen::Vector3d translation    = t_map_camera.translation();
+auto write_extrinsic_yaml(const std::filesystem::path& yaml_path,
+    const Eigen::Isometry3d& t_map_camera) -> std::expected<bool, std::string> {
+    const Eigen::Vector3d translation = t_map_camera.translation();
     const Eigen::Quaterniond orientation(t_map_camera.rotation());
 
     YAML::Emitter out;
@@ -89,7 +89,7 @@ auto inject_initial_guess(const std::filesystem::path& calib_json_path,
     t_map_camera.linear()          = (Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ())
         * Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitY())
         * Eigen::AngleAxisd(roll, Eigen::Vector3d::UnitX()))
-                                          .toRotationMatrix();
+                                         .toRotationMatrix();
 
     nlohmann::json calib;
     {
@@ -108,7 +108,8 @@ auto inject_initial_guess(const std::filesystem::path& calib_json_path,
 
     std::ofstream out(calib_json_path);
     if (!out) {
-        return std::unexpected("Failed to open calib.json for writing: " + calib_json_path.string());
+        return std::unexpected(
+            "Failed to open calib.json for writing: " + calib_json_path.string());
     }
     out << calib.dump(2) << '\n';
     return true;

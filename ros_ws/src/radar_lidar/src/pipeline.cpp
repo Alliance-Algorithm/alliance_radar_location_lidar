@@ -183,7 +183,8 @@ void LidarPipeline::on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg)
 
 void LidarPipeline::transform_scan_to_map(const types::PointCloud& scan,
     const types::PoseEstimate& pose, types::PointCloud& transformed) {
-    transformed = scan | std::views::transform([&pose](const auto& p) { return pose.t_map_lidar * p; })
+    transformed = scan
+        | std::views::transform([&pose](const auto& p) { return pose.t_map_lidar * p; })
         | std::ranges::to<types::PointCloud>();
 }
 

@@ -162,8 +162,8 @@ auto parse_args(int argc, char** argv) -> std::expected<Args, std::string> {
 
 auto write_pose_json(const std::string& path, const radar::types::PoseEstimate& pose)
     -> std::expected<void, std::string> {
-    const auto& t_map_lidar    = pose.t_map_lidar;
-    const auto trans = t_map_lidar.translation();
+    const auto& t_map_lidar = pose.t_map_lidar;
+    const auto trans        = t_map_lidar.translation();
     const Eigen::Quaterniond q(t_map_lidar.rotation());
     const auto euler = q.toRotationMatrix().eulerAngles(0, 1, 2);
 
@@ -288,9 +288,9 @@ int main(int argc, char** argv) {
         return 2;
     }
 
-    const auto& pose = *result;
-    const auto& t_map_lidar    = pose.t_map_lidar;
-    const auto trans = t_map_lidar.translation();
+    const auto& pose        = *result;
+    const auto& t_map_lidar = pose.t_map_lidar;
+    const auto trans        = t_map_lidar.translation();
     const Eigen::Quaterniond q(t_map_lidar.rotation());
 
     std::println("[registration_tool] === Result ===");
