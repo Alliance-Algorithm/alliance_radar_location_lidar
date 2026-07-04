@@ -37,7 +37,7 @@ TEST(DynamicCloudTest, ExtractsObstacleFromWall) {
     cfg.distance_threshold = 0.1;
     cfg.num_threads        = 2;
     cfg.accumulate_frames  = 0;
-    cfg.use_roi            = false;
+    cfg.roi.use_roi        = false;
 
     radar::DynamicCloudStage stage(cfg);
     stage.set_map(map);
