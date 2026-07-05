@@ -9,9 +9,9 @@
 namespace radar::fusion {
 
 enum class TrackLifecycle {
-    Tentative,
-    Confirmed,
-    Deleted,
+    TENTATIVE,
+    CONFIRMED,
+    DELETED,
 };
 
 /// 2D 常速卡尔曼滤波器状态: [x, y, vx, vy]
@@ -25,14 +25,14 @@ struct KalmanState {
     int miss_count           = 0;
     int color                = -1; // 0=blue, 2=red, -1=unknown
     int number               = -1; // robot number 0-5
-    TrackLifecycle lifecycle = TrackLifecycle::Tentative;
+    TrackLifecycle lifecycle = TrackLifecycle::TENTATIVE;
 
     [[nodiscard]] auto position() const -> Eigen::Vector2d { return x.head<2>(); }
     [[nodiscard]] auto velocity() const -> Eigen::Vector2d { return x.tail<2>(); }
     [[nodiscard]] auto is_stale(int64_t now_ns, double timeout_sec) const -> bool;
-    [[nodiscard]] auto is_deleted() const -> bool { return lifecycle == TrackLifecycle::Deleted; }
+    [[nodiscard]] auto is_deleted() const -> bool { return lifecycle == TrackLifecycle::DELETED; }
     [[nodiscard]] auto is_confirmed() const -> bool {
-        return lifecycle == TrackLifecycle::Confirmed;
+        return lifecycle == TrackLifecycle::CONFIRMED;
     }
 };
 

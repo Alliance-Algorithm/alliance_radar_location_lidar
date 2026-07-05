@@ -62,8 +62,6 @@ CLICOLOR_FORCE=1 colcon build \
         src \
         third-party \
         "${RADAR_WS}/lidar_ros_driver/odin_ros_driver" \
-    --packages-skip \
-        direct_visual_lidar_calibration \
     --symlink-install \
     --cmake-args \
         -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \

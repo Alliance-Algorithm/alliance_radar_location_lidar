@@ -21,6 +21,7 @@
 #include <string>
 #include <vector>
 
+#include "radar_lidar/geometry_utils.hpp"
 #include "radar_lidar/localization.hpp"
 #include "radar_lidar/map_data.hpp"
 #include "radar_lidar/offline_visualization.hpp"
@@ -38,36 +39,6 @@ auto to_rosmsg(const pcl::PointCloud<PointT>& cloud, const std::string& frame_id
     pcl::toROSMsg(cloud, msg);
     msg.header.frame_id = frame_id;
     return msg;
-}
-
-auto filter_valid_points(const pcl::PointCloud<pcl::PointXYZ>& pcl_cloud) -> radar::types::Frame {
-    auto points = pcl_cloud.points | std::views::filter([](const auto& pt) {
-        return std::isfinite(pt.x) && std::isfinite(pt.y) && std::isfinite(pt.z)
-            && (pt.x * pt.x + pt.y * pt.y + pt.z * pt.z) > 1e-12;
-    }) | std::views::transform([](const auto& pt) { return Eigen::Vector3d(pt.x, pt.y, pt.z); })
-        | std::ranges::to<std::vector<Eigen::Vector3d>>();
-    return { .points = std::move(points) };
-}
-
-// look-at 初值: 由雷达位置 eye 指向注视点 target, 反解 yaw+pitch (roll=0)。
-// 相机 4m 高俯视场地中心 → d.z()<0 → pitch>0 表示低头。
-// 旋转组装 Rz(yaw)*Ry(pitch), 与场地系 (+x 前, +z 上) 一致。
-auto make_look_at_pose(const Eigen::Vector3d& eye, const Eigen::Vector3d& target)
-    -> std::pair<double, double> {
-    const Eigen::Vector3d d = (target - eye).normalized();
-    const double yaw        = std::atan2(d.y(), d.x());
-    const double pitch      = std::atan2(-d.z(), std::hypot(d.x(), d.y()));
-    return { yaw, pitch };
-}
-
-auto pose_from_yaw_pitch(const Eigen::Vector3d& translation, double yaw, double pitch)
-    -> Eigen::Isometry3d {
-    Eigen::Isometry3d pose = Eigen::Isometry3d::Identity();
-    pose.translation()     = translation;
-    pose.linear()          = (Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ())
-        * Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitY()))
-                                 .toRotationMatrix();
-    return pose;
 }
 
 // 候选评分: 把 source 点用 T 变到地图系, 在地图 KdTree 查最近邻,
@@ -207,7 +178,7 @@ private:
             pcl::io::savePCDFileBinary(map_path, *raw);
             std::println("[offline] Map rotated Y-up→Z-up (deprecated), saved to {}", map_path);
         }
-        auto map_result = radar::MapData::Load(map_path, voxel_leaf);
+        auto map_result = radar::MapData::load(map_path, voxel_leaf);
         if (!map_result) {
             std::println(stderr, "ERROR: Map load failed: {}", map_result.error());
             rclcpp::shutdown();
@@ -235,7 +206,7 @@ private:
                 downsampled->size(), scan_voxel);
             scan_pcl = downsampled;
         }
-        auto frame = filter_valid_points(*scan_pcl);
+        auto frame = radar::geom::filter_valid_points(*scan_pcl);
         std::println("[offline] Scan: {} valid points", frame.points.size());
         if (frame.points.size() < 100) {
             std::println(stderr, "ERROR: Too few points");
@@ -335,9 +306,10 @@ private:
         double base_yaw   = deg_to_rad(init_yaw_deg);
         double base_pitch = deg_to_rad(init_pitch_deg);
         if (use_look_at) {
-            const auto [yaw, pitch] = make_look_at_pose(eye, { look_at_x, look_at_y, look_at_z });
-            base_yaw                = yaw;
-            base_pitch              = pitch;
+            const auto [yaw, pitch] =
+                radar::geom::look_at_yaw_pitch(eye, { look_at_x, look_at_y, look_at_z });
+            base_yaw   = yaw;
+            base_pitch = pitch;
         }
         std::println("[offline] Init pose: eye=({:.2f},{:.2f},{:.2f}) yaw={:.2f}° pitch={:.2f}° "
                      "(look_at={})",
@@ -348,7 +320,7 @@ private:
         coarse_cfg.voxel_leaf_size   = 0.5;
         coarse_cfg.max_corr_distance = 30.0;
         coarse_cfg.max_iterations    = 50;
-        coarse_cfg.use_roi           = false;
+        coarse_cfg.roi.use_roi       = false;
         get_parameter("coarse_voxel", coarse_cfg.voxel_leaf_size);
         get_parameter("coarse_max_corr", coarse_cfg.max_corr_distance);
         get_parameter("coarse_max_iter", coarse_cfg.max_iterations);
@@ -365,7 +337,7 @@ private:
 
         // 每个 yaw 候选: 从对应初值跑粗配准, 用地图 KdTree 归一化评分
         struct Candidate {
-            Eigen::Isometry3d T;
+            Eigen::Isometry3d t_map_lidar;
             RegistrationScore score;
             double yaw_offset_deg;
             bool converged;
@@ -373,11 +345,11 @@ private:
         std::vector<Candidate> candidates;
         candidates.reserve(yaw_offsets.size());
         for (const double yaw_off : yaw_offsets) {
-            auto init_pose    = pose_from_yaw_pitch(eye, base_yaw + yaw_off, base_pitch);
+            auto init_pose = radar::geom::pose_from_yaw_pitch(eye, base_yaw + yaw_off, base_pitch);
             auto coarse_stage = radar::LocalizationStage(map_, coarse_cfg);
             coarse_stage.set_initial_pose(init_pose);
             auto coarse_result             = coarse_stage.process(frame);
-            const Eigen::Isometry3d cand_T = coarse_result ? coarse_result->T : init_pose;
+            const Eigen::Isometry3d cand_T = coarse_result ? coarse_result->t_map_lidar : init_pose;
             const auto score =
                 score_alignment(map_->pcl_tree(), frame.points, cand_T, inlier_threshold);
             candidates.push_back({ cand_T, score, rad_to_deg(yaw_off),
@@ -394,22 +366,22 @@ private:
         // 精配准: 从最优候选出发收敛
         auto fine_cfg              = cfg;
         fine_cfg.max_corr_distance = 3.0;
-        fine_cfg.use_roi           = false;
+        fine_cfg.roi.use_roi       = false;
         get_parameter("fine_max_corr", fine_cfg.max_corr_distance);
         auto fine_stage = radar::LocalizationStage(map_, fine_cfg);
-        fine_stage.set_initial_pose(best->T);
+        fine_stage.set_initial_pose(best->t_map_lidar);
         auto fine_result = fine_stage.process(frame);
 
-        Eigen::Isometry3d T             = best->T;
+        Eigen::Isometry3d t_map_lidar   = best->t_map_lidar;
         bool converged                  = best->converged;
         Eigen::Matrix<double, 6, 6> cov = Eigen::Matrix<double, 6, 6>::Identity();
         RegistrationScore final_score   = best->score;
         if (fine_result) {
-            const auto fine_sc =
-                score_alignment(map_->pcl_tree(), frame.points, fine_result->T, inlier_threshold);
+            const auto fine_sc = score_alignment(
+                map_->pcl_tree(), frame.points, fine_result->t_map_lidar, inlier_threshold);
             // 精配准结果更优才采纳, 否则保留粗配准 (防止精配准把好起点带偏)
             if (is_better_score(fine_sc, best->score)) {
-                T           = fine_result->T;
+                t_map_lidar = fine_result->t_map_lidar;
                 converged   = fine_result->converged;
                 cov         = fine_result->covariance;
                 final_score = fine_sc;
@@ -428,7 +400,7 @@ private:
         // (scan_aligned) 与内容语义一致, 且和地图共处同一 frame (output_frame_)。
         auto scan_in_map = frame.points
             | std::views::filter([](const auto& pt) { return radar::offline::is_valid_xyz(pt); })
-            | std::views::transform([&T](const auto& pt) { return T * pt; })
+            | std::views::transform([&t_map_lidar](const auto& pt) { return t_map_lidar * pt; })
             | std::ranges::to<radar::types::PointCloud>();
         const auto colored_aligned =
             radar::offline::make_colored_cloud(scan_in_map, radar::offline::kAlignedScanColorBgr);
@@ -439,8 +411,8 @@ private:
             scan_in_map, radar::offline::kMapColorBgr, radar::offline::kAlignedScanColorBgr);
         pub_overlay_->publish(to_rosmsg(colored_overlay, output_frame_));
 
-        const auto trans = T.translation();
-        const Eigen::Quaterniond q(T.rotation());
+        const auto trans = t_map_lidar.translation();
+        const Eigen::Quaterniond q(t_map_lidar.rotation());
         geometry_msgs::msg::PoseWithCovarianceStamped pose_msg;
         pose_msg.header.stamp            = now();
         pose_msg.header.frame_id         = output_frame_;
@@ -466,7 +438,7 @@ private:
         std::string pose_out;
         get_parameter("pose_out", pose_out);
         if (!pose_out.empty()) {
-            if (auto r = write_pose_json(pose_out, T, final_score, converged); !r) {
+            if (auto r = write_pose_json(pose_out, t_map_lidar, final_score, converged); !r) {
                 std::println(stderr, "[offline] ERROR writing pose json: {}", r.error());
             } else {
                 std::println("[offline] Pose written: {}", pose_out);

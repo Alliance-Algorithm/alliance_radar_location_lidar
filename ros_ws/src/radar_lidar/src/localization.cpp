@@ -1,11 +1,11 @@
 #include "radar_lidar/localization.hpp"
 
 #include <cmath>
-#include <print>
 
 #include <Eigen/Cholesky>
 #include <small_gicp/registration/registration_helper.hpp>
 
+#include "radar_lidar/geometry_utils.hpp"
 #include "radar_lidar/map_data.hpp"
 
 namespace radar {
@@ -24,22 +24,22 @@ LocalizationStage::LocalizationStage(
             target_points_.emplace_back(mc.point(i).head<3>());
         }
     }
+
+    if (cfg_.has_initial_pose) {
+        prev_pose_ = Eigen::Isometry3d::Identity();
+        prev_pose_.translation() =
+            Eigen::Vector3d(cfg_.initial_tx, cfg_.initial_ty, cfg_.initial_tz);
+        prev_pose_.linear() = (Eigen::AngleAxisd(cfg_.initial_yaw, Eigen::Vector3d::UnitZ())
+            * Eigen::AngleAxisd(cfg_.initial_pitch, Eigen::Vector3d::UnitY())
+            * Eigen::AngleAxisd(cfg_.initial_roll, Eigen::Vector3d::UnitX()))
+                                  .toRotationMatrix();
+        locked_             = true;
+    }
 }
 
 auto LocalizationStage::preprocess(const types::Frame& scan) -> types::PointCloud {
     // ROI 裁剪
-    types::PointCloud roi_points;
-    if (cfg_.use_roi) {
-        roi_points.reserve(scan.points.size());
-        for (const auto& p : scan.points) {
-            if (p.x() >= cfg_.roi_x_min && p.x() <= cfg_.roi_x_max && p.y() >= cfg_.roi_y_min
-                && p.y() <= cfg_.roi_y_max && p.z() >= cfg_.roi_z_min && p.z() <= cfg_.roi_z_max) {
-                roi_points.push_back(p);
-            }
-        }
-    } else {
-        roi_points = scan.points;
-    }
+    auto roi_points = geom::clip_roi_aabb(scan.points, cfg_.roi);
 
     if (!cfg_.use_spherical_grid && cfg_.accumulate_frames == 0) {
         return roi_points;
@@ -81,7 +81,7 @@ auto LocalizationStage::process(const types::Frame& scan)
     // 锁定策略：已锁定则直接返回上一次位姿
     if (cfg_.use_lock_strategy && locked_) {
         types::PoseEstimate out;
-        out.T             = prev_pose_;
+        out.t_map_lidar   = prev_pose_;
         out.fitness_score = 0.0;
         out.converged     = true;
         out.covariance    = Eigen::Matrix<double, 6, 6>::Identity() * 1e-6;
@@ -109,11 +109,6 @@ auto LocalizationStage::process(const types::Frame& scan)
     auto result = small_gicp::align(target_points_, source_points, prev_pose_, setting);
 
     prev_pose_ = result.T_target_source;
-    if (!result.converged) {
-        std::println("[localization] GICP did not converge (score={:.4f}, iter={}) -- using best "
-                     "available transform",
-            result.error, result.iterations);
-    }
 
     // 锁定策略：fitness 足够好且收敛则锁定
     if (cfg_.use_lock_strategy && result.converged && result.error < cfg_.lock_fitness) {
@@ -121,7 +116,7 @@ auto LocalizationStage::process(const types::Frame& scan)
     }
 
     types::PoseEstimate out;
-    out.T             = result.T_target_source;
+    out.t_map_lidar   = result.T_target_source;
     out.fitness_score = result.error;
     out.converged     = result.converged;
 

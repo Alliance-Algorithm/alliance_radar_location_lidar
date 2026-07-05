@@ -19,6 +19,7 @@
 #include <string_view>
 #include <vector>
 
+#include "radar_lidar/geometry_utils.hpp"
 #include "radar_lidar/localization.hpp"
 #include "radar_lidar/map_data.hpp"
 #include "radar_lidar/types.hpp"
@@ -159,20 +160,11 @@ auto parse_args(int argc, char** argv) -> std::expected<Args, std::string> {
     return args;
 }
 
-auto filter_valid_points(const pcl::PointCloud<pcl::PointXYZ>& pcl_cloud) -> radar::types::Frame {
-    auto points = pcl_cloud.points | std::views::filter([](const auto& pt) {
-        return std::isfinite(pt.x) && std::isfinite(pt.y) && std::isfinite(pt.z)
-            && (pt.x * pt.x + pt.y * pt.y + pt.z * pt.z) > 1e-12;
-    }) | std::views::transform([](const auto& pt) { return Eigen::Vector3d(pt.x, pt.y, pt.z); })
-        | std::ranges::to<std::vector<Eigen::Vector3d>>();
-    return { .points = std::move(points) };
-}
-
 auto write_pose_json(const std::string& path, const radar::types::PoseEstimate& pose)
     -> std::expected<void, std::string> {
-    const auto& T    = pose.T;
-    const auto trans = T.translation();
-    const Eigen::Quaterniond q(T.rotation());
+    const auto& t_map_lidar = pose.t_map_lidar;
+    const auto trans        = t_map_lidar.translation();
+    const Eigen::Quaterniond q(t_map_lidar.rotation());
     const auto euler = q.toRotationMatrix().eulerAngles(0, 1, 2);
 
     auto fmt_row = [&](int i) {
@@ -236,7 +228,7 @@ int main(int argc, char** argv) {
     const auto& args = *args_result;
 
     std::println("[registration_tool] Loading map: {}", args.map_path);
-    auto map_result = radar::MapData::Load(args.map_path, args.voxel_leaf);
+    auto map_result = radar::MapData::load(args.map_path, args.voxel_leaf);
     if (!map_result) {
         std::println(stderr, "[registration_tool] ERROR: {}", map_result.error());
         return 1;
@@ -262,7 +254,7 @@ int main(int argc, char** argv) {
         scan_pcl = downsampled;
     }
 
-    auto frame = filter_valid_points(*scan_pcl);
+    auto frame = radar::geom::filter_valid_points(*scan_pcl);
     std::println("[registration_tool] Scan loaded: {} valid points", frame.points.size());
     if (frame.points.size() < 100) {
         std::println(
@@ -281,11 +273,9 @@ int main(int argc, char** argv) {
 
     if (args.init_x != 0.0 || args.init_y != 0.0 || args.init_z != 0.0
         || args.init_yaw_deg != 0.0) {
-        Eigen::Isometry3d init_pose = Eigen::Isometry3d::Identity();
-        init_pose.translation()     = Eigen::Vector3d(args.init_x, args.init_y, args.init_z);
-        init_pose.linear() =
-            Eigen::AngleAxisd(deg_to_rad(args.init_yaw_deg), Eigen::Vector3d::UnitZ())
-                .toRotationMatrix();
+        const auto init_pose =
+            radar::geom::pose_from_yaw_pitch(Eigen::Vector3d(args.init_x, args.init_y, args.init_z),
+                deg_to_rad(args.init_yaw_deg), 0.0);
         localization.set_initial_pose(init_pose);
         std::println("[registration_tool] Initial pose: x={} y={} z={} yaw={}deg", args.init_x,
             args.init_y, args.init_z, args.init_yaw_deg);
@@ -298,10 +288,10 @@ int main(int argc, char** argv) {
         return 2;
     }
 
-    const auto& pose = *result;
-    const auto& T    = pose.T;
-    const auto trans = T.translation();
-    const Eigen::Quaterniond q(T.rotation());
+    const auto& pose        = *result;
+    const auto& t_map_lidar = pose.t_map_lidar;
+    const auto trans        = t_map_lidar.translation();
+    const Eigen::Quaterniond q(t_map_lidar.rotation());
 
     std::println("[registration_tool] === Result ===");
     std::println("  converged:      {}", pose.converged ? "true" : "false");
@@ -315,7 +305,7 @@ int main(int argc, char** argv) {
     }
     std::println("[registration_tool] Pose written: {}", args.pose_out);
 
-    auto merged = build_merged_pcd(map->pcl_cloud(), frame.points, T);
+    auto merged = build_merged_pcd(map->pcl_cloud(), frame.points, t_map_lidar);
     if (pcl::io::savePCDFileBinary(args.output_pcd, *merged) != 0) {
         std::println(stderr, "[registration_tool] ERROR: Failed to write aligned PCD");
         return 1;
