@@ -1,524 +1,263 @@
 # Alliance Radar Overall Architecture
 
-## Project Tree
-
-```text
-alliance_radar_location_lidar/
-│
-├── .clang-format                              ← C++ 代码格式化规则
-├── .clangd                                    ← Clangd LSP 配置
-├── .coderabbit.yaml                           ← CodeRabbit 代码审查配置
-├── .dockerignore                              ← Docker 构建忽略列表
-├── .env                                       ← 环境变量
-├── .gitmodules                                ← Git 子模块声明
-├── Dockerfile                                 ← 容器镜像定义
-├── README.md                                  ← 项目说明
-│
-├── .devcontainer/                             ← 开发容器配置
-│   ├── devcontainer.json                      ← VS Code Dev Container 定义
-│   ├── docker-compose.yml                     ← 多容器编排
-│   └── post-create.sh                         ← 容器创建后初始化脚本
-│
-├── .github/
-│   └── workflows/
-│       ├── build.yml                          ← CI 构建流水线
-│       └── build-image.yml                    ← Docker 镜像构建流水线
-│
-├── .script/                                   ← 开发脚本集
-│   ├── banner                                 ← 终端 banner
-│   ├── build-all                              ← 全量构建
-│   ├── build-radar                            ← radar 包构建
-│   ├── clean-radar                            ← radar 清理
-│   ├── format-radar                           ← radar 代码格式化
-│   ├── foxglove                               ← Foxglove 可视化启动
-│   ├── gen_mvs_cmake.sh                       ← MVS CMake 生成
-│   ├── ow_logo.txt                            ← Logo 文本
-│   ├── run-radar                              ← radar 运行启动
-│   └── template/
-│       ├── env_setup.bash                     ← Bash 环境模板
-│       └── env_setup.zsh                      ← Zsh 环境模板
-│
-├── .vscode/                                   ← VS Code 工作区配置
-│
-├── model/                                    ← 离线资产
-│   └── models/
-│       └── RMUC2026_l.fbx                     ← 赛场 3D 模型资产
-│
-├── docs/                                      ← 文档
-│   ├── architecture/
-│   │   └── alliance-radar-overall-architecture.md  ← 本文档
-│   └── SLAM-learn/                            ← SLAM 学习资料
-│       ├── 高翔_视觉SLAM十四讲-完整14讲版.pdf
-│       └── slambook2-master/                  ← slambook2 代码示例
-│           ├── ch2/ ~ ch13/                   ← 各章节实现
-│           ├── coordinateTransform            ← 坐标变换示例
-│           ├── eigenGeometry                  ← Eigen 几何模块示例
-│           ├── linearEqSolution               ← 线性方程求解
-│           ├── matrixExtractAssign            ← 矩阵操作示例
-│           ├── useGeometry                    ← 几何库使用
-│           ├── useSophus                      ← Sophus 李群库使用
-│           ├── slambook2_笔记.docx
-│           └── slambook2_习题解答.docx
-│
-├── lidar_ros_driver/                          ← 雷达驱动层（独立于算法）
-│   ├── livox_ros_driver2/                     ← Livox Mid-70 ROS2 驱动
-│   │   ├── CMakeLists.txt
-│   │   ├── config/                            ← 驱动参数
-│   │   ├── launch_ROS2/                       ← ROS2 launch 文件
-│   │   ├── msg/                               ← 自定义消息
-│   │   └── src/                               ← 驱动源码
-│   │
-│   ├── livox_sdk2/                            ← Livox SDK2 底层库
-│   │   ├── CMakeLists.txt
-│   │   ├── 3rdparty/                          ← 第三方依赖
-│   │   ├── include/                           ← SDK 头文件
-│   │   ├── samples/                           ← SDK 示例
-│   │   └── sdk_core/                          ← SDK 核心实现
-│   │
-│   ├── odin_ros_driver/                       ← Odin 雷达驱动
-│   │   ├── CMakeLists.txt
-│   │   ├── config/
-│   │   ├── launch_ROS2/
-│   │   ├── src/
-│   │   ├── lib/                               ← 预编译库
-│   │   ├── RELOCALIZATION_GUIDE.md            ← 重定位指南
-│   │   └── script/
-│   │
-│   └── ws_30pcd_et3_ros2/                     ← WS-30 雷达驱动
-│       ├── CMakeLists.txt
-│       ├── include/
-│       ├── launch/
-│       └── src/
-│
-└── ros_ws/                                    ← ROS2 工作空间
-    ├── build/                                 ← 构建产物
-    ├── install/                               ← 安装产物
-    ├── log/                                   ← 运行日志
-    │
-    ├── src/
-    │   └── radar_lidar/                       ← 当前 LiDAR 定位核心包
-    │       ├── CMakeLists.txt
-    │       ├── package.xml
-    │       ├── config/
-    │       │   ├── setting.yaml               ← 算法参数
-    │       │   └── hikcamera_config.yaml      ← 海康相机参数
-    │       ├── model/
-    │       │   └── RMUC2026_l.fbx             ← 赛场 3D 模型资产
-    │       └── src/
-    │           ├── running.cpp                ← 主节点入口
-    │           ├── pointcloud_process.cpp/hpp ← 点云处理管线
-    │           ├── pointcloud_capture.cpp/hpp ← 点云采集
-    │           ├── image_preprocess.cpp/hpp   ← 图像预处理
-    │           ├── image_capturer.cpp         ← 图像采集
-    │           ├── model_preprocess.cpp/hpp   ← 模型预处理
-    │           └── camera_lidar_calibration.cpp ← 相机-雷达标定
-    │
-    ├── third-party/                           ← 第三方算法库
-    │   ├── direct_visual_lidar_calibration/   ← 视觉-LiDAR 直接标定
-    │   ├── hikcamera_sdk/                    ← 海康相机 ROS2 驱动
-    │   └── small_gicp/                        ← 轻量 GICP 配准库
-    │
-    └── tool/
-        └── logger/
-            ├── logger.hpp                     ← 日志工具头文件
-            └── radar_common/                  ← 公共头文件工具包（含 logger）
-```
-
 ## Overview
 
-Alliance Radar 采用 ROS2 component + 独立驱动进程 + YAML bringup 的分层架构。
+Alliance Radar 采用 **ROS2 component + 独立驱动进程 + YAML bringup** 的分层架构。
+以 LiDAR 为主链路（`radar_lidar` → `radar_fusion` → `/localization/pose`），
+视觉观测（`radar_camera`）作为补充观测源，`radar_bridge` 把最终位姿写入共享内存供 GUI 读取，
+`radar_calibration` 负责离线相机-雷达标定。系统对外统一输出 `/localization/pose`。
 
-核心目标是以 LiDAR 为主链路，先建立稳定的单雷达定位闭环，再逐步扩展视觉观测、共享内存桥接和离线标定能力。系统对外统一输出 `/localization/pose`，内部则保留传感器观测与融合观测的分层接口。
+- 主链路传感器：Odin 为主，Mid-70 通过 `sensor:=mid70` 切换。
+- 进程拓扑：`radar_lidar` + `radar_fusion` 合并进单一 component 容器（intra-process 零拷贝）。
 
 ## Design Principles
 
-- Livox 驱动保持独立进程，不并入算法容器。
-- LiDAR 主链路优先稳定，作为系统基线。
-- `radar_fusion` 从第一阶段开始独占 `/localization/pose`。
+- 雷达驱动（Odin / Livox / WS-30）保持独立进程，不并入算法容器。
+- `radar_fusion` 独占 `/localization/pose` 出口。
 - 离线模型转换由 `tools/model_to_map/` 负责，模型文件存放于 `model/`。
 - `radar_bringup` 只负责 launch、参数、remap 和组件编排，不写业务 C++。
 - `radar_camera` 作为补充观测源，不绑死 LiDAR 主链路。
+- 命名统一收敛到 `radar::` 顶层命名空间（`radar::fusion::` / `radar::camera::` 等子命名空间）。
+- **零自定义 ROS 消息**：只用标准消息（`geometry_msgs` / `diagnostic_msgs` / `vision_msgs`）；
+  唯一的跨进程数据契约是 `radar_bridge` 的共享内存 struct。不设消息接口包。
 
 ## Package Architecture
 
 ```text
 packages/
 ├── radar_lidar        ← LiDAR 预处理 + 配准定位
+├── radar_fusion       ← 系统统一位姿出口 + 多目标跟踪
 ├── radar_camera       ← 视觉观测生成
-├── radar_fusion       ← 系统统一位姿出口
-├── radar_bridge       ← ROS2 -> 共享内存桥接
-├── radar_interfaces   ← 业务消息接口定义
-├── radar_calibration  ← 手动触发的离线相机-雷达标定工具
+├── radar_calibration  ← 离线相机-雷达标定 + 模型预处理
+├── radar_bridge       ← ROS2 → 共享内存桥接
 └── radar_bringup      ← launch / yaml / remap / compose
 ```
 
+## Package Boundaries
+
 ### radar_lidar
 
-- 职责：订阅 Mid-70 点云，完成缓冲、滤波、下采样、ROI、初始位姿估计与 GICP / NDT 配准。
-- 输入：`/livox/lidar`。
-- 输出：`/lidar/pose_raw`、`/lidar/pose`。
-- 运行形态：ROS2 component，进入主算法 container。
+订阅单雷达点云，完成有效点过滤、（可选）ROI 裁剪、球面网格下采样、多帧累积、
+GICP 配准定位，并在配准结果基础上做动态点提取与欧氏聚类。只做 LiDAR 感知。
 
-### radar_camera
+核心库 `radar_lidar_core`（纯算法、无 ROS 依赖）：
 
-- 职责：图像订阅、去畸变、特征 / VO / 目标定位，输出视觉位姿观测。
-- 输入：相机图像、相机参数、标定结果。
-- 输出：`/camera/pose`。
-- 运行形态：独立进程或独立 container，不进入 LiDAR 主链路。
+| 类 / 命名空间 | 文件 | 职责 |
+|---|---|---|
+| `radar::MapData` | `map_data.{hpp,cpp}` | PCD 加载，构建 small_gicp + PCL KdTree；静态工厂 `Load() -> std::expected<>` |
+| `radar::LocalizationStage` | `localization.{hpp,cpp}` | GICP scan-to-map：ROI 裁剪 → 帧累积 → 球面网格 → 配准 |
+| `radar::SphericalGrid` | `spherical_grid.{hpp,cpp}` | 方位角/俯仰角分箱下采样 |
+| `radar::FrameAccumulator` | `frame_accumulator.{hpp,cpp}` | 滑动窗口多帧累积 |
+| `radar::DynamicCloudStage` | `dynamic_cloud.{hpp,cpp}` | KdTree 最近邻动态障碍提取（OpenMP 并行） |
+| `radar::ClusterStage` | `cluster.{hpp,cpp}` | 欧氏聚类 → 质心 + AABB |
+| `radar::geom::` | `geometry_utils.hpp` | ROI 裁剪 / 位姿构造 / look-at / 有效点过滤 |
+| `radar::config::` | `config.hpp` | `LocalizationConfig` / `RoiBounds` 参数结构 |
+| `radar::types::` | `types.hpp` | `Point` / `Frame` / `PoseEstimate` 核心数据类型 |
+
+ROS 组件 `radar::LidarPipeline`（`rclcpp_components`，进入 `radar_algorithm_container`）。
+同包离线工具：`registration_tool`（CLI PCD-to-PCD 配准）、`offline_test_node`（Foxglove 可视化）。
 
 ### radar_fusion
 
-- 职责：统一拥有 `/localization/pose`，Phase 1 先单输入透传，后续升级为多传感器融合。
-- 输入：`/lidar/pose`，后续可加入 `/camera/pose`。
-- 输出：`/localization/pose`。
-- 运行形态：ROS2 component，进入主算法 container。
+系统唯一的 `/localization/pose` 出口。订阅 LiDAR 观测，做数据关联 + 多目标卡尔曼跟踪。
+不做感知，不做 IO 桥接。
 
-### radar_bridge
+| 类 | 文件 | 职责 |
+|---|---|---|
+| `radar::fusion::FusionNode` | `fusion_node.{hpp,cpp}` | 订阅/发布 + 数据关联 + 轨迹生命周期管理 |
+| `radar::fusion::KalmanTracker` | `kalman_tracker.{hpp,cpp}` | 单目标 2D 常速 KF：`[x,y,vx,vy]` 状态 |
+| `radar::fusion::KalmanState` | `kalman_tracker.hpp` | KF 状态 + 轨迹元数据（color/number/lifecycle） |
+| `radar::fusion::FusionConfig` | `fusion_node.hpp` | 门限/超时/确认命中数等参数 |
 
-- 职责：订阅 `/localization/pose`，写入共享内存供 GUI 零拷贝读取。
-- 输入：`/localization/pose`。
-- 输出：`/dev/shm/lidar_pose`。
-- 运行形态：独立轻量进程，不要求 component。
+ROS 组件，与 `radar_lidar` 同容器零拷贝。
+
+### radar_camera
+
+补充观测源，独立于 LiDAR 主链路。订阅相机图像与内参，完成去畸变、目标检测 / 视觉定位，
+输出视觉观测供 `radar_fusion` 融合。只产出观测，不做融合，不进入 LiDAR 主链路容器。
+
+| 文件 | 职责 |
+|---|---|
+| `include/radar_camera/types.hpp` | `radar::camera::Detection` / `CameraFrame` 数据类型 |
+| `include/radar_camera/config.hpp` | `radar::camera::CameraConfig`——内参/外参路径、检测阈值、topic 名 |
+| `include/radar_camera/camera_model.hpp` | 去畸变 + 2D→3D 投影（纯函数，无 ROS） |
+| `include/radar_camera/detector.hpp` | 目标检测接口 `detect(image) -> std::vector<Detection>` |
+| `src/camera_node.{hpp,cpp}` | ROS 薄封装：订阅图像 → detector + camera_model → 发布观测 |
+| `src/runtime.cpp` | `main()` → spin |
+
+依赖 `radar_calibration` 输出的相机内参/外参 YAML。独立进程或独立 container。
 
 ### radar_calibration
 
-- 职责：手动触发一次性标定计算，生成相机启动所需 YAML 参数。
-- 输出：标定 YAML。
-- 运行形态：手动执行的工具包，不在主运行图中常驻。
+手动触发的一次性离线标定工具。用已有场地地图点云 + 一张相机图像做相机-雷达
+（camera-map registration）自动标定，生成 `radar_camera` 启动所需的外参 YAML。
+非 spin 节点（`main()` 跑完退出），不常驻主运行图，不参与实时定位链路。
 
-### radar_interfaces
+核心标定算法复用第三方库 `direct_visual_lidar_calibration`（NID 直接图像-点云
+配准，target-less，见 `ros_ws/third-party/direct_visual_lidar_calibration/`），
+不重新实现该算法；`radar_calibration` 只负责编排 CLI 流程与外参格式转换。
 
-- 职责：定义跨模块通信所需的业务消息接口。
-- 输入：无运行时输入。
-- 输出：`LocalizationStatus.msg` 等自定义 ROS2 消息。
-- 运行形态：纯接口定义包，不承载业务节点。
+标定流程（`.script/calibrate-camera`，3 步，全程无人工介入）：
+
+```text
+1. preprocess_map        地图 PCD + 相机图像 + 内参 → calib.json（无外参）
+2. inject-initial-guess  把粗略初始外参（雷达站相机安装几何估算值，
+                          见 config/initial_guess.yaml）写入 calib.json
+3. calibrate --background  NID 直接配准，从初值收敛出精确外参
+   → calib.json 的 results.T_lidar_camera（第三方库字段名，本项目内部读作 t_map_camera）
+```
+
+初值来源说明：NID 直接配准是图像级优化，收敛域较窄，必须有一个大致准确的
+初始外参才能收敛（不同于 GICP 点云配准可以从粗略初值稳定收敛）。
+`direct_visual_lidar_calibration` 官方提供两种自动初值路径——人工选点
+（`initial_guess_manual`）或 SuperGlue 特征匹配（`initial_guess_auto` +
+`find_matches_superglue.py`，需要额外 torch 依赖，且模型仅限非商业用途）。
+本项目选择第三条路径：直接注入已知的粗略安装几何估算值，零人工介入、零额外
+依赖。
+
+| 文件 | 职责 |
+|---|---|
+| `include/radar_calibration/camera_lidar_calibration.hpp` | `radar::calibration::` 标定后处理：解析/写入 calib.json、注入初值、导出外参 YAML |
+| `src/running.cpp` | CLI 入口：`inject-initial-guess` / `extract-result` 两个子命令 |
+| `config/initial_guess.yaml` | 相机相对地图系的粗略外参估算（平移 + RPY，`Rz(yaw)*Ry(pitch)*Rx(roll)`） |
+
+### radar_bridge
+
+订阅 `radar_fusion` 的输出，合并写入共享内存供非 ROS GUI（egui）零拷贝读取。
+轻量 IO 桥接，不做任何算法。系统唯一的跨进程数据契约（shm struct）由本包定义。
+
+| 文件 | 职责 |
+|---|---|
+| `include/radar_bridge/shm_layout.hpp` | 共享内存 struct（pose + state + fitness），egui 侧同定义 |
+| `include/radar_bridge/shm_writer.hpp` | `radar::bridge::ShmWriter`：mmap + Seqlock 无锁写（无 ROS） |
+| `src/bridge_node.{hpp,cpp}` | 订阅 pose + status → 转 struct → 调 writer |
+| `src/runtime.cpp` | `main()` → spin |
+
+独立轻量进程，不要求 component。
 
 ### radar_bringup
 
-- 职责：launch、参数装配、topic remap、不同传感器机型配置。
-- 内容：纯 YAML + launch 文件，无业务 C++。
-- 运行形态：系统唯一编排入口。
-
-## Process Topology
-
-```text
-runtime/
-├── process_1: livox_ros_driver2
-│   └── 负责 Mid-70 驱动与 /livox/lidar 发布
-├── process_2: radar_algorithm_container
-│   ├── radar_lidar
-│   └── radar_fusion
-├── process_3: radar_bridge
-│   └── 负责 /localization/pose -> /dev/shm/lidar_pose
-├── process_4: egui
-│   └── 只读共享内存
-└── process_5: radar_camera
-    └── 独立视觉观测进程
-```
-
-1. `livox_ros_driver2`
-   - 独立进程
-   - 只负责 Mid-70 驱动和 ROS2 发布
-
-2. `radar_algorithm_container`
-   - ROS2 component container
-   - Phase 1：`radar_lidar` + `radar_fusion`
-
-3. `radar_bridge`
-   - Phase 2 引入
-   - 负责 ROS2 到共享内存桥接
-
-4. `egui`
-   - 非 ROS 进程
-   - 只读 `/dev/shm/lidar_pose`
-
-5. `radar_camera`
-   - Phase 3 引入
-   - 独立进程或独立 container
-
-## Current Architecture Mapping
-
-```text
-Current Architecture
-│
-├── Driver Layer
-│   └── lidar_ros_driver/
-│       ├── livox_ros_driver2         ← Mid-70 点云输入
-│       ├── odin_ros_driver           ← Odin 点云输入
-│       └── ws_30pcd_et3_ros2         ← WS-30 点云输入
-│
-├── Core Algorithm Layer
-│   └── ros_ws/src/radar_lidar/
-│       ├── running.cpp               ← 主节点入口
-│       ├── pointcloud_process.*      ← 点云处理 / 配准 / 定位
-│       ├── pointcloud_capture.*      ← 点云采集
-│       ├── image_preprocess.*        ← 图像预处理
-│       ├── image_capturer.cpp        ← 图像采集
-│       ├── model_preprocess.*        ← FBX 模型处理
-│       └── camera_lidar_calibration.cpp
-│                                      ← 相机-雷达标定
-│
-└── Dependency Layer
-    └── ros_ws/third-party/
-        ├── small_gicp                ← GICP 配准
-        ├── hikcamera_sdk             ← 海康相机驱动
-        └── direct_visual_lidar_calibration
-                                         ← 视觉-LiDAR 标定
-```
-
-## Target Project Tree
-
-```text
-alliance_radar_location_lidar/
-│
-├── lidar_ros_driver/                          ← 驱动层，独立于算法包
-│   ├── livox_ros_driver2/
-│   ├── livox_sdk2/
-│   ├── odin_ros_driver/
-│   └── ws_30pcd_et3_ros2/
-│
-├── model/                                    ← 离线资产
-│   └── model/
-│       ├── RMUC2026_l.fbx                     ← 赛场 3D 模型资产
-│       └── generated/                         ← 离线生成的地图点云资产
-│
-├── tools/                                     ← 离线工具
-│   ├── model_to_map/
-│   └── calibration/
-│
-└── ros_ws/
-    └── src/
-        ├── radar_lidar/                       ← LiDAR 预处理 + 配准定位
-        │   ├── CMakeLists.txt
-        │   ├── package.xml
-        │   ├── include/
-        │   ├── src/
-        │   ├── config/
-        │   └── README.md
-        │
-        ├── radar_camera/                      ← 视觉观测生成
-        │   ├── CMakeLists.txt
-        │   ├── package.xml
-        │   ├── include/
-        │   ├── src/
-        │   ├── config/
-        │   └── README.md
-        │
-        ├── radar_fusion/                      ← 系统统一位姿出口
-        │   ├── CMakeLists.txt
-        │   ├── package.xml
-        │   ├── include/
-        │   ├── src/
-        │   ├── config/
-        │   └── README.md
-        │
-        ├── radar_bridge/                      ← ROS2 -> 共享内存桥接
-        │   ├── CMakeLists.txt
-        │   ├── package.xml
-        │   ├── include/
-        │   ├── src/
-        │   ├── shm/
-        │   └── README.md
-        │
-        ├── radar_interfaces/                  ← 业务消息接口定义
-        │   ├── CMakeLists.txt
-        │   ├── package.xml
-        │   ├── msg/
-        │   └── README.md
-        │
-        ├── radar_calibration/                 ← 手动触发的离线标定工具
-        │   ├── CMakeLists.txt
-        │   ├── package.xml
-        │   ├── include/
-        │   ├── src/
-        │   ├── tools/
-        │   └── README.md
-        │
-        └── radar_bringup/                     ← launch / yaml / remap / compose
-            ├── CMakeLists.txt
-            ├── package.xml
-            ├── launch/
-            │   ├── mid70_localization.launch.py
-            │   ├── mid70_localization_gui.launch.py
-            │   └── full_system.launch.py
-            ├── config/
-            │   ├── common/
-            │   ├── lidar/
-            │   │   └── mid70.yaml
-            │   └── system/
-            │       ├── phase1.yaml
-            │       ├── phase2.yaml
-            │       └── phase3.yaml
-            └── README.md
-```
-
-## Target Architecture Mapping
-
-```text
-Target Architecture
-│
-├── Driver Layer
-│   ├── lidar_ros_driver/
-│   │   ├── livox_ros_driver2         ← 发布 /livox/lidar
-│   │   ├── odin_ros_driver           ← 发布对应雷达点云 topic
-│   │   └── ws_30pcd_et3_ros2         ← 发布对应雷达点云 topic
-│   └── ros2-hikcamera                ← 发布 /camera/image_raw, /camera/camera_info
-│
-├── Asset / Tool Layer
-│   ├── model/model                  ← 模型 / 赛场资产
-│   ├── tools/model_to_map            ← 模型 / 赛场资产 -> 地图点云资产
-│   └── radar_calibration             ← 手动标定数据 -> 外参 YAML
-│
-├── Perception Layer
-│   ├── radar_lidar                   ← /livox/lidar -> /lidar/pose_raw, /lidar/pose
-│   └── radar_camera                  ← /camera/image_raw, /camera/camera_info -> /camera/pose
-│
-├── Fusion / Localization Layer
-│   └── radar_fusion                  ← /lidar/pose + /camera/pose
-│                                      -> /localization/pose, /localization/status
-│
-├── Interface Layer
-│   └── radar_bridge                  ← /localization/pose
-│                                      -> /dev/shm/lidar_pose
-│
-├── Interface Definition Layer
-│   └── radar_interfaces              ← LocalizationStatus.msg 等业务接口
-│
-└── Composition Layer
-    └── radar_bringup                 ← launch / config / remap / phase selection
-```
-
-## Topic and Interface Contracts
-
-```text
-topics/
-├── /livox/lidar
-│   ├── type: sensor_msgs/msg/PointCloud2
-│   ├── producer: livox_ros_driver2
-│   └── consumer: radar_lidar
-├── /camera/image_raw
-│   ├── type: sensor_msgs/msg/Image
-│   ├── producer: ros2-hikcamera
-│   └── consumer: radar_camera
-├── /camera/camera_info
-│   ├── type: sensor_msgs/msg/CameraInfo
-│   ├── producer: ros2-hikcamera
-│   └── consumer: radar_camera
-├── /lidar/pose_raw
-│   ├── type: geometry_msgs/msg/PoseWithCovarianceStamped
-│   ├── producer: radar_lidar
-│   ├── consumer: debug / diagnostics
-│   └── role: 未融合的 LiDAR 原始估计与协方差
-├── /lidar/pose
-│   ├── type: geometry_msgs/msg/PoseWithCovarianceStamped
-│   ├── producer: radar_lidar
-│   ├── consumer: radar_fusion
-│   └── role: LiDAR 主观测
-├── /camera/pose
-│   ├── type: geometry_msgs/msg/PoseWithCovarianceStamped
-│   ├── producer: radar_camera
-│   ├── consumer: radar_fusion
-│   └── role: 视觉位姿观测
-├── /localization/pose
-│   ├── type: geometry_msgs/msg/PoseStamped
-│   ├── producer: radar_fusion
-│   ├── consumers: radar_bridge, other ROS consumers
-│   └── role: 系统对外稳定位姿契约
-└── /localization/status
-    ├── type: radar_interfaces/msg/LocalizationStatus
-    ├── producer: radar_fusion
-    ├── consumers: radar_bridge, other ROS consumers
-    └── role: 系统定位状态输出
-
-shared_memory/
-└── /dev/shm/lidar_pose
-    ├── producer: radar_bridge
-    ├── consumer: egui
-    └── role: GUI 读取的 Seqlock 共享内存接口
-```
-
-## Layered ROS Topic Flow
-
-```text
-ros_graph/
-├── Driver Layer
-│   ├── livox_ros_driver2
-│   │   └── /livox/lidar : sensor_msgs/msg/PointCloud2 -> radar_lidar
-│   └── ros2-hikcamera
-│       ├── /camera/image_raw : sensor_msgs/msg/Image -> radar_camera
-│       └── /camera/camera_info : sensor_msgs/msg/CameraInfo -> radar_camera
-├── Perception Layer
-│   ├── radar_lidar
-│   │   ├── /lidar/pose_raw : geometry_msgs/msg/PoseWithCovarianceStamped -> debug / diagnostics
-│   │   └── /lidar/pose : geometry_msgs/msg/PoseWithCovarianceStamped -> radar_fusion
-│   └── radar_camera
-│       └── /camera/pose : geometry_msgs/msg/PoseWithCovarianceStamped -> radar_fusion
-├── Fusion / Localization Layer
-│   └── radar_fusion
-│       ├── /localization/pose : geometry_msgs/msg/PoseStamped -> radar_bridge
-│       ├── /localization/pose : geometry_msgs/msg/PoseStamped -> other ROS consumers
-│       ├── /localization/status : radar_interfaces/msg/LocalizationStatus -> radar_bridge
-│       └── /localization/status : radar_interfaces/msg/LocalizationStatus -> other ROS consumers
-└── Interface Layer
-    └── radar_bridge
-        └── /dev/shm/lidar_pose : Seqlock shared memory -> egui
-```
-
-## Phase 1 Minimal Loop
-
-```text
-phase1/
-├── livox_ros_driver2
-│   └── /livox/lidar : sensor_msgs/msg/PointCloud2 -> radar_lidar
-├── radar_lidar
-│   └── /lidar/pose : geometry_msgs/msg/PoseWithCovarianceStamped -> radar_fusion
-├── radar_fusion
-│   ├── /localization/pose : geometry_msgs/msg/PoseStamped -> radar_bridge
-│   ├── /localization/pose : geometry_msgs/msg/PoseStamped -> other ROS consumers
-│   ├── /localization/status : radar_interfaces/msg/LocalizationStatus -> radar_bridge
-│   └── /localization/status : radar_interfaces/msg/LocalizationStatus -> other ROS consumers
-└── radar_bridge
-    └── /dev/shm/lidar_pose : Seqlock shared memory -> egui
-```
-
-## Bringup Design
+系统唯一编排入口。负责 launch、参数装配、topic remap、不同传感器机型配置、组件编排。
+纯 YAML + launch，无业务 C++。
 
 ```text
 config/
 ├── common/          ← 公共参数 (topic, frame, QoS, 滤波, 地图路径)
 ├── lidar/
+│   ├── odin.yaml    ← Odin 专用参数（主链路）
 │   └── mid70.yaml   ← Mid-70 专用参数
 └── system/
-    ├── phase1.yaml  ← 仅: driver + lidar + fusion
-    ├── phase2.yaml  ← phase1 + bridge
-    └── phase3.yaml  ← phase2 + camera + calibration
+    └── *.yaml       ← 组件组合配置
 
 launch/
-├── mid70_localization.launch.py      ← Mid-70 单雷达定位入口
-├── mid70_localization_gui.launch.py  ← Mid-70 + bridge + GUI 入口
-└── full_system.launch.py             ← 完整系统入口
+├── localization.launch.py       ← 单雷达定位入口 (sensor:=odin|mid70)
+├── localization_gui.launch.py   ← + bridge + GUI 入口
+└── full_system.launch.py        ← 完整系统入口
 ```
 
-- `config/common/*.yaml`
-  - 公共 topic、frame、QoS、滤波参数、地图路径
+`ComposableNodeContainer` 承载 `radar_lidar` + `radar_fusion`（intra-process），
+`IncludeLaunchDescription` 拉起独立驱动进程。
 
-- `config/lidar/mid70.yaml`
-  - Mid-70 专用参数
-  - 驱动 topic、frame、点云滤波、配准参数
+## Topic & Interface Contracts
 
-- `config/system/phase1.yaml`
-  - 仅启 `livox_ros_driver2`、`radar_lidar`、`radar_fusion`
+```text
+topics/
+├── /odin1/cloud_raw  或  /livox/lidar
+│   ├── type: sensor_msgs/msg/PointCloud2
+│   ├── producer: 驱动进程 (odin_ros_driver / livox_ros_driver2)
+│   └── consumer: radar_lidar
+├── /lidar/pose
+│   ├── type: geometry_msgs/msg/PoseWithCovarianceStamped
+│   ├── producer: radar_lidar
+│   ├── consumer: radar_fusion
+│   └── role: LiDAR 主观测
+├── /lidar/dynamic
+│   ├── type: sensor_msgs/msg/PointCloud2
+│   ├── producer: radar_lidar
+│   └── role: 地图系动态点
+├── /lidar/cluster
+│   ├── type: sensor_msgs/msg/PointCloud2
+│   ├── producer: radar_lidar
+│   ├── consumer: radar_fusion
+│   └── role: 聚类质心（数据关联输入）
+├── /lidar/cluster_viz
+│   ├── type: visualization_msgs/msg/MarkerArray
+│   ├── producer: radar_lidar
+│   └── role: AABB + 质心可视化
+├── /diagnostics
+│   ├── type: diagnostic_msgs/msg/DiagnosticStatus
+│   ├── producer: radar_lidar
+│   └── role: fitness / 耗时 / 帧号
+├── /camera/image_raw, /camera/camera_info
+│   ├── type: sensor_msgs/msg/Image, sensor_msgs/msg/CameraInfo
+│   ├── producer: 相机驱动 (ros2-hikcamera)
+│   └── consumer: radar_camera
+├── /camera/pose  或  /camera/detection
+│   ├── type: geometry_msgs/msg/PoseWithCovarianceStamped  或  vision_msgs/msg/Detection3DArray
+│   ├── producer: radar_camera
+│   └── consumer: radar_fusion
+├── /localization/pose
+│   ├── type: geometry_msgs/msg/PoseStamped
+│   ├── producer: radar_fusion
+│   ├── consumers: radar_bridge, 其他 ROS 消费者
+│   └── role: 系统对外稳定位姿契约
+├── /localization/status
+│   ├── type: diagnostic_msgs/msg/DiagnosticStatus
+│   ├── producer: radar_fusion
+│   ├── consumers: radar_bridge, 其他 ROS 消费者
+│   └── role: 定位状态 (state / fitness / converged)
+└── /fusion/tracks
+    ├── type: visualization_msgs/msg/MarkerArray
+    ├── producer: radar_fusion
+    └── role: confirmed 轨迹可视化
 
-- `config/system/phase2.yaml`
-  - 在 Phase 1 基础上加 `radar_bridge`
+shared_memory/
+└── /dev/shm/lidar_pose
+    ├── type: shm_layout.hpp 中的 C++ struct (pose + state + fitness), 非 ROS 消息
+    ├── producer: radar_bridge  (订阅 /localization/pose + /localization/status 后合并写入)
+    ├── consumer: egui
+    └── role: 系统唯一跨进程数据契约, Seqlock 无锁读写
+```
 
-- `config/system/phase3.yaml`
-  - 在 Phase 2 基础上加 `radar_camera`、`radar_calibration`
+## Data Flow
 
-## Assumptions and Defaults
+```text
+驱动进程 (odin_ros_driver / livox_ros_driver2)
+  └─ /odin1/cloud_raw | /livox/lidar : PointCloud2
+       └─> radar_lidar (LidarPipeline)
+             ├─ /lidar/pose      : PoseWithCovarianceStamped ─┐
+             ├─ /lidar/cluster   : PointCloud2 (质心) ────────┤
+             ├─ /lidar/dynamic   : PointCloud2                │
+             ├─ /lidar/cluster_viz : MarkerArray              │
+             └─ /diagnostics     : DiagnosticStatus           │
+                                                              v
+        /camera/pose|detection ────────────────> radar_fusion (FusionNode)
+        (radar_camera)                             ├─ /localization/pose   : PoseStamped
+                                                   ├─ /localization/status : DiagnosticStatus
+                                                   └─ /fusion/tracks       : MarkerArray
+                                                        │ pose + status
+                                                        v
+                                                   radar_bridge
+                                                     └─ /dev/shm/lidar_pose (shm struct)
+                                                          └─> egui (只读共享内存)
+```
+
+## Process Topology
+
+```text
+runtime/
+├── 雷达驱动 (odin_ros_driver / livox_ros_driver2)   独立进程, 发布点云 topic
+├── radar_algorithm_container                          component container
+│   ├── radar_lidar   (component)
+│   └── radar_fusion  (component)                       intra-process 零拷贝
+├── radar_bridge                                        独立进程, /localization/* -> 共享内存
+├── egui                                                非 ROS 进程, 只读共享内存
+└── radar_camera                                        独立视觉观测进程
+```
+
+## Assumptions & Defaults
 
 - 系统以 LiDAR 时间戳为主时钟。
-- Phase 1 不做 ApproximateTimeSync。
-- 相机不是主触发源，只做补充观测。
+- 标定精度（相机外参）为准，点云动态目标检测是辅助手段。
 - `PoseStamped` 只作为系统对外轻量契约；融合内部默认使用 `PoseWithCovarianceStamped`。
-- `radar_bridge` 与共享内存 ABI 暂不在 Phase 1 锁死，只预留位置。
+- 主链路默认 Odin；Mid-70 通过 `sensor:=mid70` 切换。

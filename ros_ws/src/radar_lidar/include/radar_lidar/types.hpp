@@ -19,7 +19,7 @@ struct Frame {
 };
 
 struct PoseEstimate {
-    Eigen::Isometry3d T                    = Eigen::Isometry3d::Identity();
+    Eigen::Isometry3d t_map_lidar          = Eigen::Isometry3d::Identity();
     Eigen::Matrix<double, 6, 6> covariance = Eigen::Matrix<double, 6, 6>::Identity();
     double fitness_score                   = 0.0;
     bool converged                         = false;

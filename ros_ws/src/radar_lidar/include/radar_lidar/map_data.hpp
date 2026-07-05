@@ -19,7 +19,7 @@ public:
     using PclCloud   = pcl::PointCloud<pcl::PointXYZ>;
     using PclTree    = pcl::KdTreeFLANN<pcl::PointXYZ>;
 
-    static auto Load(const std::string& pcd_path, double voxel_leaf_size = 0.1)
+    static auto load(const std::string& pcd_path, double voxel_leaf_size = 0.1)
         -> std::expected<std::shared_ptr<MapData>, std::string>;
 
     [[nodiscard]] auto sgicp_cloud() const -> const SGicpCloud& { return *sgicp_cloud_; }
