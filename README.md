@@ -206,6 +206,27 @@ cd /workspace/lidar_ros_driver/odin_ros_driver
 cat README.md
 ```
 
+#### Odin1 内置重定位（可选）
+
+`radar_lidar` 默认用自身 GICP 做 scan-to-map 配准。若已有 Odin1 SLAM 建的
+`.bin` 地图，可切到 Odin1 内置重定位为主位姿源，GICP 自动降级为重定位未收敛
+时的回退，不需要手动切换。
+
+```bash
+# 1. 赛前离线走图一次，产出 .bin 地图
+ros2 launch radar_bringup odin_slam_mapping.launch.py
+# 走图完成后，另开终端执行 set_param.sh save_map 1（见子模块 README）
+
+# 2. 用保存的地图做重定位 + GICP 回退联合定位
+ros2 launch radar_bringup odin_relocalization_localization.launch.py \
+  map_path:=/workspace/model/generated/map_zup.pcd \
+  relocalization_map_path:=/path/to/saved_map.bin
+```
+
+`custom_init_pos`（红/蓝方安装位置估算值）需在
+`ros_ws/src/radar_bringup/config/lidar/odin_driver_relocalization.yaml`
+中按实际部署位置填入，默认全零仅供占位。
+
 ---
 
 ## 目录结构
