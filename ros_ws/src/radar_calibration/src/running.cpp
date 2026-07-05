@@ -1,49 +1,57 @@
-#include "model_preprocess.hpp"
-#include <ament_index_cpp/get_package_share_directory.hpp>
+#include "radar_calibration/camera_lidar_calibration.hpp"
+
+#include <cstdio>
+#include <cstring>
 #include <filesystem>
-#include <rclcpp/rclcpp.hpp>
 
-int main() {
-    auto model_processor = std::make_unique<Radar::process::model::ModelProcess>();
-    YAML::Node model_config;
+namespace {
 
-    // Try installed config first, fall back to source-tree path
-    std::filesystem::path config_path = "/workspace/ros_ws/src/radar_calibration/config/"
-                                        "setting.yaml";
-    try {
-        const auto installed =
-            std::filesystem::path { ament_index_cpp::get_package_share_directory("radar_"
-                                                                                 "calibration") }
-            / "config" / "setting.yaml";
-        if (std::filesystem::exists(installed)) {
-            config_path = installed;
+auto print_usage(const char* prog) -> void {
+    std::fprintf(stderr,
+        "Usage: %s inject-initial-guess <calib.json> <initial_guess.yaml>\n"
+        "       %s extract-result <calib.json> <output_extrinsic.yaml>\n",
+        prog, prog);
+}
+
+} // namespace
+
+int main(int argc, char** argv) {
+    if (argc != 4) {
+        print_usage(argv[0]);
+        return 1;
+    }
+
+    const std::string command { argv[1] };
+    const std::filesystem::path arg1 { argv[2] };
+    const std::filesystem::path arg2 { argv[3] };
+
+    if (command == "inject-initial-guess") {
+        auto result = radar::calibration::inject_initial_guess(arg1, arg2);
+        if (!result) {
+            std::fprintf(stderr, "Failed to inject initial guess: %s\n", result.error().c_str());
+            return 1;
         }
-    } catch (const std::exception&) {
-        // ament index unavailable — use source-tree fallback
+        std::printf("Injected initial guess into %s\n", arg1.string().c_str());
+        return 0;
     }
 
-    try {
-        model_config = YAML::LoadFile(config_path.string());
-    } catch (const std::exception& e) {
-        RCLCPP_ERROR(rclcpp::get_logger("model_preprocess"), "Failed to load model config %s: %s",
-            config_path.string().c_str(), e.what());
-        return 1;
+    if (command == "extract-result") {
+        auto t_map_camera = radar::calibration::load_t_map_camera(arg1);
+        if (!t_map_camera) {
+            std::fprintf(
+                stderr, "Failed to load calibration result: %s\n", t_map_camera.error().c_str());
+            return 1;
+        }
+        auto write_result = radar::calibration::write_extrinsic_yaml(arg2, *t_map_camera);
+        if (!write_result) {
+            std::fprintf(
+                stderr, "Failed to write extrinsic YAML: %s\n", write_result.error().c_str());
+            return 1;
+        }
+        std::printf("Wrote t_map_camera to %s\n", arg2.string().c_str());
+        return 0;
     }
-    auto result = model_processor->ConfigLoader(model_config);
-    if (!result) {
-        RCLCPP_ERROR(rclcpp::get_logger("model_preprocess"), "Failed to load model config: %s",
-            result.error().c_str());
-        return 1;
-    }
-    result = model_processor->LoadPointCloud();
-    if (!result) {
-        RCLCPP_ERROR(rclcpp::get_logger("model_preprocess"), "Failed to load point cloud: %s",
-            result.error().c_str());
-        return 1;
-    }
-    const auto& point_cloud = model_processor->GetPointCloud();
-    (void)point_cloud;
-    RCLCPP_INFO(rclcpp::get_logger("model_preprocess"), "Model preprocess done: %zu points from %s",
-        point_cloud.size(), model_processor->GetMapPath().string().c_str());
-    return 0;
+
+    print_usage(argv[0]);
+    return 1;
 }

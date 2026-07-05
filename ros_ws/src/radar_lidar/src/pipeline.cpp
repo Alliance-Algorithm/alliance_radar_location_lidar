@@ -9,6 +9,64 @@
 
 namespace radar {
 
+namespace {
+
+    auto load_localization_config(rclcpp::Node& node) -> config::LocalizationConfig {
+        config::LocalizationConfig cfg;
+        node.get_parameter("gicp_num_threads", cfg.num_threads);
+        node.get_parameter("gicp_max_corr_distance", cfg.max_corr_distance);
+        node.get_parameter("gicp_max_iterations", cfg.max_iterations);
+        node.get_parameter("gicp_use_spherical_grid", cfg.use_spherical_grid);
+        node.get_parameter("gicp_spherical_grid_deg", cfg.spherical_grid_deg);
+        node.get_parameter("gicp_accumulate_frames", cfg.accumulate_frames);
+        node.get_parameter("gicp_use_lock_strategy", cfg.use_lock_strategy);
+        node.get_parameter("gicp_lock_fitness", cfg.lock_fitness);
+        node.get_parameter("gicp_use_roi", cfg.roi.use_roi);
+        node.get_parameter("gicp_roi_x_min", cfg.roi.x_min);
+        node.get_parameter("gicp_roi_x_max", cfg.roi.x_max);
+        node.get_parameter("gicp_roi_y_min", cfg.roi.y_min);
+        node.get_parameter("gicp_roi_y_max", cfg.roi.y_max);
+        node.get_parameter("gicp_roi_z_min", cfg.roi.z_min);
+        node.get_parameter("gicp_roi_z_max", cfg.roi.z_max);
+        node.get_parameter("gicp_voxel_leaf_size", cfg.voxel_leaf_size);
+        node.get_parameter("gicp_rotation_eps", cfg.rotation_eps);
+        node.get_parameter("gicp_translation_eps", cfg.translation_eps);
+        node.get_parameter("gicp_verbose", cfg.verbose);
+        node.get_parameter("initial_pose_enabled", cfg.has_initial_pose);
+        node.get_parameter("initial_pose_tx", cfg.initial_tx);
+        node.get_parameter("initial_pose_ty", cfg.initial_ty);
+        node.get_parameter("initial_pose_tz", cfg.initial_tz);
+        node.get_parameter("initial_pose_roll", cfg.initial_roll);
+        node.get_parameter("initial_pose_pitch", cfg.initial_pitch);
+        node.get_parameter("initial_pose_yaw", cfg.initial_yaw);
+        return cfg;
+    }
+
+    auto load_dynamic_config(rclcpp::Node& node) -> DynamicCloudConfig {
+        DynamicCloudConfig cfg;
+        node.get_parameter("dynamic_distance_threshold", cfg.distance_threshold);
+        node.get_parameter("dynamic_num_threads", cfg.num_threads);
+        node.get_parameter("dynamic_accumulate_frames", cfg.accumulate_frames);
+        node.get_parameter("dynamic_use_roi", cfg.roi.use_roi);
+        node.get_parameter("dynamic_roi_x_min", cfg.roi.x_min);
+        node.get_parameter("dynamic_roi_x_max", cfg.roi.x_max);
+        node.get_parameter("dynamic_roi_y_min", cfg.roi.y_min);
+        node.get_parameter("dynamic_roi_y_max", cfg.roi.y_max);
+        node.get_parameter("dynamic_roi_z_min", cfg.roi.z_min);
+        node.get_parameter("dynamic_roi_z_max", cfg.roi.z_max);
+        return cfg;
+    }
+
+    auto load_cluster_config(rclcpp::Node& node) -> ClusterConfig {
+        ClusterConfig cfg;
+        node.get_parameter("cluster_tolerance", cfg.cluster_tolerance);
+        node.get_parameter("cluster_min_size", cfg.min_cluster_size);
+        node.get_parameter("cluster_max_size", cfg.max_cluster_size);
+        return cfg;
+    }
+
+} // namespace
+
 LidarPipeline::LidarPipeline()
     : Node("radar_lidar_node",
           rclcpp::NodeOptions { }.automatically_declare_parameters_from_overrides(true))
@@ -31,7 +89,7 @@ LidarPipeline::LidarPipeline()
         rclcpp::shutdown();
         return;
     }
-    auto map_result = MapData::Load(map_path, 0.1);
+    auto map_result = MapData::load(map_path, 0.1);
     if (!map_result) {
         RCLCPP_FATAL(get_logger(), "Failed to load map: %s", map_result.error().c_str());
         rclcpp::shutdown();
@@ -40,52 +98,12 @@ LidarPipeline::LidarPipeline()
     map_ = *map_result;
     RCLCPP_INFO(get_logger(), "Map loaded: %zu points", map_->size());
 
-    // ── GICP config ────────────────────────────────────────────────
-    config::LocalizationConfig loc_cfg;
-    get_parameter("gicp_num_threads", loc_cfg.num_threads);
-    get_parameter("gicp_max_corr_distance", loc_cfg.max_corr_distance);
-    get_parameter("gicp_max_iterations", loc_cfg.max_iterations);
-    get_parameter("gicp_use_spherical_grid", loc_cfg.use_spherical_grid);
-    get_parameter("gicp_spherical_grid_deg", loc_cfg.spherical_grid_deg);
-    get_parameter("gicp_accumulate_frames", loc_cfg.accumulate_frames);
-    get_parameter("gicp_use_lock_strategy", loc_cfg.use_lock_strategy);
-    get_parameter("gicp_lock_fitness", loc_cfg.lock_fitness);
-    get_parameter("gicp_use_roi", loc_cfg.roi.use_roi);
-    get_parameter("gicp_roi_x_min", loc_cfg.roi.x_min);
-    get_parameter("gicp_roi_x_max", loc_cfg.roi.x_max);
-    get_parameter("gicp_roi_y_min", loc_cfg.roi.y_min);
-    get_parameter("gicp_roi_y_max", loc_cfg.roi.y_max);
-    get_parameter("gicp_roi_z_min", loc_cfg.roi.z_min);
-    get_parameter("gicp_roi_z_max", loc_cfg.roi.z_max);
-    get_parameter("gicp_voxel_leaf_size", loc_cfg.voxel_leaf_size);
-    get_parameter("gicp_rotation_eps", loc_cfg.rotation_eps);
-    get_parameter("gicp_translation_eps", loc_cfg.translation_eps);
-    get_parameter("gicp_verbose", loc_cfg.verbose);
+    localization_ = LocalizationStage(map_, load_localization_config(*this));
 
-    localization_ = LocalizationStage(map_, loc_cfg);
-
-    // ── detection config ───────────────────────────────────────────
-    DynamicCloudConfig dyn_cfg;
-    get_parameter("dynamic_distance_threshold", dyn_cfg.distance_threshold);
-    get_parameter("dynamic_num_threads", dyn_cfg.num_threads);
-    get_parameter("dynamic_accumulate_frames", dyn_cfg.accumulate_frames);
-    get_parameter("dynamic_use_roi", dyn_cfg.roi.use_roi);
-    get_parameter("dynamic_roi_x_min", dyn_cfg.roi.x_min);
-    get_parameter("dynamic_roi_x_max", dyn_cfg.roi.x_max);
-    get_parameter("dynamic_roi_y_min", dyn_cfg.roi.y_min);
-    get_parameter("dynamic_roi_y_max", dyn_cfg.roi.y_max);
-    get_parameter("dynamic_roi_z_min", dyn_cfg.roi.z_min);
-    get_parameter("dynamic_roi_z_max", dyn_cfg.roi.z_max);
-
-    dynamic_stage_ = DynamicCloudStage(dyn_cfg);
+    dynamic_stage_ = DynamicCloudStage(load_dynamic_config(*this));
     dynamic_stage_.set_map(std::make_shared<pcl::PointCloud<pcl::PointXYZ>>(map_->pcl_cloud()));
 
-    // ── cluster config ─────────────────────────────────────────────
-    ClusterConfig cl_cfg;
-    get_parameter("cluster_tolerance", cl_cfg.cluster_tolerance);
-    get_parameter("cluster_min_size", cl_cfg.min_cluster_size);
-    get_parameter("cluster_max_size", cl_cfg.max_cluster_size);
-    cluster_stage_ = ClusterStage(cl_cfg);
+    cluster_stage_ = ClusterStage(load_cluster_config(*this));
 
     // ── subscription ───────────────────────────────────────────────
     sub_scan_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(scan_topic_,
@@ -135,6 +153,13 @@ void LidarPipeline::on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg)
 
     publish_pose(*pose, frame.stamp);
 
+    if (!was_locked_ && localization_.is_locked()) {
+        was_locked_ = true;
+        RCLCPP_INFO(get_logger(),
+            "Pose locked (fitness=%.4f) -- registration frozen, perception only",
+            pose->fitness_score);
+    }
+
     // 检测：把扫描变换到地图坐标系后提取动态点
     if (detection_enabled_) {
         types::PointCloud scan_in_map;
@@ -158,7 +183,8 @@ void LidarPipeline::on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg)
 
 void LidarPipeline::transform_scan_to_map(const types::PointCloud& scan,
     const types::PoseEstimate& pose, types::PointCloud& transformed) {
-    transformed = scan | std::views::transform([&pose](const auto& p) { return pose.T * p; })
+    transformed = scan
+        | std::views::transform([&pose](const auto& p) { return pose.t_map_lidar * p; })
         | std::ranges::to<types::PointCloud>();
 }
 
@@ -167,7 +193,7 @@ void LidarPipeline::publish_pose(const types::PoseEstimate& pose, types::Timesta
     msg.header.stamp    = rclcpp::Time(stamp);
     msg.header.frame_id = output_frame_;
 
-    const auto& T            = pose.T;
+    const auto& T            = pose.t_map_lidar;
     msg.pose.pose.position.x = T.translation().x();
     msg.pose.pose.position.y = T.translation().y();
     msg.pose.pose.position.z = T.translation().z();

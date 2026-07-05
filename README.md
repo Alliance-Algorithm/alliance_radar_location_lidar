@@ -94,8 +94,9 @@ docker exec -it RADAR zsh
 
 | 命令 | 说明 |
 |------|------|
-| `build-all [Release\|Debug]` | 编译所有包（third-party + 全部 radar 包） |
-| `build-radar [Release\|Debug]` | 编译 radar_calibration |
+| `build-all [Release\|Debug]` | 编译所有包（third-party + 全部 radar 包，含 `direct_visual_lidar_calibration`） |
+| `build-radar [Release\|Debug]` | 快速编译 radar 包 + 雷达驱动（跳过 `direct_visual_lidar_calibration`） |
+| `calibrate-camera <image.jpg> --camera_model ... --camera_intrinsics ... --camera_distortion_coeffs ...` | 相机-雷达外参自动标定（需先 `build-all`），见下方「相机外参标定」 |
 | `offline-test <scan.pcd> --map <map.pcd>` | 启动离线配准可视化节点，发布 `/offline/*` 话题给 Foxglove |
 | `run-radar` | 运行标定定位节点 |
 | `format-radar` | 格式化 C++ 源文件 |
@@ -136,6 +137,34 @@ Foxglove 里主要查看这些话题：
 - `/offline/scan_aligned`
 - `/offline/overlay`
 - `/offline/pose`
+
+---
+
+## 相机外参标定
+
+一次性离线标定，用已有场地地图点云 + 一张相机图像自动算出相机外参
+`t_map_camera`，全程无人工介入。依赖 `direct_visual_lidar_calibration`
+（`ros_ws/third-party/`），需先跑 `build-all`（`build-radar` 会跳过它）。
+
+```bash
+calibrate-camera /path/to/photo.jpg \
+  --camera_model plumb_bob \
+  --camera_intrinsics fx,fy,cx,cy \
+  --camera_distortion_coeffs k1,k2,p1,p2,k3
+```
+
+内部流程：`preprocess_map`（地图 + 图像 → `calib.json`）→ 注入
+`ros_ws/src/radar_calibration/config/initial_guess.yaml` 里的粗略外参猜测
+（雷达站相机安装几何估算值）→ `calibrate`（NID 直接配准精化）。结果在
+`ros_ws/src/radar_calibration/calibration_data/calib.json` 的
+`results.T_lidar_camera`（第三方库字段名，本项目内部读作 `t_map_camera`）。
+用 `radar_calibration_node extract-result` 导出成 `radar_camera` 可读的 YAML：
+
+```bash
+ros2 run radar_calibration radar_calibration_node extract-result \
+  ros_ws/src/radar_calibration/calibration_data/calib.json \
+  ros_ws/src/radar_camera/config/extrinsic.yaml
+```
 
 ---
 
@@ -188,15 +217,15 @@ RADAR-LOCATION-LIDAR/
 │   ├── devcontainer.json
 │   └── docker-compose.yml
 ├── .script/                # 开发脚本
-│   ├── build-radar         # 编译标定包
-│   ├── build-all           # 编译所有包
+│   ├── build-radar         # 快速编译 radar 包（跳过 DVLC）
+│   ├── build-all           # 编译所有包（含 DVLC）
+│   ├── calibrate-camera    # 相机-雷达外参自动标定
 │   ├── run-radar           # 运行节点
 │   ├── format-radar        # 格式化代码
 │   ├── banner              # ASCII art banner
 │   ├── ow_logo.txt         # Overwatch 风格 logo
 │   └── template/           # 环境变量模板
-├── ├── model/                 # 模型文件 (FBX, ONNX, PCD)                 # 离线资产
-│   └── model/              # 模型文件 (FBX, ONNX, PCD)
+├── model/                  # 模型文件 (FBX, ONNX, PCD)               # 离线资产
 ├── ros_ws/                 # ROS2 工作空间
 │   ├── src/
 │   │   ├── radar_lidar/       # LiDAR 配准定位
