@@ -56,7 +56,7 @@ protected:
 } // namespace
 
 TEST_F(LocalizationTest, IdentityTransform) {
-    auto map_result = radar::MapData::Load(map_pcd_, 0.1);
+    auto map_result = radar::MapData::load(map_pcd_, 0.1);
     ASSERT_TRUE(map_result.has_value()) << map_result.error();
     auto map = *map_result;
 
@@ -73,7 +73,7 @@ TEST_F(LocalizationTest, IdentityTransform) {
     auto result = localization.process(frame);
     ASSERT_TRUE(result.has_value()) << result.error();
 
-    const auto& T = result->T;
+    const auto& T = result->t_map_lidar;
     auto trans    = T.translation();
     EXPECT_NEAR(trans.x(), 0.0, 0.05);
     EXPECT_NEAR(trans.y(), 0.0, 0.05);
@@ -82,7 +82,7 @@ TEST_F(LocalizationTest, IdentityTransform) {
 }
 
 TEST_F(LocalizationTest, KnownTranslation) {
-    auto map_result = radar::MapData::Load(map_pcd_, 0.1);
+    auto map_result = radar::MapData::load(map_pcd_, 0.1);
     ASSERT_TRUE(map_result.has_value()) << map_result.error();
     auto map = *map_result;
 
@@ -108,7 +108,7 @@ TEST_F(LocalizationTest, KnownTranslation) {
     auto result = localization.process(frame);
     ASSERT_TRUE(result.has_value()) << result.error();
 
-    auto trans = result->T.translation();
+    auto trans = result->t_map_lidar.translation();
     EXPECT_NEAR(trans.x(), -0.5, 0.1) << "Expected T.x ~ -0.5, got " << trans.x();
     EXPECT_NEAR(trans.y(), -0.3, 0.1) << "Expected T.y ~ -0.3, got " << trans.y();
     EXPECT_NEAR(trans.z(), 0.0, 0.1) << "Expected T.z ~  0.0, got " << trans.z();
@@ -116,7 +116,7 @@ TEST_F(LocalizationTest, KnownTranslation) {
 }
 
 TEST_F(LocalizationTest, KnownRotation) {
-    auto map_result = radar::MapData::Load(map_pcd_, 0.1);
+    auto map_result = radar::MapData::load(map_pcd_, 0.1);
     ASSERT_TRUE(map_result.has_value()) << map_result.error();
     auto map = *map_result;
 
@@ -145,7 +145,7 @@ TEST_F(LocalizationTest, KnownRotation) {
     auto result = localization.process(frame);
     ASSERT_TRUE(result.has_value()) << result.error();
 
-    const auto& R_result = result->T.rotation();
+    const auto& R_result = result->t_map_lidar.rotation();
     const Eigen::AngleAxisd aa(R_result);
     EXPECT_NEAR(std::abs(aa.axis().z()), 1.0, 0.2) << "Rotation axis should be |Z|";
     EXPECT_NEAR(std::abs(aa.angle()), deg_to_rad(15.0), 0.1) << "Expected ~15deg rotation";
@@ -153,7 +153,7 @@ TEST_F(LocalizationTest, KnownRotation) {
 }
 
 TEST_F(LocalizationTest, EmptyScanReturnsError) {
-    auto map_result = radar::MapData::Load(map_pcd_, 0.1);
+    auto map_result = radar::MapData::load(map_pcd_, 0.1);
     ASSERT_TRUE(map_result.has_value());
     auto map = *map_result;
 
@@ -167,7 +167,7 @@ TEST_F(LocalizationTest, EmptyScanReturnsError) {
 }
 
 TEST_F(LocalizationTest, SetInitialPoseAndReset) {
-    auto map_result = radar::MapData::Load(map_pcd_, 0.1);
+    auto map_result = radar::MapData::load(map_pcd_, 0.1);
     ASSERT_TRUE(map_result.has_value());
     auto map = *map_result;
 

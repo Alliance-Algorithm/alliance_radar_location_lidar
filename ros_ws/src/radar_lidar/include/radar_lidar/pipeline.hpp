@@ -50,6 +50,7 @@ private:
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_cluster_viz_;
 
     uint64_t frame_count_ { 0 };
+    bool was_locked_ { false };
 };
 
 } // namespace radar

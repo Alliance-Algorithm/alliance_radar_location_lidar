@@ -53,15 +53,15 @@ void KalmanTracker::update(
     state_.hit_count++;
     state_.miss_count = 0;
     if (state_.hit_count >= min_hits_to_confirm) {
-        state_.lifecycle = TrackLifecycle::Confirmed;
+        state_.lifecycle = TrackLifecycle::CONFIRMED;
     }
 }
 
 void KalmanTracker::mark_missed(int max_misses_before_delete) {
     state_.miss_count++;
-    if (state_.lifecycle == TrackLifecycle::Tentative
+    if (state_.lifecycle == TrackLifecycle::TENTATIVE
         || state_.miss_count >= max_misses_before_delete) {
-        state_.lifecycle = TrackLifecycle::Deleted;
+        state_.lifecycle = TrackLifecycle::DELETED;
     }
 }
 

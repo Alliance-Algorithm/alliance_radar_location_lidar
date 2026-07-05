@@ -10,7 +10,7 @@
 
 namespace radar {
 
-auto MapData::Load(const std::string& pcd_path, double voxel_leaf_size)
+auto MapData::load(const std::string& pcd_path, double voxel_leaf_size)
     -> std::expected<std::shared_ptr<MapData>, std::string> {
     // 1. PCL 加载
     auto raw = pcl::make_shared<PclCloud>();
