@@ -2,6 +2,34 @@
 
 更新时间：2026-07-05
 
+## Odin1 内置重定位集成（2026-07-05 完成）
+
+架构决策：Odin1 内置重定位为主位姿源，`radar_lidar` 自研 GICP 保留作为重定位
+未收敛时的回退，通过 YAML 参数切换，不影响现有 `odin.yaml`/`mid70.yaml` 行为。
+
+- [x] `LidarPipeline` 新增 `use_odin_relocalization_tf` 参数（默认 `false`，
+      `get_parameter_or` 读取，未声明时不报错）：启用后每帧优先查
+      `map -> <scan frame_id>` TF（Odin1 重定位成功后发布），查不到则回退到
+      现有 `LocalizationStage::process`（GICP scan-to-map），核心配准逻辑
+      （`localization.cpp` / `config.hpp`）未改动
+- [x] 新增 `ros_ws/src/radar_lidar/config/odin_relocalization.yaml`：
+      `odin.yaml` 的副本 + `use_odin_relocalization_tf: true`
+- [x] 新增 Odin 驱动 profile：`odin_driver_slam.yaml`（`custom_map_mode=1`，
+      赛前离线走图）、`odin_driver_relocalization.yaml`（`custom_map_mode=2`
+      + `sendodom`/`send_odom_baselink_tf` 开）
+- [x] 新增 launch：`odin_slam_mapping.launch.py`（单独走图）、
+      `odin_relocalization_localization.launch.py`（重定位 + GICP 回退联合定位）
+- [x] 回归零精度损失：radar_lidar 18 + radar_fusion 6 + radar_calibration 7
+      测试全通过，synth-scan 逐位一致（fitness=24383.548556,
+      translation=[0.428396,-0.432899,4.128009]）
+- [x] README / architecture 文档补充重定位用法与位姿源切换说明
+
+待办（未来）：
+- [ ] `odin_driver_relocalization.yaml` 的 `custom_init_pos`（红/蓝方安装
+      位置估算值）当前占位全零，需实测/估算后按红蓝方场次填入
+- [ ] 真实 Odin1 硬件重定位收敛验证（当前只验证了 TF 回退路径的代码逻辑，
+      未接入真实设备）
+
 ## 当前重点：Fusion 模块 T3
 
 目标：让 `radar_fusion` 支持纯雷达模式与雷达 + 相机模式，并输出统一的融合结果。
