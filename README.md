@@ -157,8 +157,14 @@ calibrate-camera /path/to/photo.jpg \
 `ros_ws/src/radar_calibration/config/initial_guess.yaml` 里的粗略外参猜测
 （雷达站相机安装几何估算值）→ `calibrate`（NID 直接配准精化）。结果在
 `ros_ws/src/radar_calibration/calibration_data/calib.json` 的
-`results.T_lidar_camera`。用 `radar_calibration_node extract-result` 导出成
-`radar_camera` 可读的 YAML。
+`results.T_lidar_camera`（第三方库字段名，本项目内部读作 `t_map_camera`）。
+用 `radar_calibration_node extract-result` 导出成 `radar_camera` 可读的 YAML：
+
+```bash
+ros2 run radar_calibration radar_calibration_node extract-result \
+  ros_ws/src/radar_calibration/calibration_data/calib.json \
+  ros_ws/src/radar_camera/config/extrinsic.yaml
+```
 
 ---
 

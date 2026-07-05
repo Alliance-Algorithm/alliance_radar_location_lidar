@@ -104,7 +104,7 @@ ROS 组件，与 `radar_lidar` 同容器零拷贝。
 2. inject-initial-guess  把粗略初始外参（雷达站相机安装几何估算值，
                           见 config/initial_guess.yaml）写入 calib.json
 3. calibrate --background  NID 直接配准，从初值收敛出精确外参
-   → calib.json 的 results.T_lidar_camera 即 t_map_camera
+   → calib.json 的 results.T_lidar_camera（第三方库字段名，本项目内部读作 t_map_camera）
 ```
 
 初值来源说明：NID 直接配准是图像级优化，收敛域较窄，必须有一个大致准确的
