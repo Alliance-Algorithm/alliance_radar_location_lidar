@@ -151,7 +151,8 @@ void LidarPipeline::on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg)
 
     std::expected<types::PoseEstimate, std::string> pose;
     if (use_odin_relocalization_tf_) {
-        if (auto odin_pose = try_odin_relocalization_pose(frame.frame_id, rclcpp::Time(frame.stamp))) {
+        if (auto odin_pose =
+                try_odin_relocalization_pose(frame.frame_id, rclcpp::Time(frame.stamp))) {
             pose = *odin_pose;
             if (!was_odin_relocalized_) {
                 was_odin_relocalized_ = true;
@@ -210,9 +211,8 @@ void LidarPipeline::transform_scan_to_map(const types::PointCloud& scan,
         | std::ranges::to<types::PointCloud>();
 }
 
-auto LidarPipeline::try_odin_relocalization_pose(
-    const std::string& source_frame, const rclcpp::Time& stamp)
-    -> std::optional<types::PoseEstimate> {
+auto LidarPipeline::try_odin_relocalization_pose(const std::string& source_frame,
+    const rclcpp::Time& stamp) -> std::optional<types::PoseEstimate> {
     geometry_msgs::msg::TransformStamped tf_msg;
     try {
         tf_msg = tf_buffer_->lookupTransform(output_frame_, source_frame, stamp);
@@ -223,12 +223,12 @@ auto LidarPipeline::try_odin_relocalization_pose(
     types::PoseEstimate out;
     out.t_map_lidar.translation() = Eigen::Vector3d(tf_msg.transform.translation.x,
         tf_msg.transform.translation.y, tf_msg.transform.translation.z);
-    out.t_map_lidar.linear() = Eigen::Quaterniond(tf_msg.transform.rotation.w,
+    out.t_map_lidar.linear()      = Eigen::Quaterniond(tf_msg.transform.rotation.w,
         tf_msg.transform.rotation.x, tf_msg.transform.rotation.y, tf_msg.transform.rotation.z)
-                                    .toRotationMatrix();
-    out.fitness_score = 0.0;
-    out.converged      = true;
-    out.covariance     = Eigen::Matrix<double, 6, 6>::Identity() * 1e-6;
+                                        .toRotationMatrix();
+    out.fitness_score             = 0.0;
+    out.converged                 = true;
+    out.covariance                = Eigen::Matrix<double, 6, 6>::Identity() * 1e-6;
     return out;
 }
 
