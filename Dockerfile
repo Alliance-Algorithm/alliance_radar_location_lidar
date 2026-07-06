@@ -29,7 +29,7 @@ RUN sed -i \
 
 # System packages + ROS2 deps + project deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    vim neovim wget curl unzip \
+    vim wget curl unzip \
     zsh screen tmux \
     usbutils net-tools iputils-ping \
     ripgrep htop fzf \
@@ -156,6 +156,19 @@ RUN case "${TARGETARCH}" in \
     && ln -sf /opt/cmake/bin/ctest /usr/local/bin/ctest \
     && ln -sf /opt/cmake/bin/cpack /usr/local/bin/cpack \
     && rm /tmp/cmake.sh
+
+# Neovim (official release, apt's noble package is stuck at 0.9.5 which is
+# too old for modern configs like LazyVim requiring >=0.11.2)
+ARG NEOVIM_VERSION=v0.12.3
+RUN case "${TARGETARCH}" in \
+        amd64) nvim_arch=linux-x86_64 ;; \
+        arm64) nvim_arch=linux-arm64 ;; \
+        *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac && \
+    wget -q "https://github.com/neovim/neovim/releases/download/${NEOVIM_VERSION}/nvim-${nvim_arch}.tar.gz" -O /tmp/nvim.tar.gz \
+    && mkdir -p /opt/nvim && tar -xzf /tmp/nvim.tar.gz -C /opt/nvim --strip-components=1 \
+    && ln -sf /opt/nvim/bin/nvim /usr/local/bin/nvim \
+    && rm /tmp/nvim.tar.gz
 
 # Node.js + opencode
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
