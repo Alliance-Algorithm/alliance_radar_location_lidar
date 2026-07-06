@@ -3,7 +3,9 @@
 #include <chrono>
 #include <ranges>
 
+#include <geometry_msgs/msg/transform_stamped.hpp>
 #include <pcl_conversions/pcl_conversions.h>
+#include <tf2/exceptions.h>
 
 #include "radar_lidar/geometry_utils.hpp"
 
@@ -80,6 +82,12 @@ LidarPipeline::LidarPipeline()
     get_parameter("hardware_id", hardware_id_);
     get_parameter("output_frame", output_frame_);
     get_parameter("detection_enabled", detection_enabled_);
+    get_parameter_or("use_odin_relocalization_tf", use_odin_relocalization_tf_, false);
+
+    if (use_odin_relocalization_tf_) {
+        tf_buffer_   = std::make_unique<tf2_ros::Buffer>(get_clock());
+        tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+    }
 
     // ── map ────────────────────────────────────────────────────────
     std::string map_path;
@@ -141,7 +149,22 @@ void LidarPipeline::on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg)
         return;
     }
 
-    auto pose = localization_.process(frame);
+    std::expected<types::PoseEstimate, std::string> pose;
+    if (use_odin_relocalization_tf_) {
+        if (auto odin_pose =
+                try_odin_relocalization_pose(frame.frame_id, rclcpp::Time(frame.stamp))) {
+            pose = *odin_pose;
+            if (!was_odin_relocalized_) {
+                was_odin_relocalized_ = true;
+                RCLCPP_INFO(get_logger(), "Odin1 relocalization TF acquired -- GICP fallback idle");
+            }
+        } else {
+            pose = localization_.process(frame);
+        }
+    } else {
+        pose = localization_.process(frame);
+    }
+
     if (!pose) {
         RCLCPP_WARN_THROTTLE(
             get_logger(), *get_clock(), 2000, "Localization failed: %s", pose.error().c_str());
@@ -186,6 +209,27 @@ void LidarPipeline::transform_scan_to_map(const types::PointCloud& scan,
     transformed = scan
         | std::views::transform([&pose](const auto& p) { return pose.t_map_lidar * p; })
         | std::ranges::to<types::PointCloud>();
+}
+
+auto LidarPipeline::try_odin_relocalization_pose(const std::string& source_frame,
+    const rclcpp::Time& stamp) -> std::optional<types::PoseEstimate> {
+    geometry_msgs::msg::TransformStamped tf_msg;
+    try {
+        tf_msg = tf_buffer_->lookupTransform(output_frame_, source_frame, stamp);
+    } catch (const tf2::TransformException&) {
+        return std::nullopt;
+    }
+
+    types::PoseEstimate out;
+    out.t_map_lidar.translation() = Eigen::Vector3d(tf_msg.transform.translation.x,
+        tf_msg.transform.translation.y, tf_msg.transform.translation.z);
+    out.t_map_lidar.linear()      = Eigen::Quaterniond(tf_msg.transform.rotation.w,
+        tf_msg.transform.rotation.x, tf_msg.transform.rotation.y, tf_msg.transform.rotation.z)
+                                        .toRotationMatrix();
+    out.fitness_score             = 0.0;
+    out.converged                 = true;
+    out.covariance                = Eigen::Matrix<double, 6, 6>::Identity() * 1e-6;
+    return out;
 }
 
 void LidarPipeline::publish_pose(const types::PoseEstimate& pose, types::Timestamp stamp) {

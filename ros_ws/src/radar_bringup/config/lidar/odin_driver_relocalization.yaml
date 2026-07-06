@@ -1,0 +1,47 @@
+# Odin 驱动配置 — 重定位模式 (custom_map_mode=2)
+# 使用 odin_driver_slam.yaml 走图后保存的 .bin 地图进行开机重定位
+# custom_init_pos 由红/蓝方安装位置决定，需在部署前填入实测值 [x, y, z, qx, qy, qz, qw]
+# relocalization_map_abs_path 必须指向 SLAM 模式保存的 .bin 地图，否则重定位失败
+# 用法: ros2 launch odin_ros_driver odin1_ros2.launch.py config_file:=此文件路径
+
+register_keys:
+  strict_usb3.0_check: 0
+  use_host_ros_time: 0
+  streamctrl: 1
+
+  sendrgbcompressed: 0
+  sendrgb: 0
+  sendrgbundistort: 0
+  sendimu: 0
+  enable_imu_smooth: 0
+
+  sendodom: 1
+  send_odom_baselink_tf: 1
+
+  senddtof: 1
+  cloud_raw_confidence_threshold: 35
+  dtof_fps: 100
+
+  sendcloudslam: 0
+  sendcloudrender: 0
+  senddepth: 0
+  sendreprojection: 0
+  sendoverlay: 0
+
+  recorddata: 0
+  devstatuslog: 1
+  save_log: 0
+  pubintensitygray: 0
+  showpath: 0
+  showcamerapose: 0
+
+  custom_map_mode: 2
+  custom_init_pos: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+  custom_init_pose_search_radius: 4.0
+  custom_init_pose_max_rot_deg: 180.0
+  relocalization_map_abs_path: ""
+  mapping_result_dest_dir: ""
+  mapping_result_file_name: ""
+  sendimagemask: 0
+  image_mask_abs_path: ""
+  resetalgo: 0

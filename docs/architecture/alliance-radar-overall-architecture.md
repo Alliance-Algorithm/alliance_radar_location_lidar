@@ -57,6 +57,12 @@ GICP 配准定位，并在配准结果基础上做动态点提取与欧氏聚类
 ROS 组件 `radar::LidarPipeline`（`rclcpp_components`，进入 `radar_algorithm_container`）。
 同包离线工具：`registration_tool`（CLI PCD-to-PCD 配准）、`offline_test_node`（Foxglove 可视化）。
 
+可选位姿源：Odin1 内置重定位（`custom_map_mode=2`）。`use_odin_relocalization_tf`
+参数启用后，`LidarPipeline` 每帧优先查 `map -> <scan frame_id>` TF（Odin1 重定位
+成功后发布），查不到（重定位未收敛/未开启）则回退到上方的 GICP scan-to-map，
+两条路径共用同一套锁定策略与下游感知链路。默认关闭，`odin.yaml`/`mid70.yaml`
+行为不受影响。
+
 ### radar_fusion
 
 系统唯一的 `/localization/pose` 出口。订阅 LiDAR 观测，做数据关联 + 多目标卡尔曼跟踪。
