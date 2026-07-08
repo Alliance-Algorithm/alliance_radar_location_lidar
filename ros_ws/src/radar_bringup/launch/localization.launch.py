@@ -16,17 +16,29 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchContext, LaunchDescription
-from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
 from launch.conditions import IfCondition
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.logging import get_logger
 from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 
 
+VALID_SENSORS = {"odin", "mid70"}
+
+
 def _make_radar_node(context: LaunchContext):
     sensor_val = LaunchConfiguration("sensor").perform(context)
+    if sensor_val not in VALID_SENSORS:
+        message = f"Unsupported sensor '{sensor_val}'. Expected one of: {sorted(VALID_SENSORS)}"
+        get_logger("localization_launch").error(message)
+        raise RuntimeError(message)
+
     radar_dir = get_package_share_directory("radar_lidar")
-    radar_params = os.path.join(radar_dir, "config", sensor_val + ".yaml")
+    radar_params = LaunchConfiguration("radar_params").perform(context)
     map_path = LaunchConfiguration("map_path").perform(context)
+    scan_topic = "/odin1/cloud_raw" if sensor_val == "odin" else "/livox/lidar"
+    hardware_id = "odin1" if sensor_val == "odin" else "livox_mid70"
 
     return [
         Node(
@@ -37,6 +49,8 @@ def _make_radar_node(context: LaunchContext):
             parameters=[
                 radar_params,
                 {"map_path": map_path},
+                {"scan_topic": scan_topic},
+                {"hardware_id": hardware_id},
             ],
         )
     ]
@@ -54,6 +68,13 @@ def generate_launch_description():
         "map_path",
         default_value="/workspace/model/generated/map.pcd",
         description="地图 PCD 绝对路径",
+    )
+    radar_params_arg = DeclareLaunchArgument(
+        "radar_params",
+        default_value=os.path.join(
+            get_package_share_directory("radar_lidar"), "config", "runtime.yaml"
+        ),
+        description="radar_lidar runtime parameter YAML",
     )
 
     odin_node = Node(
@@ -75,11 +96,19 @@ def generate_launch_description():
         ),
     )
 
+    static_tf_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(bringup_dir, "launch", "static_tf.launch.py")
+        )
+    )
+
     radar_node = OpaqueFunction(function=_make_radar_node)
 
     return LaunchDescription([
         sensor_arg,
         map_path_arg,
+        radar_params_arg,
+        static_tf_launch,
         odin_node,
         radar_node,
     ])
