@@ -13,16 +13,19 @@ find_package(OpenCV REQUIRED)
 pkg_check_modules(ZMQ REQUIRED libzmq)
 
 ament_auto_find_build_dependencies()
-
-ament_auto_add_executable(${PROJECT_NAME}_node
+set(SOURCE_FILES
     src/runtime.cpp
     src/bridge_node.cpp
     src/zmq_bridge.cpp
     src/udp_streamer.cpp
 )
+ament_auto_add_executable(${PROJECT_NAME}_node
+    ${SOURCE_FILES}
+)
 target_link_libraries(${PROJECT_NAME}_node
     ${ZMQ_LIBRARIES}
     ${OpenCV_LIBRARIES}
+    nlohmann_json::nlohmann_json
 )
 
 if(BUILD_TESTING)
