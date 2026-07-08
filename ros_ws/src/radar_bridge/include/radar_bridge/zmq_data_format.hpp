@@ -11,7 +11,6 @@
 #include <array>
 #include <cstdint>
 #include <string>
-#include <vector>
 
 #include <nlohmann/json.hpp>
 
@@ -20,20 +19,20 @@
 // =====================================================================
 
 // PUB (radar_bridge → radar-egui) — 本仓库负责输出的数据
-constexpr uint16_t ZMQ_SUB_LIDAR_LOCATION = 0x2001;
+constexpr uint16_t kZmqSubLidarLocation = 0x2001;
 
 // SUB (radar-egui → radar_bridge) — 接收 egui 决策指令
-constexpr uint16_t ZMQ_PUB_GAME_STATE     = 0x1001;
-constexpr uint16_t ZMQ_PUB_RADAR_MARK     = 0x1002;
-constexpr uint16_t ZMQ_PUB_RADAR_SYNC     = 0x1003;
+constexpr uint16_t kZmqPubGameState     = 0x1001;
+constexpr uint16_t kZmqPubRadarMark     = 0x1002;
+constexpr uint16_t kZmqPubRadarSync     = 0x1003;
 
 // =====================================================================
 // PUB transmit — radar_bridge → radar-egui
 // =====================================================================
 
-/// LiDAR 目标定位数据 (ZMQ_SUB_LIDAR_LOCATION)
+/// LiDAR 目标定位数据 (kZmqSubLidarLocation)
 struct ReceiveLidarLocation {
-    uint16_t cmd_id              = ZMQ_SUB_LIDAR_LOCATION;
+    uint16_t cmd_id              = kZmqSubLidarLocation;
     uint16_t opponent_hero_x     = 0;
     uint16_t opponent_hero_y     = 0;
     uint16_t opponent_engineer_x = 0;
@@ -78,9 +77,9 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(ReceiveLidarLocation,
 // SUB receive — radar-egui → radar_bridge
 // =====================================================================
 
-/// 游戏状态广播 (ZMQ_PUB_GAME_STATE)
+/// 游戏状态广播 (kZmqPubGameState)
 struct TransmitGameState {
-    uint16_t cmd_id            = ZMQ_PUB_GAME_STATE;
+    uint16_t cmd_id            = kZmqPubGameState;
     uint8_t  game_type         = 0;
     uint8_t  game_progress     = 0;
     uint16_t stage_remain_time = 0;
@@ -89,9 +88,9 @@ struct TransmitGameState {
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(TransmitGameState,
     cmd_id, game_type, game_progress, stage_remain_time, sync_timestamp)
 
-/// 雷达标记进度广播 (ZMQ_PUB_RADAR_MARK)
+/// 雷达标记进度广播 (kZmqPubRadarMark)
 struct TransmitRadarMarkProcess {
-    uint16_t cmd_id                         = ZMQ_PUB_RADAR_MARK;
+    uint16_t cmd_id                         = kZmqPubRadarMark;
     uint8_t  opponent_hero_vulnerable       = 0;
     uint8_t  opponent_engineer_vulnerable   = 0;
     uint8_t  opponent_infantry_3_vulnerable = 0;
@@ -120,9 +119,9 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(TransmitRadarMarkProcess,
     opponent_aerial_targeted, opponent_aerial_countered,
     ally_aerial_targeted, ally_aerial_countered)
 
-/// 雷达自主决策同步广播 (ZMQ_PUB_RADAR_SYNC)
+/// 雷达自主决策同步广播 (kZmqPubRadarSync)
 struct TransmitRadarSync {
-    uint16_t cmd_id                = ZMQ_PUB_RADAR_SYNC;
+    uint16_t cmd_id                = kZmqPubRadarSync;
     uint8_t  double_weakness_chance = 0;
     uint8_t  double_weakness_active = 0;
     uint8_t  encryption_rank       = 0;

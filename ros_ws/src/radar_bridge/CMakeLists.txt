@@ -8,14 +8,22 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -DNDEBUG")
 find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_auto REQUIRED)
 find_package(PkgConfig REQUIRED)
+find_package(nlohmann_json REQUIRED)
+find_package(OpenCV REQUIRED)
 pkg_check_modules(ZMQ REQUIRED libzmq)
 
 ament_auto_find_build_dependencies()
 
 ament_auto_add_executable(${PROJECT_NAME}_node
     src/runtime.cpp
+    src/bridge_node.cpp
+    src/zmq_bridge.cpp
+    src/udp_streamer.cpp
 )
-target_link_libraries(${PROJECT_NAME}_node ${ZMQ_LIBRARIES})
+target_link_libraries(${PROJECT_NAME}_node
+    ${ZMQ_LIBRARIES}
+    ${OpenCV_LIBRARIES}
+)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
