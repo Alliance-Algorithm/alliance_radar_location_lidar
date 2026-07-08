@@ -18,6 +18,7 @@
   <exec_depend>radar_lidar</exec_depend>
   <exec_depend>odin_ros_driver</exec_depend>
   <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>hikcamera_ros_driver</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>
