@@ -24,10 +24,10 @@ public:
     auto zmqpub(
         const std::shared_ptr<radar_bridge::zmqdata::pub::LidarLocation>& lidarlocation_data)
         -> std::expected<void, std::string>;
-    auto zmqsub(const std::shared_ptr<radar_bridge::zmqdata::sub::GuiData>& gui_data_)
+    auto zmqsub(const std::shared_ptr<radar_bridge::zmqdata::sub::TransmitGameState>& game_state_)
         -> std::expected<void, std::string>;
     auto zmqsub_thread(std::atomic<bool>& zmqsub_thread_running_,
-        const std::shared_ptr<radar_bridge::zmqdata::sub::GuiData>& gui_data_)
+        const std::shared_ptr<radar_bridge::zmqdata::sub::TransmitGameState>& game_state_)
         -> std::expected<void, std::string>;
     auto zmqpub_thread(std::atomic<bool>& zmqpub_thread_running_,
         const std::shared_ptr<radar_bridge::zmqdata::pub::LidarLocation>& lidarlocation_data)

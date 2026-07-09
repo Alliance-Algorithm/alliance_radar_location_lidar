@@ -40,10 +40,9 @@ auto ZmqBridge::zmqpub(
     const std::shared_ptr<radar_bridge::zmqdata::pub::LidarLocation>& lidarlocation_data)
     -> std::expected<void, std::string> {
     std::string message;
-    {
-        std::lock_guard<std::mutex> lock(zmq_mutex_);
-        message = zmq_json_encode(*lidarlocation_data);
-    }
+    std::unique_lock<std::mutex> lock(zmq_mutex_);
+    message = zmq_json_encode(*lidarlocation_data);
+    lock.unlock();
     zmq::message_t zmq_message(message.data(), message.size());
     auto result = publisher_.send(zmq_message, zmq::send_flags::none);
     if (!result.has_value()) {
@@ -52,7 +51,8 @@ auto ZmqBridge::zmqpub(
     return { };
 }
 
-auto ZmqBridge::zmqsub(const std::shared_ptr<radar_bridge::zmqdata::sub::GuiData>& gui_data_)
+auto ZmqBridge::zmqsub(
+    const std::shared_ptr<radar_bridge::zmqdata::sub::TransmitGameState>& game_state_)
     -> std::expected<void, std::string> {
     zmq::message_t zmq_message;
     auto recv_result = subscriber_.recv(zmq_message, zmq::recv_flags::none);
@@ -60,48 +60,20 @@ auto ZmqBridge::zmqsub(const std::shared_ptr<radar_bridge::zmqdata::sub::GuiData
         return std::unexpected("Failed to receive message");
     }
 
-    auto json  = nlohmann::json::parse(zmq_message.to_string());
-    int cmd_id = json.value("cmd_id", 0);
-
-    std::lock_guard<std::mutex> lock(zmq_mutex_);
-
-    if (cmd_id == radar_bridge::zmqdata::sub::kGameStateCmd) {
-        gui_data_->game_state =
-            zmq_json_decode<radar_bridge::zmqdata::sub::TransmitGameState>(json);
-    } else if (cmd_id == radar_bridge::zmqdata::sub::kRadarMarkCmd) {
-        gui_data_->radar_mark =
-            zmq_json_decode<radar_bridge::zmqdata::sub::TransmitRadarMarkProcess>(json);
-    } else if (cmd_id == radar_bridge::zmqdata::sub::kRadarSyncCmd) {
-        gui_data_->radar_sync =
-            zmq_json_decode<radar_bridge::zmqdata::sub::TransmitRadarSync>(json);
-    } else {
-        return std::unexpected("Unknown command ID: " + std::to_string(cmd_id));
-    }
-    return { };
-}
-
-auto ZmqBridge::zmqpub_thread(std::atomic<bool>& zmqpub_thread_running_,
-    const std::shared_ptr<radar_bridge::zmqdata::pub::LidarLocation>& lidarlocation_data)
-    -> std::expected<void, std::string> {
-    zmqpub_thread_running_ = true;
-    zmqpub_thread_         = std::thread([this, &zmqpub_thread_running_, lidarlocation_data]() {
-        while (zmqpub_thread_running_) {
-            if (auto result = zmqpub(lidarlocation_data); !result.has_value()) {
-                std::cerr << "zmqpub error: " << result.error() << std::endl;
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
-    });
+    auto json = nlohmann::json::parse(zmq_message.to_string());
+    std::unique_lock<std::mutex> lock(zmq_mutex_);
+    *game_state_ = zmq_json_decode<radar_bridge::zmqdata::sub::TransmitGameState>(json);
+    lock.unlock();
     return { };
 }
 
 auto ZmqBridge::zmqsub_thread(std::atomic<bool>& zmqsub_thread_running_,
-    const std::shared_ptr<radar_bridge::zmqdata::sub::GuiData>& gui_data_)
+    const std::shared_ptr<radar_bridge::zmqdata::sub::TransmitGameState>& game_state_)
     -> std::expected<void, std::string> {
     zmqsub_thread_running_ = true;
-    zmqsub_thread_         = std::thread([this, &zmqsub_thread_running_, gui_data_]() {
+    zmqsub_thread_         = std::thread([this, &zmqsub_thread_running_, game_state_]() {
         while (zmqsub_thread_running_) {
-            auto result = zmqsub(gui_data_);
+            auto result = zmqsub(game_state_);
             if (!result.has_value()) {
                 std::cerr << "zmqsub error: " << result.error() << std::endl;
             }

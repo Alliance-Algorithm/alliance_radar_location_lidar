@@ -67,8 +67,6 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(LidarLocation, cmd_id, opponent_hero_x, oppon
 namespace radar_bridge::zmqdata::sub {
 
 constexpr uint16_t kGameStateCmd = 0x1001;
-constexpr uint16_t kRadarMarkCmd = 0x1002;
-constexpr uint16_t kRadarSyncCmd = 0x1003;
 
 struct TransmitGameState {
     uint16_t cmd_id            = kGameStateCmd;
@@ -78,56 +76,8 @@ struct TransmitGameState {
     uint64_t sync_timestamp    = 0;
 };
 
-struct TransmitRadarMarkProcess {
-    uint16_t cmd_id = kRadarMarkCmd;
-
-    // vulnerability / marked : opponent
-    uint8_t opponent_hero_vulnerable       = 0;
-    uint8_t opponent_engineer_vulnerable   = 0;
-    uint8_t opponent_infantry_3_vulnerable = 0;
-    uint8_t opponent_infantry_4_vulnerable = 0;
-    uint8_t opponent_aerial_marked         = 0;
-    uint8_t opponent_sentry_vulnerable     = 0;
-
-    // vulnerability / marked : ally
-    uint8_t ally_hero_marked       = 0;
-    uint8_t ally_engineer_marked   = 0;
-    uint8_t ally_infantry_3_marked = 0;
-    uint8_t ally_infantry_4_marked = 0;
-    uint8_t ally_aerial_marked     = 0;
-    uint8_t ally_sentry_marked     = 0;
-
-    // aerial targeted / countered
-    uint8_t opponent_aerial_targeted  = 0;
-    uint8_t opponent_aerial_countered = 0;
-    uint8_t ally_aerial_targeted      = 0;
-    uint8_t ally_aerial_countered     = 0;
-};
-
-struct TransmitRadarSync {
-    uint16_t cmd_id                = kRadarSyncCmd;
-    uint8_t double_weakness_chance = 0;
-    uint8_t double_weakness_active = 0;
-    uint8_t encryption_rank        = 0;
-    uint8_t key_modifiable         = 0;
-};
-
-struct GuiData {
-    TransmitGameState game_state;
-    TransmitRadarMarkProcess radar_mark;
-    TransmitRadarSync radar_sync;
-};
-
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(
     TransmitGameState, cmd_id, game_type, game_progress, stage_remain_time, sync_timestamp)
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(TransmitRadarMarkProcess, cmd_id, opponent_hero_vulnerable,
-    opponent_engineer_vulnerable, opponent_infantry_3_vulnerable, opponent_infantry_4_vulnerable,
-    opponent_aerial_marked, opponent_sentry_vulnerable, ally_hero_marked, ally_engineer_marked,
-    ally_infantry_3_marked, ally_infantry_4_marked, ally_aerial_marked, ally_sentry_marked,
-    opponent_aerial_targeted, opponent_aerial_countered, ally_aerial_targeted,
-    ally_aerial_countered)
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(TransmitRadarSync, cmd_id, double_weakness_chance,
-    double_weakness_active, encryption_rank, key_modifiable)
 
 } // namespace radar_bridge::zmqdata::sub
 
