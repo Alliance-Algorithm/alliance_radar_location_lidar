@@ -52,13 +52,12 @@ struct LidarLocation {
     uint16_t ally_sentry_y     = 0;
 };
 
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(LidarLocation, cmd_id,
-    opponent_hero_x, opponent_hero_y, opponent_engineer_x, opponent_engineer_y,
-    opponent_infantry_3_x, opponent_infantry_3_y, opponent_infantry_4_x, opponent_infantry_4_y,
-    opponent_aerial_x, opponent_aerial_y, opponent_sentry_x, opponent_sentry_y, ally_hero_x,
-    ally_hero_y, ally_engineer_x, ally_engineer_y, ally_infantry_3_x, ally_infantry_3_y,
-    ally_infantry_4_x, ally_infantry_4_y, ally_aerial_x, ally_aerial_y, ally_sentry_x,
-    ally_sentry_y)
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(LidarLocation, cmd_id, opponent_hero_x, opponent_hero_y,
+    opponent_engineer_x, opponent_engineer_y, opponent_infantry_3_x, opponent_infantry_3_y,
+    opponent_infantry_4_x, opponent_infantry_4_y, opponent_aerial_x, opponent_aerial_y,
+    opponent_sentry_x, opponent_sentry_y, ally_hero_x, ally_hero_y, ally_engineer_x,
+    ally_engineer_y, ally_infantry_3_x, ally_infantry_3_y, ally_infantry_4_x, ally_infantry_4_y,
+    ally_aerial_x, ally_aerial_y, ally_sentry_x, ally_sentry_y)
 
 } // namespace radar_bridge::zmqdata::pub
 
@@ -119,18 +118,16 @@ struct GuiData {
     TransmitRadarSync radar_sync;
 };
 
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(TransmitGameState, cmd_id, game_type,
-    game_progress, stage_remain_time, sync_timestamp)
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(TransmitRadarMarkProcess, cmd_id,
-    opponent_hero_vulnerable, opponent_engineer_vulnerable,
-    opponent_infantry_3_vulnerable, opponent_infantry_4_vulnerable,
-    opponent_aerial_marked, opponent_sentry_vulnerable,
-    ally_hero_marked, ally_engineer_marked, ally_infantry_3_marked, ally_infantry_4_marked,
-    ally_aerial_marked, ally_sentry_marked,
-    opponent_aerial_targeted, opponent_aerial_countered,
-    ally_aerial_targeted, ally_aerial_countered)
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(TransmitRadarSync, cmd_id,
-    double_weakness_chance, double_weakness_active, encryption_rank, key_modifiable)
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(
+    TransmitGameState, cmd_id, game_type, game_progress, stage_remain_time, sync_timestamp)
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(TransmitRadarMarkProcess, cmd_id, opponent_hero_vulnerable,
+    opponent_engineer_vulnerable, opponent_infantry_3_vulnerable, opponent_infantry_4_vulnerable,
+    opponent_aerial_marked, opponent_sentry_vulnerable, ally_hero_marked, ally_engineer_marked,
+    ally_infantry_3_marked, ally_infantry_4_marked, ally_aerial_marked, ally_sentry_marked,
+    opponent_aerial_targeted, opponent_aerial_countered, ally_aerial_targeted,
+    ally_aerial_countered)
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(TransmitRadarSync, cmd_id, double_weakness_chance,
+    double_weakness_active, encryption_rank, key_modifiable)
 
 } // namespace radar_bridge::zmqdata::sub
 
@@ -142,6 +139,4 @@ template <typename T> inline std::string zmq_json_encode(const T& msg) {
     return nlohmann::json(msg).dump();
 }
 
-template <typename T> inline T zmq_json_decode(const std::string& json_str) {
-    return nlohmann::json::parse(json_str).get<T>();
-}
+template <typename T> inline T zmq_json_decode(const nlohmann::json& json) { return json.get<T>(); }
