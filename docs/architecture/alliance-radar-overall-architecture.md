@@ -4,7 +4,7 @@
 
 Alliance Radar 采用 **ROS2 component + 独立驱动进程 + YAML bringup** 的分层架构。
 以 LiDAR 为主链路（`radar_lidar` → `radar_fusion` → `/localization/pose`），
-视觉观测（`radar_camera`）作为补充观测源，`radar_bridge` 把最终位姿写入共享内存供 GUI 读取，
+视觉观测（`radar_camera`）作为补充观测源，`radar_bridge` 做 ROS2 ↔ ZMQ 双向桥接，
 `radar_calibration` 负责离线相机-雷达标定。系统对外统一输出 `/localization/pose`。
 
 - 主链路传感器：Odin 为主，Mid-70 通过 `sensor:=mid70` 切换。
@@ -18,18 +18,19 @@ Alliance Radar 采用 **ROS2 component + 独立驱动进程 + YAML bringup** 的
 - `radar_bringup` 只负责 launch、参数、remap 和组件编排，不写业务 C++。
 - `radar_camera` 作为补充观测源，不绑死 LiDAR 主链路。
 - 命名统一收敛到 `radar::` 顶层命名空间（`radar::fusion::` / `radar::camera::` 等子命名空间）。
-- **零自定义 ROS 消息**：只用标准消息（`geometry_msgs` / `diagnostic_msgs` / `vision_msgs`）；
-  唯一的跨进程数据契约是 `radar_bridge` 的共享内存 struct。不设消息接口包。
+- **自定义消息最小化**：通用模块（radar_lidar / radar_fusion / radar_camera）使用标准消息；
+  跨语言 ZMQ 桥接所需的定制数据契约集中到 `radar_interfaces` 包，不扩散到其他模块。
 
 ## Package Architecture
 
 ```text
 packages/
+├── radar_interfaces   ← ZMQ 桥接消息定义（自定义 ROS2 msg）
 ├── radar_lidar        ← LiDAR 预处理 + 配准定位
 ├── radar_fusion       ← 系统统一位姿出口 + 多目标跟踪
 ├── radar_camera       ← 视觉观测生成
 ├── radar_calibration  ← 离线相机-雷达标定 + 模型预处理
-├── radar_bridge       ← ROS2 → 共享内存桥接
+├── radar_bridge       ← ROS2 ↔ ZMQ 桥接 + (远期) UdpStreamer
 └── radar_bringup      ← launch / yaml / remap / compose
 ```
 
@@ -127,19 +128,48 @@ ROS 组件，与 `radar_lidar` 同容器零拷贝。
 | `src/running.cpp` | CLI 入口：`inject-initial-guess` / `extract-result` 两个子命令 |
 | `config/initial_guess.yaml` | 相机相对地图系的粗略外参估算（平移 + RPY，`Rz(yaw)*Ry(pitch)*Rx(roll)`） |
 
-### radar_bridge
+### radar_interfaces
 
-订阅 `radar_fusion` 的输出，合并写入共享内存供非 ROS GUI（egui）零拷贝读取。
-轻量 IO 桥接，不做任何算法。系统唯一的跨进程数据契约（shm struct）由本包定义。
+自定义 ROS2 消息定义包，为 `radar_bridge` ZMQ 桥接提供跨语言消息契约。
+两个消息类型与 `radar_bridge/zmq_data_format.hpp` 的 C++ struct 一一对应，
+由 `rosidl_generate_interfaces` 生成 C++/Python/JSON 多语言绑定。
+被 `radar_bridge` 和 `radar_fusion` 作为构建依赖引用。
 
 | 文件 | 职责 |
 |---|---|
-| `include/radar_bridge/shm_layout.hpp` | 共享内存 struct（pose + state + fitness），egui 侧同定义 |
-| `include/radar_bridge/shm_writer.hpp` | `radar::bridge::ShmWriter`：mmap + Seqlock 无锁写（无 ROS） |
-| `src/bridge_node.{hpp,cpp}` | 订阅 pose + status → 转 struct → 调 writer |
-| `src/runtime.cpp` | `main()` → spin |
+| `msg/LidarLocation.msg` | 24 字段对手/我方 6 种机器人 x/y 坐标 + `cmd_id` |
+| `msg/GameState.msg` | 5 字段比赛状态：`cmd_id` / `game_type` / `game_progress` / `stage_remain_time` / `sync_timestamp` |
+| `CMakeLists.txt` | `rosidl_generate_interfaces` 导出消息 |
 
-独立轻量进程，不要求 component。
+### radar_bridge
+
+ROS2 ↔ ZMQ 桥接节点。双向转换：
+
+- **PUB 方向**：订阅 `/lidar/location`（`radar_interfaces::msg::LidarLocation`），
+  回调填充 24 字段到内部 `lidar_location_`，由独立 ZMQ PUB 线程 JSON 编码后
+  发送到 radar-egui。
+- **SUB 方向**：独立 ZMQ SUB 线程接收 radar-egui 的 `TransmitGameState` JSON，
+  decode 写入 `game_state_`，由 ROS 定时回调发布到 `/bridge/game_state`
+  （`radar_interfaces::msg::GameState`）。
+
+远期：UdpStreamer 线程从 hikcamera SHM（`/hikcamera_shm`）读取图像帧，
+JPEG 编码后 UDP 推流到 egui（当前占位，实现参考 `hikcamera_ros_driver`
+的 `SHMRead` 模式）。
+
+不做感知，不做配准，不做滤波。纯 IO 桥接。
+
+| 文件 | 职责 |
+|---|---|
+| `include/radar_bridge/zmq_data_format.hpp` | ZMQ 数据契约：`pub::LidarLocation` / `sub::TransmitGameState` struct + NLOHMANN 序列化 |
+| `include/radar_bridge/zmq_bridge.hpp` | `ZmqBridge`：PUB + SUB socket 管理 + send/recv 封装 |
+| `include/radar_bridge/radar_bridge_node.hpp` | `RadarBridgeNode`：ROS 订阅/发布 + 成员变量 + cb 签名 |
+| `src/radar_bridge_node.cpp` | 回调实现：24 字段填充 + 5 字段发布 |
+| `src/zmq_bridge.cpp` | ZMQ PUB/SUB 发送接收线程 |
+| `include/radar_bridge/udpstream_bridge.hpp` | UdpStreamer 桩（远期实现） |
+| `src/udpstream_bridge.cpp` | UdpStreamer 桩（远期实现） |
+| `src/runtime.cpp` | `main()` → spin（当前占位） |
+
+独立进程，不要求 component。
 
 ### radar_bringup
 
@@ -302,7 +332,9 @@ radar_bringup (launch / YAML / static tf)
 │   ├── 发布 /localization/pose
 │   └── 最终接管 dynamic tf（长期 authority）
 └── radar_bridge_node
-    └── 订阅 /localization/pose + /localization/status → 共享内存
+    ├── 订阅 /lidar/location（LidarLocation）→ ZMQ PUB → radar-egui
+    ├── ZMQ SUB ← radar-egui → /bridge/game_state（GameState）
+    └── (远期) UdpStreamer：SHM → JPEG → UDP → egui
 ```
 
 #### 启动期与运行期的边界
@@ -340,6 +372,11 @@ topics/
 │   ├── type: visualization_msgs/msg/MarkerArray
 │   ├── producer: radar_lidar
 │   └── role: AABB + 质心可视化
+├── /lidar/location
+│   ├── type: radar_interfaces::msg::LidarLocation
+│   ├── producer: radar_lidar
+│   ├── consumer: radar_bridge
+│   └── role: 24 字段对手/我方机器人坐标，经 ZMQ 转发到 radar-egui
 ├── /diagnostics
 │   ├── type: diagnostic_msgs/msg/DiagnosticStatus
 │   ├── producer: radar_lidar
@@ -355,13 +392,18 @@ topics/
 ├── /localization/pose
 │   ├── type: geometry_msgs/msg/PoseWithCovarianceStamped
 │   ├── producer: radar_fusion
-│   ├── consumers: radar_bridge, 其他 ROS 消费者
+│   ├── consumers: 其他 ROS 消费者
 │   └── role: 系统对外稳定位姿契约
 ├── /localization/status
 │   ├── type: diagnostic_msgs/msg/DiagnosticStatus
 │   ├── producer: radar_fusion
-│   ├── consumers: radar_bridge, 其他 ROS 消费者
+│   ├── consumers: 其他 ROS 消费者
 │   └── role: 定位状态 (state / fitness / converged)
+├── /bridge/game_state
+│   ├── type: radar_interfaces::msg::GameState
+│   ├── producer: radar_bridge（ZMQ SUB 接收 radar-egui 后发布）
+│   ├── consumer: 下游模块
+│   └── role: 比赛阶段 / 剩余时间 / 同步时间戳
 ├── /fusion/tracks
 │   ├── type: visualization_msgs/msg/MarkerArray
 │   ├── producer: radar_fusion
@@ -371,13 +413,22 @@ topics/
     ├── producer: radar_fusion
     └── role: 多源融合后的最终轨迹输出（融合后契约）
 
-shared_memory/
-└── /dev/shm/lidar_pose
-    ├── type: shm_layout.hpp 中的 C++ struct (pose + state + fitness), 非 ROS 消息
-    ├── producer: radar_bridge  (订阅 /localization/pose + /localization/status 后合并写入)
-    ├── consumer: egui
-    └── role: 系统唯一跨进程数据契约, Seqlock 无锁读写
+zmq/
+├── PUB: /lidar/location → JSON(LidarLocation) → ZMQ PUB → radar-egui
+│   ├── type: radar_bridge/zmq_data_format.hpp 中的 pub::LidarLocation struct
+│   ├── format: JSON（nlohmann），与 radar-egui Rust 侧 struct 字段一一对应
+│   ├── producer: radar_bridge ZMQ PUB 线程
+│   └── consumer: radar-egui
+└── SUB: radar-egui → ZMQ → JSON → GameState msg → /bridge/game_state
+    ├── type: radar_bridge/zmq_data_format.hpp 中的 sub::TransmitGameState struct
+    ├── format: JSON（nlohmann），与 radar-egui Rust 侧 struct 字段一一对应
+    ├── producer: radar-egui
+    └── consumer: radar_bridge ZMQ SUB 线程
 ```
+
+(注：原共享内存方案 `shm_layout.hpp` / `shm_writer.hpp` 尚未实现，改为远期规划。
+当前 UdpStreamer SHM 读取侧引用 `hikcamera_ros_driver` 的 `/hikcamera_shm` 命名共享内存，
+`bridge` 自身不维护单独的 SHM 数据契约。)
 
 ## Data Flow
 
@@ -389,18 +440,23 @@ shared_memory/
              ├─ /lidar/cluster   : PointCloud2 (质心) ────────┤
              ├─ /lidar/dynamic   : PointCloud2                │
              ├─ /lidar/cluster_viz : MarkerArray              │
-             └─ /diagnostics     : DiagnosticStatus           │
-                                                              v
+             ├─ /lidar/location  : LidarLocation ───────────┐ │
+             └─ /diagnostics     : DiagnosticStatus           │ │
+                                                              │ │
         /camera/pose|detection ────────────────> radar_fusion (FusionNode)
         (radar_camera)                             ├─ /localization/pose   : PoseWithCovarianceStamped
                                                    ├─ /localization/status : DiagnosticStatus
                                                    ├─ /fusion/tracks       : MarkerArray
                                                    └─ /fusion/fused_tracks : MarkerArray
-                                                        │ pose + status
-                                                        v
-                                                    radar_bridge
-                                                     └─ /dev/shm/lidar_pose (shm struct)
-                                                          └─> egui (只读共享内存)
+                                                              │
+                                                              v
+                                                          radar_bridge
+                                                   ┌───────┴───────┐
+                                                   │ ROS 线程       │ ZMQ 线程
+                                                   │ /lidar/location │ PUB → JSON → egui
+                                                   │ → bridge/game   │ SUB ← JSON ← egui
+                                                   └───────────────┘
+                                                   (UdpStreamer: SHM→JPEG→UDP, 远期)
 ```
 
 ## Process Topology
@@ -408,12 +464,13 @@ shared_memory/
 ```text
 runtime/
 ├── 雷达驱动 (odin_ros_driver / livox_ros_driver2)   独立进程, 发布点云 topic
-├── radar_algorithm_container                          component container
+├── hikcamera_ros_driver                                独立进程, 写 /hikcamera_shm
+├── radar_algorithm_container                           component container
 │   ├── radar_lidar   (component)
 │   └── radar_fusion  (component)                       intra-process 零拷贝
-├── radar_bridge                                        独立进程, /localization/* -> 共享内存
-├── egui                                                非 ROS 进程, 只读共享内存
-└── radar_camera                                        独立视觉观测进程
+├── radar_bridge                                         独立进程, /lidar/location ↔ ZMQ ↔ radar-egui
+├── radar-egui                                           非 ROS 进程, ZMQ + (远期) UDP 接收画面
+└── radar_camera                                         独立视觉观测进程
 ```
 
 ## Assumptions & Defaults
