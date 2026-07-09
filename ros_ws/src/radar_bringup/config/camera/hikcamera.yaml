@@ -1,39 +1,28 @@
-Hikcamera:
-  pixel_format: "MJPEG"        # YUYV, MJPEG, H264, 等
-  image_width: 1280
-  image_height: 720
-  fps: 60
+hikcamera_ros_driver_node:
+  ros__parameters:
+    # 白平衡
+    white_balance_blue: 512
+    white_balance_red: 512
+    white_balance_green: 512
+    auto_white_balance: 1
 
-  # 曝光与增益
-  auto_exposure: true
-  exposure_time: 20000         # 微秒，仅当 auto_exposure=false 时生效
-  gain: 0.0
+    # 曝光与增益
+    exposure_us: 20000.0
+    gain: 0.0
 
-  # 白平衡
-  white_balance_auto: 1
-  white_balance_red: 512
-  white_balance_blue: 512
-  white_balance_green: 512
+    # 帧率
+    framerate: 60.0
 
-  # 基本图像调节
-  brightness: 128
-  contrast: 32
-  saturation: 64
-  hue: 0
-  gamma: 100
-  sharpness: 3
+    # 图像调节
+    brightness: 128
+    sharpness: 3
 
-  # 附加画面设置
-  vflip: false
-  hflip: false
-  roi: {x: 0, y: 0, width: 1280, height: 720}
-  binning: 1
-  denoise: 0
+    # 相机控制
+    timeout_ms: 2000
+    invert_image: false
+    software_sync: false
+    trigger_mode: false
+    fixed_framerate: true
 
-  # 相机控制
-  timeout_ms: 2000
-  invert_image: false
-  software_sync: false
-  trigger_mode: false
-  fixed_framerate: true
-  shm_name: "/hikcamera_shm"
+    # 共享内存名
+    shm_name: "/hikcamera_shm"

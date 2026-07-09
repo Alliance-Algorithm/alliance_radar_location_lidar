@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Hikcamera ROS driver 启动文件。
 
-按 Odin 驱动模式，配置文件路径通过 ROS 参数 config_file 传入。
+配置文件路径通过 ROS 参数文件加载（符合项目 convention：YAML → ros__parameters）。
 
 用法:
     ros2 launch radar_bringup hikcamera.launch.py
@@ -23,7 +23,7 @@ def generate_launch_description():
     config_file_arg = DeclareLaunchArgument(
         "config_file",
         default_value=os.path.join(bringup_dir, "config", "camera", "hikcamera.yaml"),
-        description="hikcamera 驱动配置文件路径（YAML）",
+        description="hikcamera 驱动配置文件路径（ROS2 parameter YAML）",
     )
 
     hikcamera_node = Node(
@@ -31,9 +31,7 @@ def generate_launch_description():
         executable="hikcamera_ros_driver",
         name="hikcamera_ros_driver_node",
         output="screen",
-        parameters=[{
-            "config_file": LaunchConfiguration("config_file"),
-        }],
+        parameters=[LaunchConfiguration("config_file")],
     )
 
     return LaunchDescription([
