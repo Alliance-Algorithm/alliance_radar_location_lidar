@@ -25,3 +25,6 @@ tools/model_to_map/build/
 /model/*.pcd
 /model/*.fbx
 /model/generated/
+
+# Learnlog (local only)
+learnlog.md
