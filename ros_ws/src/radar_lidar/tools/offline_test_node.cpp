@@ -152,7 +152,7 @@ private:
         pub_diag_ =
             create_publisher<diagnostic_msgs::msg::DiagnosticStatus>("/offline/diagnostics", qos);
 
-        double voxel_leaf = 0.1, scan_voxel = 0.5;
+        double voxel_leaf = 0.1, scan_voxel = 0.1;
         bool map_y_up = false;
         get_parameter("voxel_leaf", voxel_leaf);
         get_parameter("scan_voxel", scan_voxel);
