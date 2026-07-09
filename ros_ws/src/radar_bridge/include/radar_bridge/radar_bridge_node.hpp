@@ -25,8 +25,8 @@ private:
     rclcpp::Publisher<radar_interfaces::msg::GameState>::SharedPtr game_state_publisher_;
     rclcpp::Subscription<radar_interfaces::msg::LidarLocation>::SharedPtr lidar_pose_subscription_;
 
-    radar_bridge::zmqdata::pub::LidarLocation lidar_location_{};
-    radar_bridge::zmqdata::sub::TransmitGameState game_state_{};
+    radar_bridge::zmqdata::pub::LidarLocation lidar_location_ { };
+    radar_bridge::zmqdata::sub::TransmitGameState game_state_ { };
 
     std::atomic<bool> zmqpub_thread_running_ { false };
     std::atomic<bool> zmqsub_thread_running_ { false };
