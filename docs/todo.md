@@ -240,71 +240,67 @@ PR #33 提交后 CodeRabbit review 修复（2026-07-05）：
 
 # radar_bridge 包重构 TODO
 
-## 文件结构目标
+## 文件结构
 ```
 radar_bridge/
-├── CMakeLists.txt
-├── package.xml
+├── CMakeLists.txt            ✅
+├── package.xml               ✅
 ├── include/radar_bridge/
-│   ├── zmq_data_format.hpp    ← 协议消息体
-│   ├── bridge_node.hpp        ← BridgeNode : rclcpp::Node
-│   ├── zmq_bridge.hpp         ← ZmqBridge (PUB+SUB+序列化)
-│   └── udp_streamer.hpp       ← UdpStreamer (SHMRead+JPEG+UDP)
+│   ├── zmq_data_format.hpp   ✅  namespace radar_bridge::zmqdata::{pub,sub}
+│   ├── zmq_bridge.hpp        🔄 ZmqBridge 集成 PUB+SUB (用户编写中)
+│   ├── bridge_node.hpp       ⬜ BridgeNode
+│   └── udp_streamer.hpp      ⬜ UdpStreamer
 ├── src/
-│   ├── runtime.cpp
-│   ├── bridge_node.cpp
-│   ├── zmq_bridge.cpp
-│   └── udp_streamer.cpp
+│   ├── runtime.cpp           ⬜ main()
+│   ├── bridge_node.cpp       ⬜
+│   ├── zmq_bridge.cpp        🔄 (用户编写中)
+│   └── udp_streamer.cpp      ⬜
 ```
 
 ## 执行顺序
 
-- [ ] 1. 清理空目录 `zmq/` `shm/` `config/`
-- [ ] 2. 重写 `zmq_data_format.hpp`：常量名改 `kPascalCase`
-- [ ] 3. 新建 `bridge_node.hpp` + `bridge_node.cpp`：ROS 节点 + 线程编排
-- [ ] 4. 新建 `zmq_bridge.hpp` + `zmq_bridge.cpp`：ZMQ PUB/SUB + JSON 编解码
-- [ ] 5. 新建 `udp_streamer.hpp` + `udp_streamer.cpp`：SHMRead + JPEG + UDP 推流
-- [ ] 6. 重写 `runtime.cpp`：`main()` 入口
-- [ ] 7. 更新 `package.xml`：完整依赖
-- [ ] 8. 更新 `CMakeLists.txt`：链接所有依赖
+- [x] 1. 清理空目录 `zmq/` `shm/` `config/`
+- [x] 2. 重写 `zmq_data_format.hpp`：namespace + kPascalCase + struct 分组 + NLOHMANN
+- [ ] 3. ~~新建 zmq_publisher + zmq_subscriber~~ → 改为集成 `zmq_bridge.hpp/cpp`（用户编写中）
+- [ ] 4. 新建 `bridge_node.hpp` + `bridge_node.cpp`
+- [ ] 5. 新建 `udp_streamer.hpp` + `udp_streamer.cpp`
+- [ ] 6. 重写 `runtime.cpp`
+- [x] 7. 更新 `package.xml`
+- [x] 8. 更新 `CMakeLists.txt`
 - [ ] 9. 编译验证
 
 ## 涉及的 ROS 话题
 
-### 订阅（从雷达仓库）
+### 订阅
 | 话题 | 类型 | 来源 |
 |------|------|------|
 | `/lidar/pose` | `PoseWithCovarianceStamped` | radar_lidar |
 | `/lidar/cluster` | `PointCloud2` | radar_lidar |
 
-### 订阅后的去向
-- `on_lidar_pose` → `ReceiveLidarLocation` 坐标填充 → mutex+latest → ZMQ PUB
-- `on_cluster` → 留空（后续可提取分类目标坐标）
+### 发布
+| 话题 | 类型 | 去向 |
+|------|------|------|
+| `/bridge/game_state` | `std_msgs::String` | 下游模块 |
+| `/bridge/radar_mark` | `std_msgs::String` | 下游模块 |
+| `/bridge/radar_sync` | `std_msgs::String` | 下游模块 |
+
+## 数据流
+
+```
+ROS 线程：     /lidar/pose → on_lidar_pose() → mtx_ → latest_lidar_
+ZMQ PUB 线程：  loop → mtx_ → 读 latest_lidar_ → pub_.send() → egui
+
+ZMQ SUB 线程：  sub_.recv() → decode → mtx_ → 写 latest_*
+ROS 线程：      on_timer() → mtx_ → 读 latest_* → pub_game_state_.publish()
+
+UDP 线程：      SHMRead → JPEG → udp_send() → egui
+```
 
 ## 线程模型
-```
-ROS callbacks (10Hz, 回调驱动)
-  → mutex { latest_lidar_ = ... }
 
-timer_ (10Hz)
-  → mutex { ... → zmq_->publish_lidar(latest_) }
-
-ZmqBridge::sub_thread_ (阻塞 zmq_recv)
-  → JSON 解包 → 按 cmd_id 派发回调
-
-UdpStreamer::thread_ (阻塞 sem_timedwait)
-  → SHMRead → JPEG → udp_send
-```
-
-## 依赖矩阵
-| 步骤 | 依赖 | 被阻拦 |
-|------|------|--------|
-| 1 | — | — |
-| 2 | — | 3,4,5 |
-| 3 | 2 | 6 |
-| 4 | 2 | 6 |
-| 5 | 2 | 6 |
-| 6 | 3,4,5 | 8 |
-| 7 | — | 8 |
-| 8 | 6,7 | 9 |
-| 9 | 8 | — |
+| 线程 | 阻塞点 | 数据流向 |
+|------|--------|---------|
+| ROS 主线程 (rclcpp::spin) | 无阻塞 | 写 latest_lidar_ / 读 latest_game_state_ 等 |
+| ZmqPublisher 线程 | 无（sleep 或 condition_variable） | 读 latest_lidar_ → ZMQ PUB |
+| ZmqSubscriber 线程 | zmq_recv 阻塞等 egui | ZMQ SUB → decode → 写 latest_* |
+| UdpStreamer 线程 | sem_timedwait 等 SHM 帧 | SHM → JPEG → UDP |
