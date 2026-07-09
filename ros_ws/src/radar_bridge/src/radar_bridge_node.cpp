@@ -6,32 +6,64 @@ namespace radar_bridge::node {
 
 RadarBridgeNode::RadarBridgeNode()
     : Node("radar_bridge_node") {
-    pub_game_state_ = this->create_publisher<std_msgs::msg::String>("/bridge/game_state", 10);
+    game_state_publisher_ =
+        this->create_publisher<radar_interfaces::msg::GameState>("/bridge/game_state", 10);
 
-    sub_lidar_pose_ = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>("/li"
+    lidar_pose_subscription_ = this->create_subscription<radar_interfaces::msg::LidarLocation>("/li"
                                                                                                "dar"
-                                                                                               "/po"
-                                                                                               "se",
+                                                                                               "/lo"
+                                                                                               "cat"
+                                                                                               "io"
+                                                                                               "n",
         10,
-        [this](const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg,
-            radar_bridge::zmqdata::pub::LidarLocation& lidar_location) {
-            return sub_lidar_pose_callback(msg, lidar_location);
+        [this](const radar_interfaces::msg::LidarLocation& msg) {
+            return sub_lidar_pose_callback(msg);
         });
-    auto sub_lidar_pose_callback(geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg,
-        radar_bridge::zmqdata::pub::LidarLocation & lidar_location)
-        -> std::expected<void, std::string> {
-        if (!msg) {
-            return std::unexpected("Received null message pointer");
-        }
-        return { };
-    };
-    auto pub_game_state_callback(radar_bridge::zmqdata::sub::TransmitGameState & game_state)
-        -> std::expected<void, std::string> {
-        auto msg = std_msgs::msg::String();
-        msg.data = game_state;
-        pub_game_state_->publish(msg);
-        return { };
-    };
+    zmqpub_thread_running_   = true;
+    zmqsub_thread_running_   = true;
 }
+RadarBridgeNode::~RadarBridgeNode() {
+    zmqpub_thread_running_ = false;
+    zmqsub_thread_running_ = false;
+}
+auto RadarBridgeNode::sub_lidar_pose_callback(const radar_interfaces::msg::LidarLocation& msg)
+    -> std::expected<void, std::string> {
+    lidar_location_.opponent_hero_x       = msg.opponent_hero_x;
+    lidar_location_.opponent_hero_y      = msg.opponent_hero_y;
+    lidar_location_.opponent_engineer_x   = msg.opponent_engineer_x;
+    lidar_location_.opponent_engineer_y   = msg.opponent_engineer_y;
+    lidar_location_.opponent_infantry_3_x = msg.opponent_infantry_3_x;
+    lidar_location_.opponent_infantry_3_y = msg.opponent_infantry_3_y;
+    lidar_location_.opponent_infantry_4_x = msg.opponent_infantry_4_x;
+    lidar_location_.opponent_infantry_4_y = msg.opponent_infantry_4_y;
+    lidar_location_.opponent_aerial_x     = msg.opponent_aerial_x;
+    lidar_location_.opponent_aerial_y     = msg.opponent_aerial_y;
+    lidar_location_.opponent_sentry_x     = msg.opponent_sentry_x;
+    lidar_location_.opponent_sentry_y     = msg.opponent_sentry_y;
 
+    lidar_location_.ally_hero_x       = msg.ally_hero_x;
+    lidar_location_.ally_hero_y       = msg.ally_hero_y;
+    lidar_location_.ally_engineer_x   = msg.ally_engineer_x;
+    lidar_location_.ally_engineer_y   = msg.ally_engineer_y;
+    lidar_location_.ally_infantry_3_x = msg.ally_infantry_3_x;
+    lidar_location_.ally_infantry_3_y = msg.ally_infantry_3_y;
+    lidar_location_.ally_infantry_4_x = msg.ally_infantry_4_x;
+    lidar_location_.ally_infantry_4_y = msg.ally_infantry_4_y;
+    lidar_location_.ally_aerial_x     = msg.ally_aerial_x;
+    lidar_location_.ally_aerial_y     = msg.ally_aerial_y;
+    lidar_location_.ally_sentry_x     = msg.ally_sentry_x;
+    lidar_location_.ally_sentry_y     = msg.ally_sentry_y;
+
+    return { };
+}
+auto RadarBridgeNode::pub_game_state_callback() -> std::expected<void, std::string> {
+    auto msg              = radar_interfaces::msg::GameState();
+    msg.cmd_id            = game_state_.cmd_id;
+    msg.game_type         = game_state_.game_type;
+    msg.game_progress     = game_state_.game_progress;
+    msg.stage_remain_time = game_state_.stage_remain_time;
+    msg.sync_timestamp    = game_state_.sync_timestamp;
+    game_state_publisher_->publish(msg);
+    return { };
+}
 } // namespace radar_bridge::node
