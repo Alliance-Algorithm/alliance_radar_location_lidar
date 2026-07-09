@@ -5,12 +5,10 @@ find_package(ament_cmake REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(std_msgs REQUIRED)
 
-# No .msg files yet — add them under msg/ once radar_camera's detection
-# contract is finalized, then list them below, e.g.:
-#
-# rosidl_generate_interfaces(${PROJECT_NAME}
-#   "msg/CameraDetection.msg"
-#   DEPENDENCIES std_msgs
-# )
-
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/GameState.msg"
+  "msg/LidarLocation.msg"
+  DEPENDENCIES std_msgs
+)
+ament_export_dependencies(rosidl_default_runtime)
 ament_package()
