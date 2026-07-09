@@ -37,11 +37,11 @@ auto ZmqBridge::zmq_init() -> std::expected<void, std::string> {
 }
 
 auto ZmqBridge::zmqpub(
-    const std::shared_ptr<radar_bridge::zmqdata::pub::LidarLocation>& lidarlocation_data)
+    const radar_bridge::zmqdata::pub::LidarLocation& lidarlocation_data)
     -> std::expected<void, std::string> {
     std::string message;
     std::unique_lock<std::mutex> lock(zmq_mutex_);
-    message = zmq_json_encode(*lidarlocation_data);
+    message = zmq_json_encode(lidarlocation_data);
     lock.unlock();
     zmq::message_t zmq_message(message.data(), message.size());
     auto result = publisher_.send(zmq_message, zmq::send_flags::none);
@@ -52,7 +52,7 @@ auto ZmqBridge::zmqpub(
 }
 
 auto ZmqBridge::zmqsub(
-    const std::shared_ptr<radar_bridge::zmqdata::sub::TransmitGameState>& game_state_)
+    radar_bridge::zmqdata::sub::TransmitGameState& game_state_)
     -> std::expected<void, std::string> {
     zmq::message_t zmq_message;
     auto recv_result = subscriber_.recv(zmq_message, zmq::recv_flags::none);
@@ -62,16 +62,16 @@ auto ZmqBridge::zmqsub(
 
     auto json = nlohmann::json::parse(zmq_message.to_string());
     std::unique_lock<std::mutex> lock(zmq_mutex_);
-    *game_state_ = zmq_json_decode<radar_bridge::zmqdata::sub::TransmitGameState>(json);
+    game_state_ = zmq_json_decode<radar_bridge::zmqdata::sub::TransmitGameState>(json);
     lock.unlock();
     return { };
 }
 
 auto ZmqBridge::zmqsub_thread(std::atomic<bool>& zmqsub_thread_running_,
-    const std::shared_ptr<radar_bridge::zmqdata::sub::TransmitGameState>& game_state_)
+    radar_bridge::zmqdata::sub::TransmitGameState& game_state_)
     -> std::expected<void, std::string> {
     zmqsub_thread_running_ = true;
-    zmqsub_thread_         = std::thread([this, &zmqsub_thread_running_, game_state_]() {
+    zmqsub_thread_         = std::thread([this, &zmqsub_thread_running_, &game_state_]() {
         while (zmqsub_thread_running_) {
             auto result = zmqsub(game_state_);
             if (!result.has_value()) {
@@ -80,6 +80,21 @@ auto ZmqBridge::zmqsub_thread(std::atomic<bool>& zmqsub_thread_running_,
         }
     });
     return { };
+}
+
+auto ZmqBridge::zmqpub_thread(std::atomic<bool>& zmqpub_thread_running_,
+    const radar_bridge::zmqdata::pub::LidarLocation& lidarlocation_data)
+    -> std::expected<void, std::string> {
+    zmqpub_thread_running_ = true;
+    zmqpub_thread_         = std::thread([this, &zmqpub_thread_running_, &lidarlocation_data]() {
+        while (zmqpub_thread_running_) {
+            auto result = zmqpub(lidarlocation_data);
+            if (!result.has_value()) {
+                std::cerr << "zmqpub error: " << result.error() << std::endl;
+            }
+        }
+    });
+    return {};
 }
 
 auto ZmqBridge::zmqpub_thread_stop(std::atomic<bool>& zmqpub_thread_running_)
