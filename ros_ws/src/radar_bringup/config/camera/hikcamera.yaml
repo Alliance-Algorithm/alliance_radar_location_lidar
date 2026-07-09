@@ -1,0 +1,28 @@
+hikcamera_ros_driver_node:
+  ros__parameters:
+    # 白平衡
+    white_balance_blue: 512
+    white_balance_red: 512
+    white_balance_green: 512
+    auto_white_balance: 1
+
+    # 曝光与增益
+    exposure_us: 20000.0
+    gain: 0.0
+
+    # 帧率
+    framerate: 60.0
+
+    # 图像调节
+    brightness: 128
+    sharpness: 3
+
+    # 相机控制
+    timeout_ms: 2000
+    invert_image: false
+    software_sync: false
+    trigger_mode: false
+    fixed_framerate: true
+
+    # 共享内存名
+    shm_name: "/hikcamera_shm"

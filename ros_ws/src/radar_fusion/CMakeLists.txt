@@ -8,6 +8,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -DNDEBUG")
 find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_auto REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(radar_interfaces REQUIRED)
 
 ament_auto_find_build_dependencies()
 
@@ -42,6 +43,7 @@ if(BUILD_TESTING)
       visualization_msgs
       pcl_conversions
       tf2_geometry_msgs
+      radar_interfaces
   )
   target_link_libraries(radar_fusion_tests
       ${PCL_LIBRARIES}
