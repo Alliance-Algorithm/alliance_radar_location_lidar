@@ -10,7 +10,7 @@ find_package(ament_cmake_auto REQUIRED)
 find_package(PkgConfig REQUIRED)
 find_package(nlohmann_json REQUIRED)
 find_package(OpenCV REQUIRED)
-pkg_check_modules(ZMQ REQUIRED libzmq)
+find_package(cppzmq REQUIRED)
 
 ament_auto_find_build_dependencies()
 set(SOURCE_FILES
@@ -23,7 +23,7 @@ ament_auto_add_executable(${PROJECT_NAME}_node
     ${SOURCE_FILES}
 )
 target_link_libraries(${PROJECT_NAME}_node
-    ${ZMQ_LIBRARIES}
+    cppzmq::cppzmq
     ${OpenCV_LIBRARIES}
     nlohmann_json::nlohmann_json
 )
