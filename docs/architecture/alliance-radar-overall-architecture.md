@@ -455,3 +455,20 @@ runtime/
 2. `/localization/pose` 不再是 LiDAR pose passthrough
 3. 融合主位姿具备稳定性判断（如 covariance / converged / source-health）
 4. `radar_lidar` 保留 `/lidar/pose` 作为原始 LiDAR 位姿观测，但不再发布系统最终 dynamic tf
+
+**易混淆点澄清：dynamic tf 广播 ≠ 传感器坐标变换依赖。**
+两者是完全独立的机制，不要把它们当成同一件事：
+
+- **传感器坐标变换（各传感器自理，不依赖 TF 查询）**：
+  `radar_lidar` 内部用 GICP 求出的 `t_map_lidar`（纯 `Eigen::Isometry3d` 内存变量）
+  直接把点云变换到 map frame，再发布 `/lidar/cluster`（`frame_id=map`）。
+  未来 `radar_camera` 同理：自己用标定外参把检测结果投影到 map frame 后再发布
+  `/camera/detection`。`radar_fusion` 订阅到的都已经是 map frame 坐标，**不需要、
+  也不应该**通过 `tf2_ros::Buffer::lookupTransform` 去查任何 TF 才能完成融合。
+  这一条决定了模块解耦程度，和下面的 TF authority 无关。
+- **dynamic tf 广播（`map -> radar_base`）**：
+  这是系统对外播报"雷达站刚体当前在哪"的机制，服务对象是 Foxglove/RViz 等
+  可视化工具和其他可能需要系统自身位姿的下游消费者，**不是** `radar_fusion`
+  或 `radar_camera` 完成自己坐标变换的依赖项。谁是 dynamic tf authority
+  （当前 `radar_lidar`，最终 `radar_fusion`），只影响"对外播报者是谁"，
+  不影响任何模块内部怎么把数据转到 map frame。
