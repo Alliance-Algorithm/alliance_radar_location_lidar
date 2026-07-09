@@ -1,6 +1,6 @@
 # radar-lidar Todo
 
-更新时间：2026-07-05
+更新时间：2026-07-10
 
 ## TF Authority 设计定稿（2026-07-06）
 
@@ -235,3 +235,118 @@ PR #33 提交后 CodeRabbit review 修复（2026-07-05）：
 
 - 范围：radar_lidar / radar_camera / radar_fusion / radar_bridge / radar_calibration / radar_bringup
 - 产出：每个包的输入/输出话题表 + 数据流图 + 坐标系约定
+
+---
+
+## radar_interfaces 包 ✅
+
+自定义 ROS2 消息定义包，`radar_bridge` / `radar_fusion` 的构建依赖。
+
+### LidarLocation.msg（24 字段 + cmd_id）
+
+PUB 方向：`/lidar/location` → radar_bridge → ZMQ → radar-egui
+
+| 对手 (opponent) | 我方 (ally) |
+|---|---|
+| `hero_x/y` | `hero_x/y` |
+| `engineer_x/y` | `engineer_x/y` |
+| `infantry_3_x/y` | `infantry_3_x/y` |
+| `infantry_4_x/y` | `infantry_4_x/y` |
+| `aerial_x/y` | `aerial_x/y` |
+| `sentry_x/y` | `sentry_x/y` |
+
+### GameState.msg（5 字段）
+
+SUB 方向：radar-egui → ZMQ → radar_bridge → `/bridge/game_state`
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `cmd_id` | `uint16` | 命令字 |
+| `game_type` | `uint8` | 比赛类型 |
+| `game_progress` | `uint8` | 比赛阶段 |
+| `stage_remain_time` | `uint16` | 阶段剩余时间 |
+| `sync_timestamp` | `uint64` | 同步时间戳 |
+
+---
+
+# radar_bridge 包重构 TODO
+
+> 更新日期：2026-07-10
+
+## 文件结构
+```
+radar_bridge/
+├── CMakeLists.txt            ✅
+├── package.xml               ✅
+├── include/radar_bridge/
+│   ├── zmq_data_format.hpp   ✅  namespace radar_bridge::zmqdata::{pub,sub}
+│   ├── zmq_bridge.hpp        ✅  ZmqBridge PUB+SUB, 全部引用传参
+│   ├── radar_bridge_node.hpp ✅  RadarBridgeNode, lidar_location_/game_state_ 成员
+│   └── udpstream_bridge.hpp  🔄 UdpStreamer，当前占位
+├── src/
+│   ├── runtime.cpp           🔄 main()，当前占位
+│   ├── radar_bridge_node.cpp ✅  24 字段 LidarLocation + 5 字段 GameState 回调
+│   ├── zmq_bridge.cpp        ✅  zmqpub/zmqsub + pub/sub threads
+│   └── udpstream_bridge.cpp  🔄 当前占位
+```
+
+## 执行顺序
+
+- [x] 1. 清理空目录 `zmq/` `shm/` `config/`
+- [x] 2. 重写 `zmq_data_format.hpp`：namespace + kPascalCase + struct 分组 + NLOHMANN
+- [x] 3. ~~新建 zmq_publisher + zmq_subscriber~~ → 集成 `zmq_bridge.hpp/cpp`（已完成）
+- [x] 4. 新建 `radar_bridge_node.hpp` + `radar_bridge_node.cpp`
+- [ ] 5. 新建 `udpstream_bridge.hpp` + `udpstream_bridge.cpp`（当前空壳）
+- [ ] 6. 重写 `runtime.cpp`（当前空壳）
+- [x] 7. 更新 `package.xml`（加 radar_interfaces 依赖）
+- [x] 8. 更新 `CMakeLists.txt`（修复源文件列表 + cppzmq 链接）
+- [x] 9. 编译验证
+
+## 涉及的 ROS 话题
+
+### 订阅
+| 话题 | 类型 | 来源 |
+|------|------|------|
+| `/lidar/location` | `radar_interfaces::msg::LidarLocation` | radar_lidar |
+
+### 发布
+| 话题 | 类型 | 去向 |
+|------|------|------|
+| `/bridge/game_state` | `radar_interfaces::msg::GameState` | 下游模块 |
+
+## 数据流
+
+```
+ROS 线程：     /lidar/location → sub_lidar_pose_callback() → lidar_location_ (24 fields)
+ZMQ PUB 线程：  loop → 读 lidar_location_ → JSON encode → pub_.send() → radar-egui
+
+ZMQ SUB 线程：  sub_.recv() → JSON decode → game_state_
+ROS 回调：      pub_game_state_callback() → 读 game_state_ → GameState msg → /bridge/game_state
+
+UDP 线程：      SHMRead → JPEG → udp_send() → egui  (TODO)
+```
+
+### UdpStreamer 实现参考
+
+`hikcamera_ros_driver`（`ros_ws/third-party/hikcamera_ros_driver/`）已有可复用的 SHM 基础设施：
+
+| 组件 | 文件 | 职责 |
+|------|------|------|
+| `imageSHM` struct | `camera_driver.hpp` | 4 槽环形缓冲区 + `sem_t` + `pthread_mutex_t`（进程间共享） |
+| `SHMInit()` | `camera_driver.cpp` | `shm_open` + `ftruncate` + `mmap`，初始化信号量/互斥锁 |
+| `SHMWrite()` | `camera_driver.cpp` | 生产者（camera 线程）：写帧 → `sem_post` |
+| `SHMRead()` | `camera_driver.cpp` | 消费者：`sem_timedwait` 等帧 → 读取到 `cv::Mat` |
+
+bridge UdpStreamer 实现只需 SHM 读取侧，参考 `SHMRead` 模式即可：
+1. `shm_open("/hikcamera_shm")` 打开已有共享内存
+2. `sem_timedwait(&shm->sem)` 等新帧
+3. 取出 `cv::Mat` → JPEG encode → UDP send
+
+## 线程模型
+
+| 线程 | 阻塞点 | 数据流向 |
+|------|--------|---------|
+| ROS 主线程 (rclcpp::spin) | 无阻塞 | 写 lidar_location_ / 读 game_state_ → publish |
+| ZMQ PUB 线程 | while loop（atomic flag 控制） | 读 lidar_location_ → JSON → ZMQ PUB |
+| ZMQ SUB 线程 | zmq_recv 阻塞等 egui | ZMQ SUB → JSON decode → 写 game_state_ |
+| UdpStreamer 线程 | sem_timedwait 等 `/hikcamera_shm` | SHM → JPEG → UDP (TODO) |

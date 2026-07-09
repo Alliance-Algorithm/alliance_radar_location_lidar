@@ -8,14 +8,26 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -DNDEBUG")
 find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_auto REQUIRED)
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(ZMQ REQUIRED libzmq)
+find_package(nlohmann_json REQUIRED)
+find_package(OpenCV REQUIRED)
+find_package(cppzmq REQUIRED)
+find_package(radar_interfaces REQUIRED)
 
 ament_auto_find_build_dependencies()
-
-ament_auto_add_executable(${PROJECT_NAME}_node
+set(SOURCE_FILES
+    src/radar_bridge_node.cpp
+    src/zmq_bridge.cpp
+    src/udpstream_bridge.cpp
     src/runtime.cpp
 )
-target_link_libraries(${PROJECT_NAME}_node ${ZMQ_LIBRARIES})
+ament_auto_add_executable(${PROJECT_NAME}_node
+    ${SOURCE_FILES}
+)
+target_link_libraries(${PROJECT_NAME}_node
+    cppzmq
+    ${OpenCV_LIBRARIES}
+    nlohmann_json::nlohmann_json
+)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
