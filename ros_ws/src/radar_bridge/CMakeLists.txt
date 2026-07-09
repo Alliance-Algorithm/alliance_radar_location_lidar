@@ -11,19 +11,20 @@ find_package(PkgConfig REQUIRED)
 find_package(nlohmann_json REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(cppzmq REQUIRED)
+find_package(radar_interfaces REQUIRED)
 
 ament_auto_find_build_dependencies()
 set(SOURCE_FILES
-    src/runtime.cpp
-    src/bridge_node.cpp
+    src/radar_bridge_node.cpp
     src/zmq_bridge.cpp
-    src/udp_streamer.cpp
+    src/udpstream_bridge.cpp
+    src/runtime.cpp
 )
 ament_auto_add_executable(${PROJECT_NAME}_node
     ${SOURCE_FILES}
 )
 target_link_libraries(${PROJECT_NAME}_node
-    cppzmq::cppzmq
+    cppzmq
     ${OpenCV_LIBRARIES}
     nlohmann_json::nlohmann_json
 )

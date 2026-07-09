@@ -16,6 +16,7 @@
   <depend>nlohmann-json-dev</depend>
   <depend>libopencv-dev</depend>
   <depend>ament_cmake_auto</depend>
+  <depend>radar_interfaces</depend>
 
   <export>
     <build_type>ament_cmake</build_type>
