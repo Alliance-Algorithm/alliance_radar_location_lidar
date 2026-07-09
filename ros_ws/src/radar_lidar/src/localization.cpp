@@ -12,15 +12,15 @@ namespace radar::lidar {
 
 namespace {
 
-    [[nodiscard]] auto in_tdt_localization_roi(const Eigen::Vector3d& point) -> bool {
+    [[nodiscard]] auto in_localization_roi(const Eigen::Vector3d& point) -> bool {
         return point.x() > 5.0 && point.x() < 30.0 && point.y() > -10.0 && point.y() < 8.0
             && point.z() < 7.0;
     }
 
-    [[nodiscard]] auto filter_tdt_localization_roi(const types::PointCloud& points)
+    [[nodiscard]] auto filter_localization_roi(const types::PointCloud& points)
         -> types::PointCloud {
         return points
-            | std::views::filter([](const auto& point) { return in_tdt_localization_roi(point); })
+            | std::views::filter([](const auto& point) { return in_localization_roi(point); })
             | std::ranges::to<types::PointCloud>();
     }
 
@@ -55,7 +55,7 @@ LocalizationStage::LocalizationStage(
 
 auto LocalizationStage::preprocess(const types::Frame& scan) -> types::PointCloud {
     if (!cfg_.use_spherical_grid && cfg_.accumulate_frames == 0) {
-        return filter_tdt_localization_roi(scan.points);
+        return filter_localization_roi(scan.points);
     }
 
     // 帧累积
@@ -67,19 +67,19 @@ auto LocalizationStage::preprocess(const types::Frame& scan) -> types::PointClou
         if (cfg_.use_spherical_grid) {
             spherical_grid_.clear();
             spherical_grid_.add(accumulated);
-            return filter_tdt_localization_roi(spherical_grid_.extract());
+            return filter_localization_roi(spherical_grid_.extract());
         }
-        return filter_tdt_localization_roi(accumulated);
+        return filter_localization_roi(accumulated);
     }
 
     // 只球面网格，不累积
     if (cfg_.use_spherical_grid) {
         spherical_grid_.clear();
         spherical_grid_.add(scan.points);
-        return filter_tdt_localization_roi(spherical_grid_.extract());
+        return filter_localization_roi(spherical_grid_.extract());
     }
 
-    return filter_tdt_localization_roi(scan.points);
+    return filter_localization_roi(scan.points);
 }
 
 auto LocalizationStage::process(const types::Frame& scan)
