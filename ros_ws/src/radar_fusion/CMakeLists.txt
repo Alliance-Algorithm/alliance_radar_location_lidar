@@ -35,6 +35,7 @@ if(BUILD_TESTING)
   )
   target_include_directories(radar_fusion_tests PRIVATE include ${PCL_INCLUDE_DIRS})
   ament_target_dependencies(radar_fusion_tests
+      diagnostic_msgs
       rclcpp
       geometry_msgs
       sensor_msgs
