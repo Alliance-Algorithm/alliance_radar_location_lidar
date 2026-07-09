@@ -95,7 +95,7 @@ def main():
 
     # --- z-buffer 遮挡: 方位-俯仰角分格, 每格只保留最近点 ---
     # 真雷达每条射线只命中第一个表面, 近处物体挡住背后的点。
-    ANG_RES = 0.2                                     # 角分辨率 (度)
+    ANG_RES = 0.05                                     # 角分辨率 (度)
     ai = np.floor((az + HFOV) / ANG_RES).astype(np.int64)
     ei = np.floor((el + VFOV) / ANG_RES).astype(np.int64)
     cell = ai * 100000 + ei

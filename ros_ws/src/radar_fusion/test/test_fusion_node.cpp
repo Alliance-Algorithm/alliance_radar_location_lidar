@@ -7,7 +7,8 @@
 #include <thread>
 #include <tuple>
 
-#include <geometry_msgs/msg/pose_stamped.hpp>
+#include <diagnostic_msgs/msg/diagnostic_status.hpp>
+#include <geometry_msgs/msg/pose_array.hpp>
 #include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
@@ -48,14 +49,18 @@ protected:
         lidar_pose_pub_ =
             publisher_node_->create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(
                 "/lidar/pose", 10);
+        camera_detection_pub_ = publisher_node_->create_publisher<geometry_msgs::msg::PoseArray>(
+            "/camera/detection", 10);
 
-        pose_sub_ = subscriber_node_->create_subscription<geometry_msgs::msg::PoseStamped>(
-            "/localization/pose", 10, [this](const geometry_msgs::msg::PoseStamped::SharedPtr msg) {
-                std::lock_guard<std::mutex> lock(mutex_);
-                last_pose_ = *msg;
-                ++pose_count_;
-                cv_.notify_all();
-            });
+        pose_sub_ =
+            subscriber_node_->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
+                "/localization/pose", 10,
+                [this](const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg) {
+                    std::lock_guard<std::mutex> lock(mutex_);
+                    last_pose_ = *msg;
+                    ++pose_count_;
+                    cv_.notify_all();
+                });
         tracks_sub_ =
             subscriber_node_->create_subscription<visualization_msgs::msg::MarkerArray>("/fusion/"
                                                                                         "tracks",
@@ -63,6 +68,26 @@ protected:
                     std::lock_guard<std::mutex> lock(mutex_);
                     last_track_marker_count_ = msg->markers.size();
                     ++track_publish_count_;
+                    cv_.notify_all();
+                });
+        fused_tracks_sub_ =
+            subscriber_node_->create_subscription<visualization_msgs::msg::MarkerArray>("/fusion/"
+                                                                                        "fused_"
+                                                                                        "tracks",
+                10, [this](const visualization_msgs::msg::MarkerArray::SharedPtr msg) {
+                    std::lock_guard<std::mutex> lock(mutex_);
+                    last_fused_track_marker_count_ = msg->markers.size();
+                    ++fused_track_publish_count_;
+                    cv_.notify_all();
+                });
+        status_sub_ =
+            subscriber_node_->create_subscription<diagnostic_msgs::msg::DiagnosticStatus>("/localiz"
+                                                                                          "ation/"
+                                                                                          "status",
+                10, [this](const diagnostic_msgs::msg::DiagnosticStatus::SharedPtr msg) {
+                    std::lock_guard<std::mutex> lock(mutex_);
+                    last_status_ = *msg;
+                    ++status_count_;
                     cv_.notify_all();
                 });
 
@@ -85,27 +110,37 @@ protected:
 
         pose_sub_.reset();
         tracks_sub_.reset();
+        fused_tracks_sub_.reset();
+        status_sub_.reset();
         cluster_pub_.reset();
         lidar_pose_pub_.reset();
+        camera_detection_pub_.reset();
         subscriber_node_.reset();
         publisher_node_.reset();
         fusion_node_.reset();
 
         {
             std::lock_guard<std::mutex> lock(mutex_);
-            pose_count_              = 0;
-            track_publish_count_     = 0;
-            last_track_marker_count_ = 0;
-            last_pose_               = geometry_msgs::msg::PoseStamped();
+            pose_count_                    = 0;
+            track_publish_count_           = 0;
+            last_track_marker_count_       = 0;
+            fused_track_publish_count_     = 0;
+            last_fused_track_marker_count_ = 0;
+            status_count_                  = 0;
+            last_pose_                     = geometry_msgs::msg::PoseWithCovarianceStamped();
+            last_status_                   = diagnostic_msgs::msg::DiagnosticStatus();
         }
     }
 
-    auto wait_for_discovery() -> bool {
+    auto wait_for_discovery(bool expect_camera = false) -> bool {
         const auto deadline = std::chrono::steady_clock::now() + 2s;
         while (std::chrono::steady_clock::now() < deadline) {
             if (cluster_pub_->get_subscription_count() > 0
                 && lidar_pose_pub_->get_subscription_count() > 0
-                && pose_sub_->get_publisher_count() > 0 && tracks_sub_->get_publisher_count() > 0) {
+                && pose_sub_->get_publisher_count() > 0 && tracks_sub_->get_publisher_count() > 0
+                && fused_tracks_sub_->get_publisher_count() > 0
+                && status_sub_->get_publisher_count() > 0
+                && (!expect_camera || camera_detection_pub_->get_subscription_count() > 0)) {
                 return true;
             }
             std::this_thread::sleep_for(20ms);
@@ -131,6 +166,19 @@ protected:
         std::unique_lock<std::mutex> lock(mutex_);
         return cv_.wait_for(
             lock, timeout, [&]() { return track_publish_count_ >= expected_publish_count; });
+    }
+
+    auto wait_for_fused_track_publish_count(
+        std::size_t expected_publish_count, std::chrono::milliseconds timeout) -> bool {
+        std::unique_lock<std::mutex> lock(mutex_);
+        return cv_.wait_for(
+            lock, timeout, [&]() { return fused_track_publish_count_ >= expected_publish_count; });
+    }
+
+    auto wait_for_status_count(std::size_t expected_count, std::chrono::milliseconds timeout)
+        -> bool {
+        std::unique_lock<std::mutex> lock(mutex_);
+        return cv_.wait_for(lock, timeout, [&]() { return status_count_ >= expected_count; });
     }
 
     auto make_cluster_msg(double x, double y, double z, int32_t sec, uint32_t nanosec)
@@ -168,25 +216,33 @@ protected:
     rclcpp::Node::SharedPtr subscriber_node_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr cluster_pub_;
     rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr lidar_pose_pub_;
-    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;
+    rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr camera_detection_pub_;
+    rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pose_sub_;
     rclcpp::Subscription<visualization_msgs::msg::MarkerArray>::SharedPtr tracks_sub_;
+    rclcpp::Subscription<visualization_msgs::msg::MarkerArray>::SharedPtr fused_tracks_sub_;
+    rclcpp::Subscription<diagnostic_msgs::msg::DiagnosticStatus>::SharedPtr status_sub_;
     std::thread spin_thread_;
 
     std::mutex mutex_;
     std::condition_variable cv_;
-    std::size_t pose_count_              = 0;
-    std::size_t track_publish_count_     = 0;
-    std::size_t last_track_marker_count_ = 0;
-    geometry_msgs::msg::PoseStamped last_pose_;
+    std::size_t pose_count_                    = 0;
+    std::size_t track_publish_count_           = 0;
+    std::size_t last_track_marker_count_       = 0;
+    std::size_t fused_track_publish_count_     = 0;
+    std::size_t last_fused_track_marker_count_ = 0;
+    std::size_t status_count_                  = 0;
+    geometry_msgs::msg::PoseWithCovarianceStamped last_pose_;
+    diagnostic_msgs::msg::DiagnosticStatus last_status_;
 };
 
 }
 
-TEST_F(FusionNodeTest, ClusterOnlyInputDoesNotPublishLocalizationPose) {
+TEST_F(FusionNodeTest, ClusterOnlyInputPublishesStatusWithoutLocalizationPose) {
     auto cluster_msg = make_cluster_msg(1.0, 2.0, 0.0, 0, 123456789u);
     cluster_pub_->publish(cluster_msg);
 
     EXPECT_FALSE(wait_for_pose_count(1, 300ms));
+    EXPECT_TRUE(wait_for_status_count(1, 300ms));
 }
 
 TEST_F(FusionNodeTest, ClusterTrackingUsesMessageTimeInsteadOfWallTime) {
@@ -302,11 +358,73 @@ TEST_F(FusionNodeTest, LidarPoseIsForwardedToLocalizationPose) {
     EXPECT_EQ(last_pose_.header.frame_id, lidar_pose.header.frame_id);
     EXPECT_EQ(last_pose_.header.stamp.sec, lidar_pose.header.stamp.sec);
     EXPECT_EQ(last_pose_.header.stamp.nanosec, lidar_pose.header.stamp.nanosec);
-    EXPECT_DOUBLE_EQ(last_pose_.pose.position.x, lidar_pose.pose.pose.position.x);
-    EXPECT_DOUBLE_EQ(last_pose_.pose.position.y, lidar_pose.pose.pose.position.y);
-    EXPECT_DOUBLE_EQ(last_pose_.pose.position.z, lidar_pose.pose.pose.position.z);
-    EXPECT_DOUBLE_EQ(last_pose_.pose.orientation.x, lidar_pose.pose.pose.orientation.x);
-    EXPECT_DOUBLE_EQ(last_pose_.pose.orientation.y, lidar_pose.pose.pose.orientation.y);
-    EXPECT_DOUBLE_EQ(last_pose_.pose.orientation.z, lidar_pose.pose.pose.orientation.z);
-    EXPECT_DOUBLE_EQ(last_pose_.pose.orientation.w, lidar_pose.pose.pose.orientation.w);
+    EXPECT_DOUBLE_EQ(last_pose_.pose.pose.position.x, lidar_pose.pose.pose.position.x);
+    EXPECT_DOUBLE_EQ(last_pose_.pose.pose.position.y, lidar_pose.pose.pose.position.y);
+    EXPECT_DOUBLE_EQ(last_pose_.pose.pose.position.z, lidar_pose.pose.pose.position.z);
+    EXPECT_DOUBLE_EQ(last_pose_.pose.pose.orientation.x, lidar_pose.pose.pose.orientation.x);
+    EXPECT_DOUBLE_EQ(last_pose_.pose.pose.orientation.y, lidar_pose.pose.pose.orientation.y);
+    EXPECT_DOUBLE_EQ(last_pose_.pose.pose.orientation.z, lidar_pose.pose.pose.orientation.z);
+    EXPECT_DOUBLE_EQ(last_pose_.pose.pose.orientation.w, lidar_pose.pose.pose.orientation.w);
+    EXPECT_DOUBLE_EQ(last_pose_.pose.covariance[0], lidar_pose.pose.covariance[0]);
+}
+
+TEST_F(FusionNodeTest, ConfirmedTracksArePublishedToFusedTracks) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        fused_track_publish_count_     = 0;
+        last_fused_track_marker_count_ = 0;
+    }
+
+    cluster_pub_->publish(make_cluster_msg(0.0, 0.0, 0.0, 0, 0u));
+    std::this_thread::sleep_for(1000ms);
+    cluster_pub_->publish(make_cluster_msg(0.8, 0.0, 0.0, 1, 0u));
+    std::this_thread::sleep_for(1000ms);
+    cluster_pub_->publish(make_cluster_msg(1.6, 0.0, 0.0, 2, 0u));
+
+    ASSERT_TRUE(wait_for_track_marker_count(3, 500ms));
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    EXPECT_EQ(last_fused_track_marker_count_, 1u);
+}
+
+TEST_F(FusionNodeTest, LidarPosePublishesRadarOnlyStatus) {
+    geometry_msgs::msg::PoseWithCovarianceStamped lidar_pose;
+    lidar_pose.header.stamp.sec = 1;
+    lidar_pose.header.frame_id  = "map";
+
+    lidar_pose_pub_->publish(lidar_pose);
+    ASSERT_TRUE(wait_for_status_count(1, 1s));
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    EXPECT_EQ(last_status_.message, "RADAR_ONLY");
+}
+
+TEST_F(FusionNodeTest, CameraDetectionSwitchesFusionModeWhenEnabled) {
+    auto enabled_node = std::make_shared<radar::fusion::FusionNode>(
+        rclcpp::NodeOptions().append_parameter_override("enable_camera_fusion", true));
+    executor_.remove_node(fusion_node_);
+    fusion_node_.reset();
+    fusion_node_ = enabled_node;
+    executor_.add_node(fusion_node_);
+    ASSERT_TRUE(wait_for_discovery(/*expect_camera=*/true)) << "ROS entities failed to rediscover "
+                                                               "after enabling camera fusion";
+
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        status_count_ = 0;
+    }
+
+    geometry_msgs::msg::PoseArray detections;
+    detections.header.frame_id  = "map";
+    detections.header.stamp.sec = 2;
+    geometry_msgs::msg::Pose pose;
+    pose.position.x = 1.0;
+    pose.position.y = 2.0;
+    pose.position.z = 0.0;
+    detections.poses.push_back(pose);
+    camera_detection_pub_->publish(detections);
+
+    ASSERT_TRUE(wait_for_status_count(1, 1s));
+    std::lock_guard<std::mutex> lock(mutex_);
+    EXPECT_EQ(last_status_.message, "RADAR_CAMERA");
 }
