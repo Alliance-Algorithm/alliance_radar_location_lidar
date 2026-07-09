@@ -21,16 +21,15 @@ public:
     ZmqBridge(const ZmqBridge&)            = delete;
     ~ZmqBridge();
     auto zmq_init() -> std::expected<void, std::string>;
-    auto zmqpub(
-        const std::shared_ptr<radar_bridge::zmqdata::pub::LidarLocation>& lidarlocation_data)
+    auto zmqpub(const radar_bridge::zmqdata::pub::LidarLocation& lidarlocation_data)
         -> std::expected<void, std::string>;
-    auto zmqsub(const std::shared_ptr<radar_bridge::zmqdata::sub::TransmitGameState>& game_state_)
+    auto zmqsub(radar_bridge::zmqdata::sub::TransmitGameState& game_state_)
         -> std::expected<void, std::string>;
     auto zmqsub_thread(std::atomic<bool>& zmqsub_thread_running_,
-        const std::shared_ptr<radar_bridge::zmqdata::sub::TransmitGameState>& game_state_)
+        radar_bridge::zmqdata::sub::TransmitGameState& game_state_)
         -> std::expected<void, std::string>;
     auto zmqpub_thread(std::atomic<bool>& zmqpub_thread_running_,
-        const std::shared_ptr<radar_bridge::zmqdata::pub::LidarLocation>& lidarlocation_data)
+        const radar_bridge::zmqdata::pub::LidarLocation& lidarlocation_data)
         -> std::expected<void, std::string>;
     auto zmqpub_thread_stop(std::atomic<bool>& zmqpub_thread_running_)
         -> std::expected<void, std::string>;
