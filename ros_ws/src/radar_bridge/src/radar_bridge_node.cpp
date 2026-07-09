@@ -15,8 +15,7 @@ RadarBridgeNode::RadarBridgeNode()
                                                                                                "cat"
                                                                                                "io"
                                                                                                "n",
-        10,
-        [this](const radar_interfaces::msg::LidarLocation& msg) {
+        10, [this](const radar_interfaces::msg::LidarLocation& msg) {
             return sub_lidar_pose_callback(msg);
         });
     zmqpub_thread_running_   = true;
@@ -29,7 +28,7 @@ RadarBridgeNode::~RadarBridgeNode() {
 auto RadarBridgeNode::sub_lidar_pose_callback(const radar_interfaces::msg::LidarLocation& msg)
     -> std::expected<void, std::string> {
     lidar_location_.opponent_hero_x       = msg.opponent_hero_x;
-    lidar_location_.opponent_hero_y      = msg.opponent_hero_y;
+    lidar_location_.opponent_hero_y       = msg.opponent_hero_y;
     lidar_location_.opponent_engineer_x   = msg.opponent_engineer_x;
     lidar_location_.opponent_engineer_y   = msg.opponent_engineer_y;
     lidar_location_.opponent_infantry_3_x = msg.opponent_infantry_3_x;
