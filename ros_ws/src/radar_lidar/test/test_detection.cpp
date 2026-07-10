@@ -82,10 +82,10 @@ TEST(DynamicCloudTest, FiltersOutExcludedMapRegions) {
 
     // 工作系原点在场地中心, 各测试点为对应 ROI 特征点整体平移 (-14, -7.5) 后的坐标
     // (main_roi/corner/slope 边界值参见 dynamic_cloud.cpp 顶部注释)
-    const Eigen::Vector3d in_corner_exclusion  { 12.0, -5.5, 0.5 };
-    const Eigen::Vector3d in_slope_exclusion   {  0.0,  0.0, 0.5 };
-    const Eigen::Vector3d outside_main_roi     { -11.5, -3.5, 0.5 };
-    const Eigen::Vector3d kept_point           { -4.0,  2.5, 0.5 };
+    const Eigen::Vector3d in_corner_exclusion { 12.0, -5.5, 0.5 };
+    const Eigen::Vector3d in_slope_exclusion { 0.0, 0.0, 0.5 };
+    const Eigen::Vector3d outside_main_roi { -11.5, -3.5, 0.5 };
+    const Eigen::Vector3d kept_point { -4.0, 2.5, 0.5 };
 
     radar::lidar::types::PointCloud scan;
     scan.push_back(in_corner_exclusion);
