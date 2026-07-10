@@ -119,13 +119,18 @@ private:
         }
 
         // ── 发布者 ─────────────────────────────────────────────────────────
-        const auto qos   = rclcpp::QoS(1).transient_local();
-        pub_map_          = create_publisher<sensor_msgs::msg::PointCloud2>("/offline_detection/map", qos);
-        pub_raw_          = create_publisher<sensor_msgs::msg::PointCloud2>("/offline_detection/scan_raw", qos);
-        pub_aligned_      = create_publisher<sensor_msgs::msg::PointCloud2>("/offline_detection/scan_aligned", qos);
-        pub_dynamic_      = create_publisher<sensor_msgs::msg::PointCloud2>("/offline_detection/dynamic", qos);
-        pub_clusters_     = create_publisher<sensor_msgs::msg::PointCloud2>("/offline_detection/clusters", qos);
-        pub_diag_         = create_publisher<diagnostic_msgs::msg::DiagnosticStatus>("/offline_detection/diagnostics", qos);
+        const auto qos = rclcpp::QoS(1).transient_local();
+        pub_map_ = create_publisher<sensor_msgs::msg::PointCloud2>("/offline_detection/map", qos);
+        pub_raw_ =
+            create_publisher<sensor_msgs::msg::PointCloud2>("/offline_detection/scan_raw", qos);
+        pub_aligned_ =
+            create_publisher<sensor_msgs::msg::PointCloud2>("/offline_detection/scan_aligned", qos);
+        pub_dynamic_ =
+            create_publisher<sensor_msgs::msg::PointCloud2>("/offline_detection/dynamic", qos);
+        pub_clusters_ =
+            create_publisher<sensor_msgs::msg::PointCloud2>("/offline_detection/clusters", qos);
+        pub_diag_ = create_publisher<diagnostic_msgs::msg::DiagnosticStatus>(
+            "/offline_detection/diagnostics", qos);
 
         // ── 加载地图 ────────────────────────────────────────────────────────
         double voxel_leaf = 0.1;
@@ -138,9 +143,9 @@ private:
         }
         auto map = *map_result;
         std::println("[detection] Map: {} points", map->size());
-        pub_map_->publish(
-            to_rosmsg(radar::lidar::offline::make_colored_cloud(map->pcl_cloud(), radar::lidar::offline::kMapColorBgr),
-                output_frame_));
+        pub_map_->publish(to_rosmsg(radar::lidar::offline::make_colored_cloud(
+                                        map->pcl_cloud(), radar::lidar::offline::kMapColorBgr),
+            output_frame_));
 
         // ── 加载扫描 ────────────────────────────────────────────────────────
         double scan_voxel = 0.1;
@@ -168,9 +173,9 @@ private:
             rclcpp::shutdown();
             return;
         }
-        pub_raw_->publish(
-            to_rosmsg(radar::lidar::offline::make_colored_cloud(frame.points, radar::lidar::offline::kRawScanColorBgr),
-                "scan"));
+        pub_raw_->publish(to_rosmsg(radar::lidar::offline::make_colored_cloud(
+                                        frame.points, radar::lidar::offline::kRawScanColorBgr),
+            "scan"));
 
         // ── 定位: 粗配准 yaw 多起点搜索 + 精配准 ────────────────────────────
         double init_x = 0.0, init_y = 0.0, init_z = 0.0, init_yaw_deg = 0.0, init_pitch_deg = 0.0;
@@ -216,7 +221,7 @@ private:
         std::vector<double> yaw_offsets;
         if (yaw_search_step_deg > 0.0 && yaw_search_range_deg > 0.0) {
             for (double off = -yaw_search_range_deg; off <= yaw_search_range_deg + 1e-9;
-                 off += yaw_search_step_deg) {
+                off += yaw_search_step_deg) {
                 yaw_offsets.push_back(deg_to_rad(off));
             }
         } else {
@@ -271,8 +276,8 @@ private:
             if (is_better_score(fine_sc, best->score)) {
                 t_map_lidar = fine_result->t_map_lidar;
                 reg_score   = fine_sc;
-                std::println("[detection] Fine OK. inlier={:.3f} rmse={:.4f}",
-                    fine_sc.inlier_ratio, fine_sc.rmse);
+                std::println("[detection] Fine OK. inlier={:.3f} rmse={:.4f}", fine_sc.inlier_ratio,
+                    fine_sc.rmse);
             } else {
                 std::println("[detection] Fine worse, keeping coarse");
             }
@@ -285,9 +290,9 @@ private:
         {
             auto tf_broadcaster = std::make_shared<tf2_ros::StaticTransformBroadcaster>(this);
             geometry_msgs::msg::TransformStamped tf_msg;
-            tf_msg.header.stamp    = now();
-            tf_msg.header.frame_id = output_frame_;
-            tf_msg.child_frame_id  = "scan";
+            tf_msg.header.stamp            = now();
+            tf_msg.header.frame_id         = output_frame_;
+            tf_msg.child_frame_id          = "scan";
             tf_msg.transform.translation.x = t_map_lidar.translation().x();
             tf_msg.transform.translation.y = t_map_lidar.translation().y();
             tf_msg.transform.translation.z = t_map_lidar.translation().z();
@@ -300,32 +305,30 @@ private:
         }
 
         // ── 扫描变换到地图系 ─────────────────────────────────────────────────
-        auto scan_in_map = frame.points
-            | std::views::filter([](const auto& pt) {
-                  return radar::lidar::offline::is_valid_xyz(pt);
-              })
-            | std::views::transform([&t_map_lidar](const auto& pt) { return t_map_lidar * pt; })
+        auto scan_in_map = frame.points | std::views::filter([](const auto& pt) {
+            return radar::lidar::offline::is_valid_xyz(pt);
+        }) | std::views::transform([&t_map_lidar](const auto& pt) { return t_map_lidar * pt; })
             | std::ranges::to<radar::lidar::types::PointCloud>();
-        pub_aligned_->publish(
-            to_rosmsg(radar::lidar::offline::make_colored_cloud(scan_in_map, radar::lidar::offline::kAlignedScanColorBgr),
-                output_frame_));
+        pub_aligned_->publish(to_rosmsg(radar::lidar::offline::make_colored_cloud(scan_in_map,
+                                            radar::lidar::offline::kAlignedScanColorBgr),
+            output_frame_));
         std::println("[detection] Scan aligned: {} points in map frame", scan_in_map.size());
 
         // ── 动态点提取 ───────────────────────────────────────────────────────
         radar::lidar::DynamicCloudConfig dynamic_cfg;
         get_parameter("dynamic_distance_threshold", dynamic_cfg.distance_threshold);
-        dynamic_cfg.accumulate_frames = 0;  // 单帧离线, 不做多帧累积
+        dynamic_cfg.accumulate_frames = 0; // 单帧离线, 不做多帧累积
         int dynamic_threads           = 4;
         get_parameter("dynamic_num_threads", dynamic_threads);
         dynamic_cfg.num_threads = dynamic_threads;
 
         radar::lidar::DynamicCloudStage dynamic_stage(dynamic_cfg);
-        dynamic_stage.set_map(
-            std::make_shared<pcl::PointCloud<pcl::PointXYZ>>(map->pcl_cloud()));
+        dynamic_stage.set_map(std::make_shared<pcl::PointCloud<pcl::PointXYZ>>(map->pcl_cloud()));
 
         auto dynamic_result = dynamic_stage.process(scan_in_map);
         if (!dynamic_result) {
-            std::println(stderr, "[detection] Dynamic extraction failed: {}", dynamic_result.error());
+            std::println(
+                stderr, "[detection] Dynamic extraction failed: {}", dynamic_result.error());
             rclcpp::shutdown();
             return;
         }
@@ -333,9 +336,9 @@ private:
         std::println("[detection] Dynamic points: {}", dynamic_points.size());
 
         if (!dynamic_points.empty()) {
-            pub_dynamic_->publish(
-                to_rosmsg(radar::lidar::offline::make_colored_cloud(dynamic_points, kDynamicColorBgr),
-                    output_frame_));
+            pub_dynamic_->publish(to_rosmsg(
+                radar::lidar::offline::make_colored_cloud(dynamic_points, kDynamicColorBgr),
+                output_frame_));
         }
 
         // ── 聚类 ──────────────────────────────────────────────────────────────
@@ -379,11 +382,10 @@ private:
 
         // ── 诊断状态 ─────────────────────────────────────────────────────────
         diagnostic_msgs::msg::DiagnosticStatus diag;
-        diag.name  = "offline_detection";
-        diag.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
-        diag.message =
-            std::format("dynamic={} clusters={} inlier={:.3f} rmse={:.4f}",
-                dynamic_points.size(), clusters.size(), reg_score.inlier_ratio, reg_score.rmse);
+        diag.name    = "offline_detection";
+        diag.level   = diagnostic_msgs::msg::DiagnosticStatus::OK;
+        diag.message = std::format("dynamic={} clusters={} inlier={:.3f} rmse={:.4f}",
+            dynamic_points.size(), clusters.size(), reg_score.inlier_ratio, reg_score.rmse);
         pub_diag_->publish(diag);
 
         std::println("[detection] Done. dynamic={} clusters={}  Spinning for Foxglove.",
