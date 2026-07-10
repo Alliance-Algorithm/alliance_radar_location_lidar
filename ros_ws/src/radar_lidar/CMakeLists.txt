@@ -51,6 +51,12 @@ ament_auto_add_executable(offline_test_node
 )
 target_link_libraries(offline_test_node ${PROJECT_NAME}_core)
 
+# ── Offline detection node (ROS2, Foxglove) ──────────────────────
+ament_auto_add_executable(offline_detection_node
+    tools/offline_detection_node.cpp
+)
+target_link_libraries(offline_detection_node ${PROJECT_NAME}_core)
+
 # ── Tests ────────────────────────────────────────────────────────
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -69,6 +75,6 @@ if(BUILD_TESTING)
   target_link_libraries(radar_tests ${PROJECT_NAME}_core)
 endif()
 
-install(TARGETS ${PROJECT_NAME}_node registration_tool offline_test_node DESTINATION lib/${PROJECT_NAME})
+install(TARGETS ${PROJECT_NAME}_node registration_tool offline_test_node offline_detection_node DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
 ament_package()
