@@ -122,7 +122,10 @@ def main():
     target = parse_vec3(args.look_at)
 
     d = target - eye
-    d /= np.linalg.norm(d)
+    norm = np.linalg.norm(d)
+    if norm < 1e-12:
+        raise ValueError("--eye and --look-at must not be the same point")
+    d /= norm
     yaw_gt   = np.rad2deg(np.arctan2(d[1], d[0]))
     pitch_gt = np.rad2deg(np.arctan2(-d[2], np.hypot(d[0], d[1])))
     yaw_gt  += args.extra_yaw

@@ -5,7 +5,7 @@
 #   offline-detection <scan.pcd> --map <map.pcd> [extra ros2 run args...]
 #
 # Result:
-#   publishes /offline_detection/{map,scan_raw,scan_aligned,dynamic,clusters,cluster_viz,diagnostics}
+#   publishes /offline_detection/{map,scan_raw,scan_aligned,dynamic,clusters,diagnostics}
 #   for Foxglove inspection
 
 set -euo pipefail

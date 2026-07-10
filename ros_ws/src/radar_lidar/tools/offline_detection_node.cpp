@@ -280,6 +280,25 @@ private:
             std::println(stderr, "[detection] Fine registration failed, keeping coarse");
         }
 
+        // ── TF: output_frame → "scan" ──────────────────────────────────────
+        // 让 scan_raw (以 "scan" 帧发布) 在 Foxglove 里正确渲染在雷达站实际位置
+        {
+            auto tf_broadcaster = std::make_shared<tf2_ros::StaticTransformBroadcaster>(this);
+            geometry_msgs::msg::TransformStamped tf_msg;
+            tf_msg.header.stamp    = now();
+            tf_msg.header.frame_id = output_frame_;
+            tf_msg.child_frame_id  = "scan";
+            tf_msg.transform.translation.x = t_map_lidar.translation().x();
+            tf_msg.transform.translation.y = t_map_lidar.translation().y();
+            tf_msg.transform.translation.z = t_map_lidar.translation().z();
+            const Eigen::Quaterniond q(t_map_lidar.rotation());
+            tf_msg.transform.rotation.x = q.x();
+            tf_msg.transform.rotation.y = q.y();
+            tf_msg.transform.rotation.z = q.z();
+            tf_msg.transform.rotation.w = q.w();
+            tf_broadcaster->sendTransform(tf_msg);
+        }
+
         // ── 扫描变换到地图系 ─────────────────────────────────────────────────
         auto scan_in_map = frame.points
             | std::views::filter([](const auto& pt) {
