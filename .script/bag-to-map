@@ -1,0 +1,55 @@
+#!/bin/bash
+# bag-to-map - extract /odin1/cloud_slam from a ros2 bag → PCD map
+#
+# Usage:
+#   bag-to-map <bag_dir> [--output <map.pcd>] [--topic /odin1/cloud_slam]
+#
+# 输出的 PCD 可直接用于 offline-test / offline-detection 的 --map 参数，
+# 或替换 model/generated/map_zup.pcd 作为配准基准地图。
+
+set -euo pipefail
+
+: "${RADAR_WS:=/workspace}"
+
+BAG_DIR=""
+OUTPUT_PCD="map_from_bag.pcd"
+TOPIC="/odin1/cloud_slam"
+EXTRA_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --output) OUTPUT_PCD="$2"; shift 2 ;;
+        --topic)  TOPIC="$2"; shift 2 ;;
+        -*)       EXTRA_ARGS+=("$1"); shift ;;
+        *)
+            if [[ -z "$BAG_DIR" ]]; then BAG_DIR="$1"
+            else EXTRA_ARGS+=("$1"); fi
+            shift ;;
+    esac
+done
+
+if [[ -z "$BAG_DIR" ]]; then
+    echo "Usage: bag-to-map <bag_dir> [--output <map.pcd>] [--topic <topic>]"
+    exit 1
+fi
+
+if [ ! -f /opt/ros/jazzy/setup.bash ]; then
+    echo "> ERROR: ROS2 Jazzy not found" >&2; exit 1
+fi
+
+set +u
+source /opt/ros/jazzy/setup.bash
+set -u
+
+echo "[bag-to-map] Bag:    $BAG_DIR"
+echo "[bag-to-map] Topic:  $TOPIC"
+echo "[bag-to-map] Output: $OUTPUT_PCD"
+
+python3 "${RADAR_WS}/tools/bag_to_pcd/bag_to_pcd.py" \
+    "$BAG_DIR" \
+    --topic "$TOPIC" \
+    --output "$OUTPUT_PCD" \
+    "${EXTRA_ARGS[@]}"
+
+echo "[bag-to-map] Done: $OUTPUT_PCD"
+echo "[bag-to-map] 验证: 用 offline-test <scan.pcd> --map $OUTPUT_PCD 检查配准效果"
