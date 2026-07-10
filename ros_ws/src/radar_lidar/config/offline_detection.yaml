@@ -1,0 +1,44 @@
+offline_detection_node:
+  ros__parameters:
+    map_path: ""   # 推荐: model/generated/jinan_field_model.pcd (含围墙, inlier~0.72)
+    scan_path: ""  # 推荐: model/generated/synth_scan_jinan_field.pcd (真实场地扫描视角)
+    output_frame: "map"
+
+    # 地图体素化 + 扫描降采样
+    voxel_leaf: 0.1
+    scan_voxel: 0.1
+
+    # 精配准 GICP
+    max_corr_distance: 2.0
+    max_iterations: 50
+    num_threads: 4
+
+    # 粗配准 GICP (yaw 多起点搜索)
+    coarse_voxel: 0.5
+    coarse_max_corr: 5.0
+    coarse_max_iter: 20
+
+    # 初始位姿 (雷达站安装位: 短边中心, 4m 高, 指向场地中心)
+    initial_x: -14.0
+    initial_y: 0.0
+    initial_z: 4.0
+    use_look_at: true
+    look_at_x: 0.0
+    look_at_y: 0.0
+    look_at_z: 0.5
+    initial_yaw_deg: 0.0
+    initial_pitch_deg: 0.0
+
+    # yaw 搜索范围
+    yaw_search_range_deg: 30.0
+    yaw_search_step_deg: 10.0
+    inlier_threshold: 0.3
+
+    # 动态点提取
+    dynamic_distance_threshold: 0.1
+    dynamic_num_threads: 4
+
+    # 聚类
+    cluster_tolerance: 0.25
+    min_cluster_size: 5
+    max_cluster_size: 1000

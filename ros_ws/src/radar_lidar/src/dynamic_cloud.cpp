@@ -16,19 +16,21 @@ namespace {
         return width / std::numbers::sqrt2;
     }
 
+    // 以下边界值取自 T-DT_Radar 参考实现，其 rm_frame 原点在场地角落 (x:[3,28] y:[0,15])。
+    // 本项目工作系原点在场地中心 (x:[-14,14] y:[-7.5,7.5])，已整体平移 (-14, -7.5) 对齐。
     auto in_dynamic_main_roi(const Eigen::Vector3d& point) -> bool {
-        return point.x() >= 3.0 && point.x() <= 28.0 && point.y() >= 0.0 && point.y() <= 15.0
+        return point.x() >= -11.0 && point.x() <= 14.0 && point.y() >= -7.5 && point.y() <= 7.5
             && point.z() >= 0.0 && point.z() <= 1.4;
     }
 
     auto in_dynamic_corner_exclusion(const Eigen::Vector3d& point) -> bool {
-        return point.y() > 0.0 && point.y() < 5.0 && point.x() > 25.0;
+        return point.y() > -7.5 && point.y() < -2.5 && point.x() > 11.0;
     }
 
     auto in_dynamic_slope_exclusion(const Eigen::Vector3d& point) -> bool {
-        constexpr double x_plus_y_center      = 21.5;
+        constexpr double x_plus_y_center      = 0.0;
         constexpr double x_plus_y_half_width  = exclusion_zone_half_width(2.9);
-        constexpr double y_minus_x_center     = -6.5;
+        constexpr double y_minus_x_center     = 0.0;
         constexpr double y_minus_x_half_width = exclusion_zone_half_width(0.9);
         const double point_x_plus_y           = point.x() + point.y();
         const double point_y_minus_x          = point.y() - point.x();
