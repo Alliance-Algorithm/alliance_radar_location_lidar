@@ -35,7 +35,13 @@ int main(int argc, char** argv) {
     std::set<int> wanted_indices;
     for (int i = 3; i < argc; ++i) {
         if (std::string(argv[i]) == "--index" && i + 1 < argc) {
-            wanted_indices.insert(std::stoi(argv[++i]));
+            ++i;
+            try {
+                wanted_indices.insert(std::stoi(argv[i]));
+            } catch (const std::exception&) {
+                std::cerr << "ERROR: invalid index value: " << argv[i] << "\n";
+                return 1;
+            }
         }
     }
     if (wanted_indices.empty()) {

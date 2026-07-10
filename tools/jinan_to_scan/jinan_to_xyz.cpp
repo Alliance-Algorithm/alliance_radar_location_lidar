@@ -35,7 +35,11 @@ auto parse_roi(std::string_view s) -> std::optional<Roi> {
     std::stringstream ss { std::string(s) };
     std::string tok;
     while (std::getline(ss, tok, ',')) {
-        vals.push_back(std::stof(tok));
+        try {
+            vals.push_back(std::stof(tok));
+        } catch (const std::exception&) {
+            return std::nullopt;
+        }
     }
     if (vals.size() != 6) return std::nullopt;
     return Roi { vals[0], vals[1], vals[2], vals[3], vals[4], vals[5] };
