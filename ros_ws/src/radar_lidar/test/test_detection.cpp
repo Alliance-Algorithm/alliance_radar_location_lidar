@@ -80,11 +80,18 @@ TEST(DynamicCloudTest, NoMapReturnsError) {
 TEST(DynamicCloudTest, FiltersOutExcludedMapRegions) {
     auto map = make_wall(10, 10, 0.5);
 
+    // 工作系原点在场地中心, 各测试点为对应 ROI 特征点整体平移 (-14, -7.5) 后的坐标
+    // (main_roi/corner/slope 边界值参见 dynamic_cloud.cpp 顶部注释)
+    const Eigen::Vector3d in_corner_exclusion  { 12.0, -5.5, 0.5 };
+    const Eigen::Vector3d in_slope_exclusion   {  0.0,  0.0, 0.5 };
+    const Eigen::Vector3d outside_main_roi     { -11.5, -3.5, 0.5 };
+    const Eigen::Vector3d kept_point           { -4.0,  2.5, 0.5 };
+
     radar::lidar::types::PointCloud scan;
-    scan.emplace_back(26.0, 2.0, 0.5);
-    scan.emplace_back(14.0, 7.5, 0.5);
-    scan.emplace_back(2.5, 4.0, 0.5);
-    scan.emplace_back(10.0, 10.0, 0.5);
+    scan.push_back(in_corner_exclusion);
+    scan.push_back(in_slope_exclusion);
+    scan.push_back(outside_main_roi);
+    scan.push_back(kept_point);
 
     radar::lidar::DynamicCloudConfig cfg;
     cfg.distance_threshold = 0.1;
@@ -96,8 +103,8 @@ TEST(DynamicCloudTest, FiltersOutExcludedMapRegions) {
     auto result = stage.process(scan);
     ASSERT_TRUE(result.has_value()) << result.error();
     ASSERT_EQ(result->size(), 1u);
-    EXPECT_NEAR(result->front().x(), 10.0, 1e-6);
-    EXPECT_NEAR(result->front().y(), 10.0, 1e-6);
+    EXPECT_NEAR(result->front().x(), -4.0, 1e-6);
+    EXPECT_NEAR(result->front().y(), 2.5, 1e-6);
     EXPECT_NEAR(result->front().z(), 0.5, 1e-6);
 }
 
