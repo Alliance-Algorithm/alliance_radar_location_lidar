@@ -1,0 +1,47 @@
+#!/bin/bash
+# odin-record - record Odin1 SLAM bag for offline map building
+#
+# Usage:
+#   odin-record [output_bag_dir] [extra ros2 bag record args...]
+#
+# 需要先在另一个终端启动 SLAM 建图模式 (custom_map_mode=1) 的 Odin 驱动:
+#   ros2 launch radar_bringup odin_slam_mapping.launch.py
+#
+# 录制完成后用 bag-to-map 提取 /odin1/cloud_slam 为 PCD 地图。
+
+set -euo pipefail
+
+: "${RADAR_WS:=/workspace}"
+
+QOS_FILE="${RADAR_WS}/lidar_ros_driver/odin_ros_driver/script/rosbag2_qos.yaml"
+TOPICS=(/odin1/cloud_slam /odin1/odometry /odin1/odometry_highfreq /odin1/imu /tf /tf_static)
+
+OUTPUT_DIR="${1:-map_recording_$(date +%Y%m%d_%H%M%S)}"
+if [[ $# -gt 0 ]]; then shift; fi
+
+if [ ! -f /opt/ros/jazzy/setup.bash ]; then
+    echo "> ERROR: ROS2 Jazzy not found" >&2; exit 1
+fi
+if [ ! -f "${RADAR_WS}/ros_ws/install/setup.bash" ]; then
+    echo "> ERROR: Workspace not built. Run build-all or build-radar first." >&2; exit 1
+fi
+if [ ! -f "$QOS_FILE" ]; then
+    echo "> ERROR: QoS override file not found: $QOS_FILE" >&2; exit 1
+fi
+
+set +u
+source /opt/ros/jazzy/setup.bash
+source "${RADAR_WS}/ros_ws/install/setup.bash"
+set -u
+
+echo "[odin-record] Output: $OUTPUT_DIR"
+echo "[odin-record] Topics: ${TOPICS[*]}"
+echo "[odin-record] QoS overrides: $QOS_FILE (防止 IMU/高频里程计在录制端丢帧)"
+echo "[odin-record] 请确认 Odin 驱动已在另一终端以 custom_map_mode=1 运行。"
+echo "[odin-record] Ctrl+C 结束录制。"
+echo ""
+
+ros2 bag record -o "$OUTPUT_DIR" \
+    --qos-profile-overrides-path "$QOS_FILE" \
+    --topics "${TOPICS[@]}" \
+    "$@"
