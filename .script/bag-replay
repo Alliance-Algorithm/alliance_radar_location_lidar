@@ -1,0 +1,52 @@
+#!/bin/bash
+# bag-replay - 回放录制的 bag, 重新发布点云给下游节点 (radar_lidar / Foxglove)
+#
+# Usage:
+#   bag-replay <bag_dir> [--rate <float>] [--loop] [extra ros2 bag play args...]
+#
+# 默认原速回放, 供 radar_lidar_node / offline 工具 / Foxglove 实时订阅调试。
+# 需要 Foxglove bridge 单独启动: foxglove
+
+set -euo pipefail
+
+: "${RADAR_WS:=/workspace}"
+
+BAG_DIR=""
+RATE="1.0"
+LOOP_ARG=()
+EXTRA_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --rate) RATE="$2"; shift 2 ;;
+        --loop) LOOP_ARG=(--loop); shift ;;
+        -*)     EXTRA_ARGS+=("$1"); shift ;;
+        *)
+            if [[ -z "$BAG_DIR" ]]; then BAG_DIR="$1"
+            else EXTRA_ARGS+=("$1"); fi
+            shift ;;
+    esac
+done
+
+if [[ -z "$BAG_DIR" ]]; then
+    echo "Usage: bag-replay <bag_dir> [--rate <float>] [--loop] [extra ros2 bag play args...]"
+    exit 1
+fi
+
+if [ ! -f /opt/ros/jazzy/setup.bash ]; then
+    echo "> ERROR: ROS2 Jazzy not found" >&2; exit 1
+fi
+if [ ! -f "${RADAR_WS}/ros_ws/install/setup.bash" ]; then
+    echo "> ERROR: Workspace not built. Run build-all or build-radar first." >&2; exit 1
+fi
+
+set +u
+source /opt/ros/jazzy/setup.bash
+source "${RADAR_WS}/ros_ws/install/setup.bash"
+set -u
+
+echo "[bag-replay] Bag:  $BAG_DIR"
+echo "[bag-replay] Rate: $RATE"
+echo "[bag-replay] 提示: 另开终端跑 'foxglove' 桥接以便实时可视化。"
+
+ros2 bag play "$BAG_DIR" --rate "$RATE" "${LOOP_ARG[@]}" "${EXTRA_ARGS[@]}"

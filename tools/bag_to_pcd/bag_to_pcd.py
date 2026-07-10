@@ -16,6 +16,7 @@
 """
 import sys
 import argparse
+from pathlib import Path
 import numpy as np
 
 def main():
@@ -40,7 +41,7 @@ def main():
     all_points = []
     frame_count = 0
 
-    with AnyReader([args.bag]) as reader:
+    with AnyReader([Path(args.bag)]) as reader:
         connections = [c for c in reader.connections if c.topic == args.topic]
         if not connections:
             print(f"ERROR: topic {args.topic} not found in bag", file=sys.stderr)
