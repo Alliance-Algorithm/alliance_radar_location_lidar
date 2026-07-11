@@ -1,14 +1,9 @@
 #pragma once
 #include "radar_bridge/zmq_data_format.hpp"
 #include <atomic>
-#include <exception>
 #include <expected>
-#include <memory>
 #include <mutex>
-#include <nlohmann/json.hpp>
-#include <optional>
 #include <string>
-#include <string_view>
 #include <thread>
 #include <vector>
 #include <zmq.hpp>
