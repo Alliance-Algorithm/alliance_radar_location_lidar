@@ -1,9 +1,5 @@
 #include "radar_bridge/zmq_bridge.hpp"
-#include "radar_bridge/zmq_data_format.hpp"
-#include <cmath>
 #include <iostream>
-#include <nlohmann/json.hpp>
-#include <zmq.hpp>
 
 namespace radar_bridge::zmq_bridge {
 

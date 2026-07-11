@@ -1,6 +1,4 @@
 #include "radar_bridge/radar_bridge_node.hpp"
-#include "radar_bridge/zmq_bridge.hpp"
-#include "radar_bridge/zmq_data_format.hpp"
 
 namespace radar_bridge::node {
 
