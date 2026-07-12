@@ -1,5 +1,5 @@
 #include "radar_bridge/videostream_bridge.hpp"
-#include "hikcamera_ros_driver/shm.hpp"
+#include <hikcamera/shm.hpp>
 
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -39,7 +39,7 @@ auto VideoBridge::video_thread() -> std::expected<void, std::string> {
         while (video_thread_running_) {
             cv::Mat mat;
             std::chrono::steady_clock::time_point ts;
-            auto ret = hikcamera_ros_driver::SHMRead(shm_fd_, mat, ts, width_, height_);
+            auto ret = hikcamera::SHMRead(shm_fd_, mat, ts, width_, height_);
             if (!ret.has_value()) continue;
 
             std::vector<uchar> jpeg;
