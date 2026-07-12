@@ -14,7 +14,9 @@ auto ConfigsLoader(rclcpp::Node& node, BridgeConfig& config)
 }
 
 RadarBridgeNode::RadarBridgeNode()
-    : Node("radar_bridge_node") {
+    : Node("radar_bridge_node"),
+      video_bridge_(config_.shm_name, config_.video_pub_address,
+                    config_.video_width, config_.video_height) {
     auto result = ConfigsLoader(*this, config_);
     if (!result.has_value()) {
         RCLCPP_ERROR(this->get_logger(), "ConfigsLoader failed: %s", result.error().c_str());
@@ -36,12 +38,21 @@ RadarBridgeNode::RadarBridgeNode()
                     result.error().c_str());
             }
         });
+
+    auto init_ret = video_bridge_.video_init();
+    if (!init_ret.has_value()) {
+        RCLCPP_ERROR(this->get_logger(), "VideoBridge init failed: %s", init_ret.error().c_str());
+    } else {
+        video_bridge_.video_thread();
+    }
+
     zmqpub_thread_running_   = true;
     zmqsub_thread_running_   = true;
 }
 RadarBridgeNode::~RadarBridgeNode() {
     zmqpub_thread_running_ = false;
     zmqsub_thread_running_ = false;
+    video_bridge_.video_thread_stop();
 }
 auto RadarBridgeNode::sub_lidar_pose_callback(const radar_interfaces::msg::LidarLocation& msg)
     -> std::expected<void, std::string> {
