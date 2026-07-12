@@ -17,7 +17,7 @@ ament_auto_find_build_dependencies()
 set(SOURCE_FILES
     src/radar_bridge_node.cpp
     src/zmq_bridge.cpp
-    src/udpstream_bridge.cpp
+    src/videostream_bridge.cpp
     src/runtime.cpp
 )
 ament_auto_add_executable(${PROJECT_NAME}_node

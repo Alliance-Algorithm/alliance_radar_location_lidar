@@ -30,7 +30,7 @@ packages/
 ├── radar_fusion       ← 系统统一位姿出口 + 多目标跟踪
 ├── radar_camera       ← 视觉观测生成
 ├── radar_calibration  ← 离线相机-雷达标定 + 模型预处理
-├── radar_bridge       ← ROS2 ↔ ZMQ 桥接 + (远期) UdpStreamer
+├── radar_bridge       ← ROS2 ↔ ZMQ 桥接 + (远期) VideoStreamer
 └── radar_bringup      ← launch / yaml / remap / compose
 ```
 
@@ -152,8 +152,8 @@ ROS2 ↔ ZMQ 桥接节点。双向转换：
   decode 写入 `game_state_`，由 ROS 定时回调发布到 `/bridge/game_state`
   （`radar_interfaces::msg::GameState`）。
 
-远期：UdpStreamer 线程从 hikcamera SHM（`/hikcamera_shm`）读取图像帧，
-JPEG 编码后 UDP 推流到 egui（当前占位，实现参考 `hikcamera_ros_driver`
+远期：VideoStreamer 线程从 hikcamera SHM（`/hikcamera_shm`）读取图像帧，
+JPEG 编码后通过 ZMQ PUB (conflate=1) 推流到 egui（当前占位，实现参考 `hikcamera_ros_driver`
 的 `SHMRead` 模式）。
 
 不做感知，不做配准，不做滤波。纯 IO 桥接。
@@ -165,8 +165,8 @@ JPEG 编码后 UDP 推流到 egui（当前占位，实现参考 `hikcamera_ros_d
 | `include/radar_bridge/radar_bridge_node.hpp` | `RadarBridgeNode`：ROS 订阅/发布 + 成员变量 + cb 签名 |
 | `src/radar_bridge_node.cpp` | 回调实现：24 字段填充 + 5 字段发布 |
 | `src/zmq_bridge.cpp` | ZMQ PUB/SUB 发送接收线程 |
-| `include/radar_bridge/udpstream_bridge.hpp` | UdpStreamer 桩（远期实现） |
-| `src/udpstream_bridge.cpp` | UdpStreamer 桩（远期实现） |
+| `include/radar_bridge/videostream_bridge.hpp` | VideoStreamer 桩（远期实现） |
+| `src/videostream_bridge.cpp` | VideoStreamer 桩（远期实现） |
 | `src/runtime.cpp` | `main()` → spin（当前占位） |
 
 独立进程，不要求 component。
@@ -334,7 +334,7 @@ radar_bringup (launch / YAML / static tf)
 └── radar_bridge_node
     ├── 订阅 /lidar/location（LidarLocation）→ ZMQ PUB → radar-egui
     ├── ZMQ SUB ← radar-egui → /bridge/game_state（GameState）
-    └── (远期) UdpStreamer：SHM → JPEG → UDP → egui
+    └── (远期) VideoStreamer：SHM → JPEG → ZMQ → egui
 ```
 
 #### 启动期与运行期的边界
@@ -427,7 +427,7 @@ zmq/
 ```
 
 (注：原共享内存方案 `shm_layout.hpp` / `shm_writer.hpp` 尚未实现，改为远期规划。
-当前 UdpStreamer SHM 读取侧引用 `hikcamera_ros_driver` 的 `/hikcamera_shm` 命名共享内存，
+当前 VideoStreamer SHM 读取侧引用 `hikcamera_ros_driver` 的 `/hikcamera_shm` 命名共享内存，
 `bridge` 自身不维护单独的 SHM 数据契约。)
 
 ## Data Flow
@@ -456,7 +456,7 @@ zmq/
                                                    │ /lidar/location │ PUB → JSON → egui
                                                    │ → bridge/game   │ SUB ← JSON ← egui
                                                    └───────────────┘
-                                                   (UdpStreamer: SHM→JPEG→UDP, 远期)
+                                                   (VideoStreamer: SHM→JPEG→ZMQ, 远期)
 ```
 
 ## Process Topology
@@ -469,7 +469,7 @@ runtime/
 │   ├── radar_lidar   (component)
 │   └── radar_fusion  (component)                       intra-process 零拷贝
 ├── radar_bridge                                         独立进程, /lidar/location ↔ ZMQ ↔ radar-egui
-├── radar-egui                                           非 ROS 进程, ZMQ + (远期) UDP 接收画面
+├── radar-egui                                           非 ROS 进程, ZMQ 接收位置 + (远期) 图像
 └── radar_camera                                         独立视觉观测进程
 ```
 
