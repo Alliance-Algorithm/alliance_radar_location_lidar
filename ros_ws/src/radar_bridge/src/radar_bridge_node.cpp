@@ -8,13 +8,17 @@ RadarBridgeNode::RadarBridgeNode()
         this->create_publisher<radar_interfaces::msg::GameState>("/bridge/game_state", 10);
 
     lidar_pose_subscription_ = this->create_subscription<radar_interfaces::msg::LidarLocation>("/li"
-                                                                                               "dar"
-                                                                                               "/lo"
-                                                                                               "cat"
-                                                                                               "io"
-                                                                                               "n",
+                                                                                                "dar"
+                                                                                                "/lo"
+                                                                                                "cat"
+                                                                                                "io"
+                                                                                                "n",
         10, [this](const radar_interfaces::msg::LidarLocation& msg) {
-            return sub_lidar_pose_callback(msg);
+            auto result = sub_lidar_pose_callback(msg);
+            if (!result.has_value()) {
+                RCLCPP_ERROR(this->get_logger(), "sub_lidar_pose_callback failed: %s",
+                    result.error().c_str());
+            }
         });
     zmqpub_thread_running_   = true;
     zmqsub_thread_running_   = true;
