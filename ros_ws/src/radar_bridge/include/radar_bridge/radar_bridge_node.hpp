@@ -1,3 +1,4 @@
+#include "radar_bridge/videostream_bridge.hpp"
 #include "radar_bridge/zmq_bridge.hpp"
 #include "radar_bridge/zmq_data_format.hpp"
 #include "radar_interfaces/msg/game_state.hpp"
@@ -12,10 +13,8 @@
 namespace radar_bridge::node {
 
 struct BridgeConfig {
-    // ZMQ
     std::string zmq_pub_address;
     std::vector<std::string> zmq_sub_addresses;
-    // Video stream
     std::string shm_name;
     std::string video_pub_address;
     int video_width  = 0;
@@ -33,8 +32,6 @@ public:
         -> std::expected<void, std::string>;
     auto pub_game_state_callback() -> std::expected<void, std::string>;
 
-    const auto& get_config() const { return config_; }
-
 private:
     rclcpp::Publisher<radar_interfaces::msg::GameState>::SharedPtr game_state_publisher_;
     rclcpp::Subscription<radar_interfaces::msg::LidarLocation>::SharedPtr lidar_pose_subscription_;
@@ -46,6 +43,7 @@ private:
     std::atomic<bool> zmqsub_thread_running_ { false };
 
     BridgeConfig config_ { };
+    radar_bridge::videostream_bridge::VideoBridge video_bridge_;
 };
 
 } // namespace radar_bridge::node

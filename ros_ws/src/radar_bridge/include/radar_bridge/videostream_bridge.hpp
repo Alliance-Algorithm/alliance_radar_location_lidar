@@ -17,13 +17,11 @@ public:
                 int width, int height);
     ~VideoBridge();
 
-    auto video_init()       -> std::expected<void, std::string>;
-    auto video_thread()     -> std::expected<void, std::string>;
-    auto video_thread_stop()-> std::expected<void, std::string>;
+    auto video_init()        -> std::expected<void, std::string>;
+    auto video_thread()      -> std::expected<void, std::string>;
+    auto video_thread_stop() -> std::expected<void, std::string>;
 
 private:
-    void thread_loop();
-
     int shm_fd_ = -1;
     void* shm_ptr_ = nullptr;
     std::string shm_name_;
@@ -33,8 +31,8 @@ private:
 
     zmq::context_t ctx_{1};
     zmq::socket_t pub_{ctx_, zmq::socket_type::pub};
-    std::thread thread_;
-    std::atomic<bool> running_{false};
+    std::thread video_thread_;
+    std::atomic<bool> video_thread_running_{false};
 };
 
 } // namespace radar_bridge::videostream_bridge
