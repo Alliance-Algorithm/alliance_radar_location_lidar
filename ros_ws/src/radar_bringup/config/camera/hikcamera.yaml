@@ -24,5 +24,8 @@ hikcamera_ros_driver_node:
     trigger_mode: false
     fixed_framerate: true
 
+    # 图像话题
+    image_topic: "/hikcamera_image"
+
     # 共享内存名
     shm_name: "/hikcamera_shm"
