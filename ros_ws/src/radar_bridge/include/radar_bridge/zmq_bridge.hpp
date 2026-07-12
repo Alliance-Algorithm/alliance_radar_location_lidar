@@ -11,12 +11,12 @@ namespace radar_bridge::zmq_bridge {
 
 class ZmqBridge final {
 public:
-    ZmqBridge(const std::vector<std::string>& sub_address, const std::string& pub_address);
+    ZmqBridge() = default;
     ZmqBridge& operator=(const ZmqBridge&) = delete;
     ZmqBridge(const ZmqBridge&)            = delete;
     ~ZmqBridge();
-    auto zmqpub_init() -> std::expected<void, std::string>;
-    auto zmqsub_init() -> std::expected<void, std::string>;
+    auto zmqpub_init(const std::string& pub_address) -> std::expected<void, std::string>;
+    auto zmqsub_init(const std::vector<std::string>& sub_addresses) -> std::expected<void, std::string>;
     auto zmqpub(const radar_bridge::zmqdata::pub::LidarLocation& lidarlocation_data)
         -> std::expected<void, std::string>;
     auto zmqsub(radar_bridge::zmqdata::sub::TransmitGameState& game_state_)
@@ -34,8 +34,6 @@ public:
 
 private:
     std::mutex zmq_mutex_;
-    std::vector<std::string> sub_address_;
-    std::string pub_address_;
     std::thread zmqpub_thread_;
     std::thread zmqsub_thread_;
 

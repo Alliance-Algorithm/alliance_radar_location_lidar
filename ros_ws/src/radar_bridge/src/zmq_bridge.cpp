@@ -4,14 +4,6 @@
 
 namespace radar_bridge::zmq_bridge {
 
-ZmqBridge::ZmqBridge(const std::vector<std::string>& sub_address, const std::string& pub_address) {
-    sub_address_.reserve(sub_address.size());
-    for (const auto& address : sub_address) {
-        sub_address_.emplace_back(address);
-    }
-    pub_address_ = pub_address;
-}
-
 ZmqBridge::~ZmqBridge() {
     // ⚠️ 调用方必须在析构 ZmqBridge 前先置 running flag = false，
     //    否则 join() 永久阻塞（while(running) 循环不退出）。
@@ -23,15 +15,16 @@ ZmqBridge::~ZmqBridge() {
     }
 }
 
-auto ZmqBridge::zmqpub_init() -> std::expected<void, std::string> {
+auto ZmqBridge::zmqpub_init(const std::string& pub_address) -> std::expected<void, std::string> {
     publisher_ = zmq::socket_t(context_, zmq::socket_type::pub);
-    publisher_.bind(pub_address_.data());
+    publisher_.bind(pub_address.data());
     return { };
 }
 
-auto ZmqBridge::zmqsub_init() -> std::expected<void, std::string> {
+auto ZmqBridge::zmqsub_init(const std::vector<std::string>& sub_addresses)
+    -> std::expected<void, std::string> {
     subscriber_ = zmq::socket_t(context_, zmq::socket_type::sub);
-    for (const auto& address : sub_address_) {
+    for (const auto& address : sub_addresses) {
         subscriber_.connect(address.data());
     }
     return { };
