@@ -43,7 +43,4 @@ private:
     zmq::socket_t publisher_;
     zmq::socket_t subscriber_;
 };
-
-auto create_pub_socket(zmq::context_t& ctx, const std::string& address)
-    -> std::expected<zmq::socket_t, std::string>;
 }
