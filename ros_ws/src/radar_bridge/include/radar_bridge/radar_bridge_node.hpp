@@ -7,8 +7,23 @@
 #include <memory>
 #include <rclcpp/rclcpp.hpp>
 #include <string>
+#include <vector>
 
 namespace radar_bridge::node {
+
+struct BridgeConfig {
+    // ZMQ
+    std::string zmq_pub_address;
+    std::vector<std::string> zmq_sub_addresses;
+    // Video stream
+    std::string shm_name;
+    std::string video_pub_address;
+    int video_width  = 0;
+    int video_height = 0;
+};
+
+auto ConfigsLoader(rclcpp::Node& node, BridgeConfig& config)
+    -> std::expected<void, std::string>;
 
 class RadarBridgeNode final : public rclcpp::Node {
 public:
@@ -17,6 +32,8 @@ public:
     auto sub_lidar_pose_callback(const radar_interfaces::msg::LidarLocation& msg)
         -> std::expected<void, std::string>;
     auto pub_game_state_callback() -> std::expected<void, std::string>;
+
+    const auto& get_config() const { return config_; }
 
 private:
     rclcpp::Publisher<radar_interfaces::msg::GameState>::SharedPtr game_state_publisher_;
@@ -27,6 +44,8 @@ private:
 
     std::atomic<bool> zmqpub_thread_running_ { false };
     std::atomic<bool> zmqsub_thread_running_ { false };
+
+    BridgeConfig config_ { };
 };
 
 } // namespace radar_bridge::node
