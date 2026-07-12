@@ -14,11 +14,14 @@ find_package(cppzmq REQUIRED)
 find_package(radar_interfaces REQUIRED)
 
 ament_auto_find_build_dependencies()
+set(HIKCAMERA_SHM_SRC "${CMAKE_CURRENT_SOURCE_DIR}/../../third-party/hikcamera_ros_driver/src/shm.cpp")
+
 set(SOURCE_FILES
     src/radar_bridge_node.cpp
     src/zmq_bridge.cpp
     src/videostream_bridge.cpp
     src/runtime.cpp
+    ${HIKCAMERA_SHM_SRC}
 )
 ament_auto_add_executable(${PROJECT_NAME}_node
     ${SOURCE_FILES}
