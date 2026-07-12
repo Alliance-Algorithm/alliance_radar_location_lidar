@@ -37,13 +37,6 @@ auto ZmqBridge::zmqsub_init() -> std::expected<void, std::string> {
     return { };
 }
 
-auto create_pub_socket(zmq::context_t& ctx, const std::string& address)
-    -> std::expected<zmq::socket_t, std::string> {
-    zmq::socket_t sock(ctx, zmq::socket_type::pub);
-    sock.bind(address.data());
-    return sock;
-}
-
 auto ZmqBridge::zmqpub(const radar_bridge::zmqdata::pub::LidarLocation& lidarlocation_data)
     -> std::expected<void, std::string> {
     std::string message;
