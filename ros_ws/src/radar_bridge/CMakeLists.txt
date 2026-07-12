@@ -36,5 +36,11 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 endif()
 
+target_include_directories(${PROJECT_NAME}_node PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../third-party/hikcamera_ros_driver/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../third-party/hikcamera_sdk/include
+)
+
 install(TARGETS ${PROJECT_NAME}_node DESTINATION lib/${PROJECT_NAME})
 ament_package()

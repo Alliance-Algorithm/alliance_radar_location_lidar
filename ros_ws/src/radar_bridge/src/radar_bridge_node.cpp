@@ -2,8 +2,24 @@
 
 namespace radar_bridge::node {
 
+auto ConfigsLoader(rclcpp::Node& node, BridgeConfig& config)
+    -> std::expected<void, std::string> {
+    config.zmq_pub_address  = node.get_parameter("zmq_pub_address").as_string();
+    config.zmq_sub_addresses = node.get_parameter("zmq_sub_addresses").as_string_array();
+    config.shm_name          = node.get_parameter("shm_name").as_string();
+    config.video_pub_address = node.get_parameter("video_pub_address").as_string();
+    config.video_width       = node.get_parameter("video_width").as_int();
+    config.video_height      = node.get_parameter("video_height").as_int();
+    return { };
+}
+
 RadarBridgeNode::RadarBridgeNode()
     : Node("radar_bridge_node") {
+    auto result = ConfigsLoader(*this, config_);
+    if (!result.has_value()) {
+        RCLCPP_ERROR(this->get_logger(), "ConfigsLoader failed: %s", result.error().c_str());
+    }
+
     game_state_publisher_ =
         this->create_publisher<radar_interfaces::msg::GameState>("/bridge/game_state", 10);
 
