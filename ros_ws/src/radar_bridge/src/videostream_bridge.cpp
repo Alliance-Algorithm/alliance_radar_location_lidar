@@ -1,5 +1,5 @@
 #include "radar_bridge/videostream_bridge.hpp"
-#include "hikcamera_ros_driver/camera_driver.hpp"
+#include "hikcamera_ros_driver/shm.hpp"
 
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -9,14 +9,14 @@
 
 namespace radar_bridge::videostream_bridge {
 
-VideoBridge::VideoBridge(const std::string& shm_name, const std::string& pub_address,
-                             int width, int height)
-    : shm_name_(shm_name), pub_address_(pub_address),
-      width_(width), height_(height) {}
-
 VideoBridge::~VideoBridge() { auto _ = video_thread_stop(); }
 
-auto VideoBridge::video_init() -> std::expected<void, std::string> {
+auto VideoBridge::video_init(const std::string& shm_name, const std::string& pub_address,
+                             int width, int height) -> std::expected<void, std::string> {
+    shm_name_    = shm_name;
+    pub_address_ = pub_address;
+    width_       = width;
+    height_      = height;
     shm_fd_ = shm_open(shm_name_.c_str(), O_RDWR, 0666);
     if (shm_fd_ == -1)
         return std::unexpected("shm_open failed: " + shm_name_);
