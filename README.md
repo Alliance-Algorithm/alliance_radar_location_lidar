@@ -250,10 +250,10 @@ RADAR-LOCATION-LIDAR/
 │   │   ├── radar_lidar/       # LiDAR 配准定位
 │   │   ├── radar_camera/      # 视觉位姿观测
 │   │   ├── radar_fusion/      # 多传感器融合定位
-│   │   ├── radar_bridge/      # ROS2 → 共享内存桥接
+│   │   ├── radar_bridge/      # ROS2 ↔ ZMQ 桥接 + SHM 视频推流
 │   │   ├── radar_calibration/ # 相机-雷达标定+定位
 │   │   └── radar_bringup/     # Launch / YAML / 组件编排
-│   └── third-party/        # small_gicp, hikcamera_sdk, direct_visual_lidar_calibration
+│   └── third-party/        # small_gicp, hikcamera_sdk（含 SHM）, direct_visual_lidar_calibration
 ├── lidar_ros_driver/       # LiDAR 驱动（git submodules）
 │   └── * Livox 驱动使用 fork 版本以支持 Mid-70（上游 SDK2 暂未提供），维护者 @Yukikaze2233
 ├── docs/                   # SLAM 学习资料
