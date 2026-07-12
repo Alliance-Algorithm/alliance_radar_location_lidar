@@ -5,14 +5,8 @@
 namespace radar_bridge::zmq_bridge {
 
 ZmqBridge::~ZmqBridge() {
-    // ⚠️ 调用方必须在析构 ZmqBridge 前先置 running flag = false，
-    //    否则 join() 永久阻塞（while(running) 循环不退出）。
-    if (zmqpub_thread_.joinable()) {
-        zmqpub_thread_.join();
-    }
-    if (zmqsub_thread_.joinable()) {
-        zmqsub_thread_.join();
-    }
+    zmqpub_thread_stop();
+    zmqsub_thread_stop();
 }
 
 auto ZmqBridge::zmqpub_init(const std::string& pub_address) -> std::expected<void, std::string> {
@@ -59,26 +53,10 @@ auto ZmqBridge::zmqsub(radar_bridge::zmqdata::sub::TransmitGameState& game_state
     return { };
 }
 
-auto ZmqBridge::zmqsub_thread(std::atomic<bool>& zmqsub_thread_running_,
-    radar_bridge::zmqdata::sub::TransmitGameState& game_state_)
-    -> std::expected<void, std::string> {
-    zmqsub_thread_running_ = true;
-    zmqsub_thread_         = std::thread([this, &zmqsub_thread_running_, &game_state_]() {
-        while (zmqsub_thread_running_) {
-            auto result = zmqsub(game_state_);
-            if (!result.has_value()) {
-                std::cerr << "zmqsub error: " << result.error() << std::endl;
-            }
-        }
-    });
-    return { };
-}
-
-auto ZmqBridge::zmqpub_thread(std::atomic<bool>& zmqpub_thread_running_,
-    const radar_bridge::zmqdata::pub::LidarLocation& lidarlocation_data)
+auto ZmqBridge::zmqpub_thread(const radar_bridge::zmqdata::pub::LidarLocation& lidarlocation_data)
     -> std::expected<void, std::string> {
     zmqpub_thread_running_ = true;
-    zmqpub_thread_         = std::thread([this, &zmqpub_thread_running_, &lidarlocation_data]() {
+    zmqpub_thread_         = std::thread([this, &lidarlocation_data]() {
         while (zmqpub_thread_running_) {
             auto result = zmqpub(lidarlocation_data);
             if (!result.has_value()) {
@@ -90,8 +68,21 @@ auto ZmqBridge::zmqpub_thread(std::atomic<bool>& zmqpub_thread_running_,
     return { };
 }
 
-auto ZmqBridge::zmqpub_thread_stop(std::atomic<bool>& zmqpub_thread_running_)
+auto ZmqBridge::zmqsub_thread(radar_bridge::zmqdata::sub::TransmitGameState& game_state_)
     -> std::expected<void, std::string> {
+    zmqsub_thread_running_ = true;
+    zmqsub_thread_         = std::thread([this, &game_state_]() {
+        while (zmqsub_thread_running_) {
+            auto result = zmqsub(game_state_);
+            if (!result.has_value()) {
+                std::cerr << "zmqsub error: " << result.error() << std::endl;
+            }
+        }
+    });
+    return { };
+}
+
+auto ZmqBridge::zmqpub_thread_stop() -> std::expected<void, std::string> {
     zmqpub_thread_running_ = false;
     if (zmqpub_thread_.joinable()) {
         zmqpub_thread_.join();
@@ -99,8 +90,7 @@ auto ZmqBridge::zmqpub_thread_stop(std::atomic<bool>& zmqpub_thread_running_)
     return { };
 }
 
-auto ZmqBridge::zmqsub_thread_stop(std::atomic<bool>& zmqsub_thread_running_)
-    -> std::expected<void, std::string> {
+auto ZmqBridge::zmqsub_thread_stop() -> std::expected<void, std::string> {
     zmqsub_thread_running_ = false;
     if (zmqsub_thread_.joinable()) {
         zmqsub_thread_.join();
