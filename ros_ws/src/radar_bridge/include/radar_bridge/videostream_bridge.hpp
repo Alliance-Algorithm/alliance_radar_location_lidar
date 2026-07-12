@@ -23,7 +23,6 @@ public:
 
 private:
     int shm_fd_ = -1;
-    void* shm_ptr_ = nullptr;
     std::string shm_name_;
     std::string pub_address_;
     int width_ = 0;
