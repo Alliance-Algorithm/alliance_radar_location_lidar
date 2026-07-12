@@ -1,4 +1,5 @@
 #include "radar_bridge/zmq_bridge.hpp"
+#include <chrono>
 #include <iostream>
 
 namespace radar_bridge::zmq_bridge {
@@ -86,6 +87,7 @@ auto ZmqBridge::zmqpub_thread(std::atomic<bool>& zmqpub_thread_running_,
             if (!result.has_value()) {
                 std::cerr << "zmqpub error: " << result.error() << std::endl;
             }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
     });
     return { };
