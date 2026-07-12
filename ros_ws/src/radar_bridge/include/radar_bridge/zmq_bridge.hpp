@@ -15,7 +15,8 @@ public:
     ZmqBridge& operator=(const ZmqBridge&) = delete;
     ZmqBridge(const ZmqBridge&)            = delete;
     ~ZmqBridge();
-    auto zmq_init() -> std::expected<void, std::string>;
+    auto zmqpub_init() -> std::expected<void, std::string>;
+    auto zmqsub_init() -> std::expected<void, std::string>;
     auto zmqpub(const radar_bridge::zmqdata::pub::LidarLocation& lidarlocation_data)
         -> std::expected<void, std::string>;
     auto zmqsub(radar_bridge::zmqdata::sub::TransmitGameState& game_state_)
@@ -42,4 +43,7 @@ private:
     zmq::socket_t publisher_;
     zmq::socket_t subscriber_;
 };
+
+auto create_pub_socket(zmq::context_t& ctx, const std::string& address)
+    -> std::expected<zmq::socket_t, std::string>;
 }

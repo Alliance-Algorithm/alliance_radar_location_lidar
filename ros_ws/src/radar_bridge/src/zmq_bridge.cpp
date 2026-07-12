@@ -23,14 +23,25 @@ ZmqBridge::~ZmqBridge() {
     }
 }
 
-auto ZmqBridge::zmq_init() -> std::expected<void, std::string> {
+auto ZmqBridge::zmqpub_init() -> std::expected<void, std::string> {
     publisher_ = zmq::socket_t(context_, zmq::socket_type::pub);
     publisher_.bind(pub_address_.data());
+    return { };
+}
+
+auto ZmqBridge::zmqsub_init() -> std::expected<void, std::string> {
     subscriber_ = zmq::socket_t(context_, zmq::socket_type::sub);
     for (const auto& address : sub_address_) {
         subscriber_.connect(address.data());
     }
     return { };
+}
+
+auto create_pub_socket(zmq::context_t& ctx, const std::string& address)
+    -> std::expected<zmq::socket_t, std::string> {
+    zmq::socket_t sock(ctx, zmq::socket_type::pub);
+    sock.bind(address.data());
+    return sock;
 }
 
 auto ZmqBridge::zmqpub(const radar_bridge::zmqdata::pub::LidarLocation& lidarlocation_data)
