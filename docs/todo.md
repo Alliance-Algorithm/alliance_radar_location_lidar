@@ -271,7 +271,7 @@ SUB 方向：radar-egui → ZMQ → radar_bridge → `/bridge/game_state`
 
 # radar_bridge 包重构 TODO
 
-> 更新日期：2026-07-10
+> 更新日期：2026-07-12
 
 ## 文件结构
 ```
@@ -282,12 +282,12 @@ radar_bridge/
 │   ├── zmq_data_format.hpp   ✅  namespace radar_bridge::zmqdata::{pub,sub}
 │   ├── zmq_bridge.hpp        ✅  ZmqBridge PUB+SUB, 全部引用传参
 │   ├── radar_bridge_node.hpp ✅  RadarBridgeNode, lidar_location_/game_state_ 成员
-│   └── udpstream_bridge.hpp  🔄 UdpStreamer，当前占位
+│   └── videostream_bridge.hpp  ✅ VideoBridge，SHMRead → JPEG → ZMQ PUB
 ├── src/
-│   ├── runtime.cpp           🔄 main()，当前占位
+│   ├── runtime.cpp           ✅ main()，创建节点 + spin
 │   ├── radar_bridge_node.cpp ✅  24 字段 LidarLocation + 5 字段 GameState 回调
 │   ├── zmq_bridge.cpp        ✅  zmqpub/zmqsub + pub/sub threads
-│   └── udpstream_bridge.cpp  🔄 当前占位
+│   └── videostream_bridge.cpp  ✅ VideoBridge，SHMRead → imencode → zmq::send
 ```
 
 ## 执行顺序
@@ -296,8 +296,8 @@ radar_bridge/
 - [x] 2. 重写 `zmq_data_format.hpp`：namespace + kPascalCase + struct 分组 + NLOHMANN
 - [x] 3. ~~新建 zmq_publisher + zmq_subscriber~~ → 集成 `zmq_bridge.hpp/cpp`（已完成）
 - [x] 4. 新建 `radar_bridge_node.hpp` + `radar_bridge_node.cpp`
-- [ ] 5. 新建 `udpstream_bridge.hpp` + `udpstream_bridge.cpp`（当前空壳）
-- [ ] 6. 重写 `runtime.cpp`（当前空壳）
+- [x] 5. 新建 `videostream_bridge.hpp` + `videostream_bridge.cpp`
+- [x] 6. 重写 `runtime.cpp`（创建节点 + spin，VideoBridge 由 RadarBridgeNode 管理）
 - [x] 7. 更新 `package.xml`（加 radar_interfaces 依赖）
 - [x] 8. 更新 `CMakeLists.txt`（修复源文件列表 + cppzmq 链接）
 - [x] 9. 编译验证
@@ -323,24 +323,24 @@ ZMQ PUB 线程：  loop → 读 lidar_location_ → JSON encode → pub_.send() 
 ZMQ SUB 线程：  sub_.recv() → JSON decode → game_state_
 ROS 回调：      pub_game_state_callback() → 读 game_state_ → GameState msg → /bridge/game_state
 
-UDP 线程：      SHMRead → JPEG → udp_send() → egui  (TODO)
+Video 线程：     SHMRead → JPEG → ZMQ PUB (conflate=1) → egui
 ```
 
-### UdpStreamer 实现参考
+### VideoBridge 实现参考
 
-`hikcamera_ros_driver`（`ros_ws/third-party/hikcamera_ros_driver/`）已有可复用的 SHM 基础设施：
+SHM 基础设施已移入 `hikcamera_sdk`（`ros_ws/third-party/hikcamera_sdk/include/hikcamera/shm.hpp`）：
 
 | 组件 | 文件 | 职责 |
 |------|------|------|
-| `imageSHM` struct | `camera_driver.hpp` | 4 槽环形缓冲区 + `sem_t` + `pthread_mutex_t`（进程间共享） |
-| `SHMInit()` | `camera_driver.cpp` | `shm_open` + `ftruncate` + `mmap`，初始化信号量/互斥锁 |
-| `SHMWrite()` | `camera_driver.cpp` | 生产者（camera 线程）：写帧 → `sem_post` |
-| `SHMRead()` | `camera_driver.cpp` | 消费者：`sem_timedwait` 等帧 → 读取到 `cv::Mat` |
+| `imageSHM` struct | `hikcamera/shm.hpp` | 4 槽环形缓冲区 + `sem_t` + `pthread_mutex_t`（进程间共享） |
+| `SHMInit()` | `hikcamera/shm.hpp` | `shm_open` + `ftruncate` + `mmap`，初始化信号量/互斥锁 |
+| `SHMWrite()` | `hikcamera/shm.hpp` | 生产者（camera 线程）：写帧 → `sem_post` |
+| `SHMRead()` | `hikcamera/shm.hpp` | 消费者：`sem_timedwait` 等帧 → 读取到 `cv::Mat` |
 
-bridge UdpStreamer 实现只需 SHM 读取侧，参考 `SHMRead` 模式即可：
+VideoBridge 通过 `SHMRead()` 读取 SHM 帧，JPEG 编码后通过 ZMQ PUB (conflate=1) 推送到 egui：
 1. `shm_open("/hikcamera_shm")` 打开已有共享内存
-2. `sem_timedwait(&shm->sem)` 等新帧
-3. 取出 `cv::Mat` → JPEG encode → UDP send
+2. `SHMRead(fd, mat, ts, w, h)` 读取帧
+3. `cv::imencode(".jpg")` → `zmq::send()`
 
 ## 线程模型
 
@@ -349,4 +349,4 @@ bridge UdpStreamer 实现只需 SHM 读取侧，参考 `SHMRead` 模式即可：
 | ROS 主线程 (rclcpp::spin) | 无阻塞 | 写 lidar_location_ / 读 game_state_ → publish |
 | ZMQ PUB 线程 | while loop（atomic flag 控制） | 读 lidar_location_ → JSON → ZMQ PUB |
 | ZMQ SUB 线程 | zmq_recv 阻塞等 egui | ZMQ SUB → JSON decode → 写 game_state_ |
-| UdpStreamer 线程 | sem_timedwait 等 `/hikcamera_shm` | SHM → JPEG → UDP (TODO) |
+| VideoBridge 线程 | sem_timedwait 等 `/hikcamera_shm` | SHM → JPEG → ZMQ PUB |

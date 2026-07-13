@@ -1,11 +1,25 @@
 #include "radar_bridge/radar_bridge_node.hpp"
-#include "radar_bridge/zmq_bridge.hpp"
-#include "radar_bridge/zmq_data_format.hpp"
 
 namespace radar_bridge::node {
 
+auto ConfigsLoader(rclcpp::Node& node, BridgeConfig& config) -> std::expected<void, std::string> {
+    config.zmq_pub_address   = node.get_parameter("zmq_pub_address").as_string();
+    config.zmq_sub_addresses = node.get_parameter("zmq_sub_addresses").as_string_array();
+    config.shm_name          = node.get_parameter("shm_name").as_string();
+    config.video_pub_address = node.get_parameter("video_pub_address").as_string();
+    config.image_topic       = node.get_parameter("image_topic").as_string();
+    config.video_width       = node.get_parameter("video_width").as_int();
+    config.video_height      = node.get_parameter("video_height").as_int();
+    return { };
+}
+
 RadarBridgeNode::RadarBridgeNode()
     : Node("radar_bridge_node") {
+    auto result = ConfigsLoader(*this, config_);
+    if (!result.has_value()) {
+        RCLCPP_ERROR(this->get_logger(), "ConfigsLoader failed: %s", result.error().c_str());
+    }
+
     game_state_publisher_ =
         this->create_publisher<radar_interfaces::msg::GameState>("/bridge/game_state", 10);
 
@@ -16,15 +30,27 @@ RadarBridgeNode::RadarBridgeNode()
                                                                                                "io"
                                                                                                "n",
         10, [this](const radar_interfaces::msg::LidarLocation& msg) {
-            return sub_lidar_pose_callback(msg);
+            auto result = sub_lidar_pose_callback(msg);
+            if (!result.has_value()) {
+                RCLCPP_ERROR(this->get_logger(), "sub_lidar_pose_callback failed: %s",
+                    result.error().c_str());
+            }
         });
-    zmqpub_thread_running_   = true;
-    zmqsub_thread_running_   = true;
+
+    zmq_bridge_.zmqpub_init(config_.zmq_pub_address);
+    zmq_bridge_.zmqsub_init(config_.zmq_sub_addresses);
+    zmq_bridge_.zmqpub_thread(lidar_location_);
+    zmq_bridge_.zmqsub_thread(game_state_);
+
+    auto init_ret = video_bridge_.video_init(
+        config_.shm_name, config_.video_pub_address, config_.video_width, config_.video_height);
+    if (!init_ret.has_value()) {
+        RCLCPP_ERROR(this->get_logger(), "VideoBridge init failed: %s", init_ret.error().c_str());
+    } else {
+        video_bridge_.video_thread();
+    }
 }
-RadarBridgeNode::~RadarBridgeNode() {
-    zmqpub_thread_running_ = false;
-    zmqsub_thread_running_ = false;
-}
+RadarBridgeNode::~RadarBridgeNode() { video_bridge_.video_thread_stop(); }
 auto RadarBridgeNode::sub_lidar_pose_callback(const radar_interfaces::msg::LidarLocation& msg)
     -> std::expected<void, std::string> {
     lidar_location_.opponent_hero_x       = msg.opponent_hero_x;
