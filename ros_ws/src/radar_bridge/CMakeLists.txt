@@ -11,30 +11,36 @@ find_package(PkgConfig REQUIRED)
 find_package(nlohmann_json REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(cppzmq REQUIRED)
+find_package(hikcamera REQUIRED)
 find_package(radar_interfaces REQUIRED)
 
 ament_auto_find_build_dependencies()
 set(SOURCE_FILES
     src/radar_bridge_node.cpp
     src/zmq_bridge.cpp
-    src/udpstream_bridge.cpp
+    src/videostream_bridge.cpp
     src/runtime.cpp
 )
 ament_auto_add_executable(${PROJECT_NAME}_node
     ${SOURCE_FILES}
 )
-target_link_libraries(${PROJECT_NAME}_node
-    cppzmq
-    ${OpenCV_LIBRARIES}
-    nlohmann_json::nlohmann_json
-)
-
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   set(ament_cmake_copyright_FOUND TRUE)
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
 endif()
+
+target_include_directories(${PROJECT_NAME}_node PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+target_link_libraries(${PROJECT_NAME}_node
+    hikcamera::hikcamera
+    cppzmq
+    ${OpenCV_LIBRARIES}
+    nlohmann_json::nlohmann_json
+)
 
 install(TARGETS ${PROJECT_NAME}_node DESTINATION lib/${PROJECT_NAME})
 ament_package()

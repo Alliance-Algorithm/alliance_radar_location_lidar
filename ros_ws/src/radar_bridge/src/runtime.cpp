@@ -1,1 +1,11 @@
-int main() { return 0; }
+#include "radar_bridge/radar_bridge_node.hpp"
+#include <memory>
+#include <rclcpp/rclcpp.hpp>
+
+int main(int argc, char* argv[]) {
+    rclcpp::init(argc, argv);
+    auto node = std::make_shared<radar_bridge::node::RadarBridgeNode>();
+    rclcpp::spin(node);
+    rclcpp::shutdown();
+    return 0;
+}
