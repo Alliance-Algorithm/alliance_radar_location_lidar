@@ -22,8 +22,7 @@ struct BridgeConfig {
     int video_height = 0;
 };
 
-auto ConfigsLoader(rclcpp::Node& node, BridgeConfig& config)
-    -> std::expected<void, std::string>;
+auto ConfigsLoader(rclcpp::Node& node, BridgeConfig& config) -> std::expected<void, std::string>;
 
 class RadarBridgeNode final : public rclcpp::Node {
 public:
@@ -39,8 +38,6 @@ private:
 
     radar_bridge::zmqdata::pub::LidarLocation lidar_location_ { };
     radar_bridge::zmqdata::sub::TransmitGameState game_state_ { };
-
-
 
     BridgeConfig config_ { };
     radar_bridge::zmq_bridge::ZmqBridge zmq_bridge_ { };
