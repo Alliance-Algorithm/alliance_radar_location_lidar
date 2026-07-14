@@ -1,6 +1,6 @@
 # radar-lidar Todo
 
-更新时间：2026-07-10
+更新时间：2026-07-14
 
 ## TF Authority 设计定稿（2026-07-06）
 
@@ -23,27 +23,33 @@
       - 相机正式外参 → `radar_camera/config/extrinsic.yaml`
       - LiDAR / Odin 启动先验 → `radar_bringup/config/lidar/*.yaml`
       - LiDAR 离线配准调试参数 → `radar_lidar/config/offline_registration.yaml`
-      - GICP / Odin1 重定位得到的 `t_map_lidar` / `map -> radar_base` → 运行时动态结果，
-        不落成 calibration 风格 YAML
+      - ~~GICP / Odin1 重定位得到的 `t_map_lidar` / `map -> radar_base` → 运行时动态结果，
+        不落成 calibration 风格 YAML~~ ⚠️ **2026-07-14 提案已推翻**：改为 GICP Action 写入
+        `extrinsics.yaml` 作为静态 TF，见下「GICP 配准移至 radar_calibration Action」章节
 
 后续实施待办：
 - [x] 在 architecture 文档基础上补一版具体 frame 名字与 `frame_id` 约束清单
       （`map` / `radar_base` / `lidar_link` / `camera_link` / `camera_optical_frame`）
 - [x] 在 architecture 文档中补最终 bringup 启动图与阶段划分（离线一次性准备 /
-      每场次启动前配置 / 主进程运行时），并明确拒绝“先 GICP、写外参 YAML、再启动主进程”
-      作为主流程
+       每场次启动前配置 / 主进程运行时）
+      ~~并明确拒绝"先 GICP、写外参 YAML、再启动主进程"作为主流程~~
+      ⚠️ **2026-07-14 提案已推翻**：Action 方案采用此流程，见下「GICP 配准移至
+      radar_calibration Action」章节
 - [x] `radar_bringup` launch 中加入 static tf 发布器（已落 `static_tf.launch.py` + `extrinsics.yaml`）
 - [x] `LidarPipeline` 增加 dynamic tf broadcaster（当前阶段 authority，当前发布 `map -> radar_base`）
-- [ ] `FusionNode` 从 pose relay 演进为真正多源 pose fusion 后，满足以下门槛再接管 dynamic tf：
-      1) 至少接入两类观测源；2) `/localization/pose` 不再是 LiDAR passthrough；
-      3) 具备稳定性判断（covariance / converged / source-health）；
-      4) 切换后 `radar_lidar` 停止发布系统最终 dynamic tf
+- [ ] ~~`FusionNode` 从 pose relay 演进为真正多源 pose fusion 后，满足以下门槛再接管 dynamic tf：~~~~1) 至少接入两类观测源；2) `/localization/pose` 不再是 LiDAR passthrough；~~~~3) 具备稳定性判断（covariance / converged / source-health）；~~~~4) 切换后 `radar_lidar` 停止发布系统最终 dynamic tf~~
+      ⚠️ **2026-07-14 提案已推翻**：GICP 移除后 TF 树全部静态，动态 TF 不再由 FusionNode
+      接管，而是交给后续 prefusion（前融合）节点维护。FusionNode 只做后融合，不承担
+      TF authority。
 - [x] 明确 `/fusion/tracks`（radar-only）与 `/fusion/fused_tracks`（final fused）双轨迹契约，并补充 dynamic tf authority handoff 条件
 
 ## Odin1 内置重定位集成（2026-07-05 完成）
 
-架构决策：Odin1 内置重定位为主位姿源，`radar_lidar` 自研 GICP 保留作为重定位
-未收敛时的回退。当前比赛运行时参数统一收敛到 `runtime.yaml`，重定位模式由 bringup launch 覆盖 `use_odin_relocalization_tf`。
+架构决策：Odin1 内置重定位为主位姿源。
+~~`radar_lidar` 自研 GICP 保留作为重定位未收敛时的回退。~~
+⚠️ **2026-07-14 提案已推翻**：GICP 已移至 `radar_calibration` 作为一次性 Action，
+不再作为运行时回退。Odin1 重定位方案需配合新架构重新评估。
+当前比赛运行时参数统一收敛到 `runtime.yaml`，重定位模式由 bringup launch 覆盖 `use_odin_relocalization_tf`。
 
 - [x] `LidarPipeline` 新增 `use_odin_relocalization_tf` 参数（默认 `false`，
       `get_parameter_or` 读取，未声明时不报错）：启用后每帧优先查
@@ -67,6 +73,38 @@
       位置估算值）当前占位全零，需实测/估算后按红蓝方场次填入
 - [ ] 真实 Odin1 硬件重定位收敛验证（当前只验证了 TF 回退路径的代码逻辑，
       未接入真实设备）
+
+## GICP 配准移至 radar_calibration Action（2026-07-14 决议）
+
+**提案文档**：`docs/2026-07-14-gicp-registration-action.md`
+
+**背景**：雷达底座固定，GICP scan-to-map 配准收敛后位姿不再变化，本质是一次性
+外参标定。当前在 `radar_lidar_node` 中作为持续节点运行，浪费 CPU、占用动态 TF。
+
+**方案**：将 GICP 配准封装为 `radar_calibration` 包中的 Action Server，配准结果
+写入 `extrinsics.yaml` 作为 `map→radar_base` 静态 TF。`radar_lidar` 精简为纯感知
+（动态提取 + 聚类），不再跑配准和广播 TF。省出的动态 TF 广播权留给后续
+prefusion（LiDAR-Visual-IMU 前融合）节点。
+
+### 已决议
+
+- [x] Q1: bringup 驱动 Action，成功后才启动感知节点
+- [x] Q2: launch 统一放 `radar_bringup/launch/`
+- [x] Q3: 移除 `use_lock_strategy`
+- [x] Q4: 配准后地图变换为参考 PCD，`DynamicCloudStage` 不再需原始地图
+- [x] Q5: 超时回退使用 `extrinsics.yaml` 的 `last_known_pose`
+
+### 待办
+
+- [ ] 实现 `GicpRegistration` Action Server（radar_calibration）
+- [ ] 移除 `radar_lidar` 中的 GICP `process()` 和锁定逻辑
+- [ ] 简化 `radar_lidar` pipeline（删除 TF broadcaster、pose pub、diag pub）
+- [ ] `extrinsics.yaml` 新增 `map_to_radar_base` + `last_known_pose`
+- [ ] 新增 `full_system.launch.py` 编排（Action → 成功后启动感知）
+- [ ] 新增 `gicp_registration.launch.py`
+- [ ] 移除 `small_gicp`、`tf2` 依赖
+
+---
 
 ## 当前重点：Fusion 模块 T3
 
@@ -225,8 +263,9 @@ PR #33 提交后 CodeRabbit review 修复（2026-07-05）：
       雷达站相机相对地图系的安装几何（平移 + RPY）后填入
 - [ ] `camera_lidar_calibration.cpp` 解析 `T_lidar_camera` 时对 JSON 数组
       类型缺少前置校验（CodeRabbit 提出，非阻塞，留待后续加固）
-- [ ] `localization.cpp` 的 `has_initial_pose` 与 `use_lock_strategy` 耦合，
-      语义上应可独立生效（CodeRabbit 提出，需与阶段②行为设计一并评估）
+- [x] ~~`localization.cpp` 的 `has_initial_pose` 与 `use_lock_strategy` 耦合，
+       语义上应可独立生效（CodeRabbit 提出，需与阶段②行为设计一并评估）~~
+      ✅ **2026-07-14 已决议**：`use_lock_strategy` 随 GICP 移至 Action 后一并移除
 
 ## 2. 包间通讯节点梳理（写进 docs）
 
