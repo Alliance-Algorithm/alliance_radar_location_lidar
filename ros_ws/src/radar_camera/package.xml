@@ -16,7 +16,7 @@
   <depend>cv_bridge</depend>
   <depend>hikcamera</depend>
   <depend>libopencv-dev</depend>
-  <depend>libeigen3-dev</depend>
+  <depend>radar_interfaces</depend>
   <depend>ament_cmake_auto</depend>
 
   <export>
