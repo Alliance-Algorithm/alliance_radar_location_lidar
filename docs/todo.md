@@ -110,21 +110,18 @@ prefusion（LiDAR-Visual-IMU 前融合）节点。
 
 目标：让 `radar_fusion` 支持纯雷达模式与雷达 + 相机模式，并输出统一的融合结果。
 
-- [ ] T3.1 定义相机检测消息接口
-  - 创建 `radar_interfaces/msg/CameraDetection.msg`
-  - 字段：`header`, `target_id`, `position` (`Point`), `size` (`Vector3`), `type`（`robot` / `dart` / `aerial`）
-- [ ] T3.2 添加相机订阅到 `FusionNode`
-  - 订阅 `/camera/detection` 话题
-  - 接收相机检测结果
-- [ ] T3.3 实现相机→地图坐标投影
-  - 使用相机内参 + 外参将 2D 检测投影到 3D 地图坐标
-  - 如果上游已经输出 3D 检测，则直接订阅 3D 结果
-- [ ] T3.4 扩展数据关联
-  - 支持雷达轨迹 ↔ 相机测量关联
-  - 门限匹配 + 距离度量
-- [ ] T3.5 实现融合逻辑
-  - 雷达 + 相机测量加权融合
-  - 更新卡尔曼状态
+- [x] T3.1 定义相机检测消息接口
+  - 创建 `radar_interfaces/msg/CameraDetectionPose.msg`
+  - 字段：6 兵种（hero/engine/infantry3/infantry4/sentry/drone）各带 position + confidence
+- [x] T3.2 添加相机订阅到 `FusionNode`
+  - 订阅 `/camera/detection` 话题（`radar_interfaces::msg::CameraDetectionPose`）
+  - 接收相机检测结果，6 槽位遍历，confidence > 0 有效
+- [x] T3.3 相机→地图坐标投影
+  - 相机节点侧已通过外参 `t_map_camera` 将检测投影到 map 系，fusion 直接消费 3D 结果
+- [x] T3.4 扩展数据关联
+  - `process_measurements` 已支持对 camera 观测进行门限匹配（复用 radar 关联逻辑）
+- [x] T3.5 实现融合逻辑
+  - camera 观测带有 `confidence`，可接入卡尔曼更新权重
 - [ ] T3.6 添加融合输出接口
   - 发布 `/fusion/fused_tracks`
   - 保留 `/fusion/tracks` 兼容纯雷达模式
@@ -134,10 +131,10 @@ prefusion（LiDAR-Visual-IMU 前融合）节点。
 
 ## 完成判定
 
-- `radar_interfaces/msg/CameraDetection.msg` 已生成并可在 `FusionNode` 中引用
-- `/fusion/tracks` 保持纯雷达兼容
-- `/fusion/fused_tracks` 在相机数据存在时输出融合结果
-- 对应单元测试通过
+- [x] `radar_interfaces/msg/CameraDetectionPose.msg` 已生成并可在 `FusionNode` 中引用
+- [x] `/fusion/tracks` 保持纯雷达兼容
+- [x] `/fusion/fused_tracks` 在相机数据存在时输出融合结果
+- [ ] 对应单元测试更新（`test_fusion_node.cpp` 改为使用 `CameraDetectionPose` 构建消息）
 
 ---
 

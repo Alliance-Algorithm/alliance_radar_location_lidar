@@ -6,9 +6,9 @@
 #include <string>
 #include <vector>
 
+#include "radar_interfaces/msg/camera_detection_pose.hpp"
 #include <diagnostic_msgs/msg/diagnostic_status.hpp>
 #include <geometry_msgs/msg/point.hpp>
-#include <geometry_msgs/msg/pose_array.hpp>
 #include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
@@ -45,7 +45,7 @@ public:
 
 private:
     void on_lidar_pose(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg);
-    void on_camera_detection(const geometry_msgs::msg::PoseArray::SharedPtr msg);
+    void on_camera_detection(const radar_interfaces::msg::CameraDetectionPose::SharedPtr msg);
 
     void on_cluster(const sensor_msgs::msg::PointCloud2::SharedPtr msg);
 
@@ -67,7 +67,8 @@ private:
 
     rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr sub_lidar_pose_;
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr sub_cluster_;
-    rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr sub_camera_detection_;
+    rclcpp::Subscription<radar_interfaces::msg::CameraDetectionPose>::SharedPtr
+        sub_camera_detection_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_tracks_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_fused_tracks_;
     rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pub_pose_;
