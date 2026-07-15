@@ -1,6 +1,6 @@
 # radar-lidar Todo
 
-更新时间：2026-07-14
+更新时间：2026-07-15
 
 ## TF Authority 设计定稿（2026-07-06）
 
@@ -122,12 +122,12 @@ prefusion（LiDAR-Visual-IMU 前融合）节点。
   - `process_measurements` 已支持对 camera 观测进行门限匹配（复用 radar 关联逻辑）
 - [x] T3.5 实现融合逻辑
   - camera 观测带有 `confidence`，可接入卡尔曼更新权重
-- [ ] T3.6 添加融合输出接口
+- [x] T3.6 添加融合输出接口
   - 发布 `/fusion/fused_tracks`
   - 保留 `/fusion/tracks` 兼容纯雷达模式
 - [ ] T3.7 添加测试
   - 单元测试：纯雷达模式
-  - 单元测试：雷达 + 相机融合模式
+  - 单元测试：雷达 + 相机融合模式（需改为 CameraDetectionPose）
 
 ## 完成判定
 
@@ -253,9 +253,9 @@ PR #33 提交后 CodeRabbit review 修复（2026-07-05）：
 - [x] README：补 `extract-result` 完整 `ros2 run` 命令示例
 
 待完成（未来）：
-- [ ] `radar_camera` 包目前是空壳（`int main(){return 0;}`），尚未接入
-      `extract-result` 产出的外参 YAML；需实现 `CameraConfig` / `camera_model`
-      （去畸变+投影）/ `detector` / `camera_node`（见架构文档 radar_camera 节）
+- [x] `radar_camera` 包通信框架完成：ConfigsLoader + ImageCallback + PublishCallback，
+      CameraDetectionPose 发布到 /camera/detection，FusionNode 消费
+- [ ] `radar_camera` 推理管线：YOLO ONNX 模型加载 + 预处理 + 后处理 + 外参投影
 - [ ] `config/initial_guess.yaml` 当前是占位全零，需实测/估算 RoboMaster
       雷达站相机相对地图系的安装几何（平移 + RPY）后填入
 - [ ] `camera_lidar_calibration.cpp` 解析 `T_lidar_camera` 时对 JSON 数组
