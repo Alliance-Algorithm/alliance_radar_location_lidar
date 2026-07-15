@@ -1,17 +1,16 @@
 #pragma once
 
+#include "radar_interfaces/msg/camera_detection_pose.hpp"
 #include <chrono>
 #include <cstdint>
-#include <memory>
-#include <string>
-#include <vector>
-
-#include "radar_interfaces/msg/camera_detection_pose.hpp"
 #include <diagnostic_msgs/msg/diagnostic_status.hpp>
 #include <geometry_msgs/msg/point.hpp>
 #include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
+#include <memory>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
+#include <string>
+#include <vector>
 #include <visualization_msgs/msg/marker_array.hpp>
 
 #include "radar_fusion/kalman_tracker.hpp"
