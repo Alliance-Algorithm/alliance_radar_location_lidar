@@ -42,7 +42,6 @@ struct InferenceConfig {
     int model_input_height      = 1280;
     int num_classes             = 12;
     float conf_threshold        = 0.6f;
-    float nms_threshold         = 0.45f;
     float min_length_width_rate = 0.8f;
     float max_length_width_rate = 1.5f;
     bool use_openvino           = true;

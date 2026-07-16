@@ -68,7 +68,8 @@ auto ModelInference::infer_runtime_wait()
     }
 }
 
-auto ModelInference::infer_postprocess(const std::vector<float>& raw_output)
+auto ModelInference::infer_postprocess(
+    const std::vector<float>& raw_output, int src_width, int src_height)
     -> std::expected<std::reference_wrapper<const std::vector<detection::Detection>>, std::string> {
     try {
         auto output_tensor = infer_request_.get_output_tensor();
@@ -92,6 +93,11 @@ auto ModelInference::infer_postprocess(const std::vector<float>& raw_output)
             return std::unexpected("Output stride too small: expected >= 6");
         }
 
+        float scale_x =
+            static_cast<float>(src_width) / static_cast<float>(config_.model_input_width);
+        float scale_y =
+            static_cast<float>(src_height) / static_cast<float>(config_.model_input_height);
+
         postprocess_buffer_.clear();
 
         for (int i = 0; i < num_detections; ++i) {
@@ -106,18 +112,18 @@ auto ModelInference::infer_postprocess(const std::vector<float>& raw_output)
 
             if (conf < config_.conf_threshold) continue;
 
-            float box_w = x2 - x1;
-            float box_h = y2 - y1;
+            float box_w = (x2 - x1) * scale_x;
+            float box_h = (y2 - y1) * scale_y;
             if (box_w < 1.0f || box_h < 1.0f) continue;
 
             float ratio = std::max(box_w, box_h) / std::min(box_w, box_h);
             if (ratio < config_.min_length_width_rate || ratio > config_.max_length_width_rate)
                 continue;
 
-            postprocess_buffer_.push_back(
-                detection::Detection { .center = cv::Point2d((x1 + x2) * 0.5f, (y1 + y2) * 0.5f),
-                    .id                        = cls,
-                    .confidence                = conf });
+            postprocess_buffer_.push_back(detection::Detection {
+                .center     = cv::Point2d((x1 + x2) * 0.5f * scale_x, (y1 + y2) * 0.5f * scale_y),
+                .id         = cls,
+                .confidence = conf });
         }
 
         return std::ref(postprocess_buffer_);

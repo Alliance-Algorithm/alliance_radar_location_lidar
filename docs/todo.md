@@ -2,46 +2,14 @@
 
 更新时间：2026-07-15
 
-## TF Authority 设计定稿（2026-07-06）
+## TF Authority 设计定稿
 
-面向 Foxglove / RViz 的统一 frame 可视化需求，系统内坐标关系职责拆分如下：
+系统内所有 frame 变换均为**静态 TF**，由 `radar_bringup` 统一发布。
+无运行时动态 TF，所有定位/检测结果通过 topic 传递。
 
-- [x] **`radar_bringup` 只负责 static tf**：已知且固定的刚体安装关系 / 外参，
-      如 `radar_base -> lidar_link`、`radar_base -> camera_link`、
-      `camera_link -> camera_optical_frame`。`radar_bringup` 维持“纯 YAML + launch”
-      边界，不承担运行时状态。
-- [x] **`LidarPipeline` 当前阶段负责临时 dynamic tf**：在系统尚未拥有真正融合后的
-      ego pose 前，由 LiDAR 主位姿来源发布 `map -> radar_base`（或过渡期
-      `map -> lidar_link`）。
-- [x] **`FusionNode` 最终接管唯一系统级 dynamic tf authority**：当
-      `/localization/pose` 不再是 LiDAR pose passthrough，而是多源融合后的系统
-      最终位姿时，由 `FusionNode` 统一发布 `map -> radar_base`。
-- [x] **目标观测/轨迹不进 tf**：`/lidar/dynamic`、`/lidar/cluster`、`/fusion/tracks`
-      以及未来 `/camera/detection` 继续走 topic；tf 只表达 frame 之间的刚体关系。
-- [x] **配置归属定稿**：
-      - 相机标定前粗略初值 → `radar_calibration/config/initial_guess.yaml`
-      - 相机正式外参 → `radar_camera/config/extrinsic.yaml`
-      - LiDAR / Odin 启动先验 → `radar_bringup/config/lidar/*.yaml`
-      - LiDAR 离线配准调试参数 → `radar_lidar/config/offline_registration.yaml`
-      - ~~GICP / Odin1 重定位得到的 `t_map_lidar` / `map -> radar_base` → 运行时动态结果，
-        不落成 calibration 风格 YAML~~ ⚠️ **2026-07-14 提案已推翻**：改为 GICP Action 写入
-        `extrinsics.yaml` 作为静态 TF，见下「GICP 配准移至 radar_calibration Action」章节
-
-后续实施待办：
-- [x] 在 architecture 文档基础上补一版具体 frame 名字与 `frame_id` 约束清单
-      （`map` / `radar_base` / `lidar_link` / `camera_link` / `camera_optical_frame`）
-- [x] 在 architecture 文档中补最终 bringup 启动图与阶段划分（离线一次性准备 /
-       每场次启动前配置 / 主进程运行时）
-      ~~并明确拒绝"先 GICP、写外参 YAML、再启动主进程"作为主流程~~
-      ⚠️ **2026-07-14 提案已推翻**：Action 方案采用此流程，见下「GICP 配准移至
-      radar_calibration Action」章节
-- [x] `radar_bringup` launch 中加入 static tf 发布器（已落 `static_tf.launch.py` + `extrinsics.yaml`）
-- [x] `LidarPipeline` 增加 dynamic tf broadcaster（当前阶段 authority，当前发布 `map -> radar_base`）
-- [ ] ~~`FusionNode` 从 pose relay 演进为真正多源 pose fusion 后，满足以下门槛再接管 dynamic tf：~~~~1) 至少接入两类观测源；2) `/localization/pose` 不再是 LiDAR passthrough；~~~~3) 具备稳定性判断（covariance / converged / source-health）；~~~~4) 切换后 `radar_lidar` 停止发布系统最终 dynamic tf~~
-      ⚠️ **2026-07-14 提案已推翻**：GICP 移除后 TF 树全部静态，动态 TF 不再由 FusionNode
-      接管，而是交给后续 prefusion（前融合）节点维护。FusionNode 只做后融合，不承担
-      TF authority。
-- [x] 明确 `/fusion/tracks`（radar-only）与 `/fusion/fused_tracks`（final fused）双轨迹契约，并补充 dynamic tf authority handoff 条件
+- [x] `radar_bringup` 负责所有 static tf（安装关系 / 外参）
+- [x] 目标观测 / 轨迹不进 tf，走 topic（`/lidar/dynamic`, `/fusion/tracks`, `/camera/detection`）
+- [x] GICP 配准为一次性 Action，结果写入 `extrinsics.yaml` 作为静态 TF
 
 ## Odin1 内置重定位集成（2026-07-05 完成）
 
