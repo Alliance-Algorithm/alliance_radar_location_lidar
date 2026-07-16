@@ -27,4 +27,5 @@ internal_parameter:
 extrinsic_parameter:
   rotation: [0.0, 0.0, 0.0]
   translation: [0.0, 0.0, 0.0]
-topic_name: "/radar_camera/robot_pose"
+pub_topic_name: "/radar_camera/robot_pose"
+sub_topic_name: "/camera/image_raw"
