@@ -9,14 +9,14 @@
 
 #include "radar_camera/data_format.hpp"
 #include "radar_camera/model_inference.hpp"
+#include "radar_camera/projector.hpp"
 #include "radar_interfaces/msg/camera_detection_pose.hpp"
 
 namespace radar_camera::node {
 
-auto ConfigsLoader(rclcpp::Node& node,
-    camera_config::CameraConfig& camera,
-    inference_config::InferenceConfig& inference)
-    -> std::expected<void, std::string>;
+auto ConfigsLoader(rclcpp::Node& node, camera_config::CameraConfig& camera,
+    inference_config::InferenceConfig& inference,
+    projection_config::ProjectionConfig& projection) -> std::expected<void, std::string>;
 
 class RadarCameraNode final : public rclcpp::Node {
 public:
@@ -33,7 +33,10 @@ public:
 
     camera_config::CameraConfig camera_config_;
     inference_config::InferenceConfig inference_config_;
+    projection_config::ProjectionConfig projection_config_;
+    robot_pose::RobotPose robot_poses_;
     std::unique_ptr<model_inference::ModelInference> model_inference_;
+    projection::Projector projector_;
 };
 
 } // namespace radar_camera::node
