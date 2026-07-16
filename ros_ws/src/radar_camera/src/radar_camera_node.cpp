@@ -8,7 +8,9 @@ RadarCameraNode::RadarCameraNode()
     : Node("radar_camera_node") {
     auto ret = ConfigsLoader(*this, camera_config_, inference_config_, projection_config_);
     if (!ret) {
-        RCLCPP_ERROR(get_logger(), "Failed to load configuration: %s", ret.error().c_str());
+        RCLCPP_FATAL(get_logger(), "ConfigsLoader failed: %s", ret.error().c_str());
+        rclcpp::shutdown();
+        return;
     }
 
     model_inference_ = std::make_unique<model_inference::ModelInference>(inference_config_);
@@ -35,12 +37,17 @@ RadarCameraNode::RadarCameraNode()
 }
 
 auto RadarCameraNode::ImageCallback(sensor_msgs::msg::Image::SharedPtr msg) -> void {
-    auto cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
-    if (!cv_ptr) {
-        RCLCPP_WARN(get_logger(), "cv_bridge conversion failed");
+    try {
+        auto cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
+        if (!cv_ptr) {
+            RCLCPP_WARN(get_logger(), "cv_bridge conversion failed");
+            return;
+        }
+        ImageData = cv_ptr->image;
+    } catch (const std::exception& e) {
+        RCLCPP_WARN(get_logger(), "cv_bridge failed: %s", e.what());
         return;
     }
-    ImageData = cv_ptr->image;
     capture_timestamp_ =
         std::chrono::steady_clock::time_point(std::chrono::seconds(msg->header.stamp.sec)
             + std::chrono::nanoseconds(msg->header.stamp.nanosec));
@@ -115,9 +122,9 @@ auto ConfigsLoader(rclcpp::Node& node, camera_config::CameraConfig& camera,
     try {
         node.get_parameter("enemy_color", camera.enemy_color);
         node.get_parameter("hero_" + camera.enemy_color, camera.hero_class_id);
-        node.get_parameter("engine_" + camera.enemy_color, camera.engine_class_id);
-        node.get_parameter("infantry_3_" + camera.enemy_color, camera.infantry_3_class_id);
-        node.get_parameter("infantry_4_" + camera.enemy_color, camera.infantry_4_class_id);
+        node.get_parameter("engineer_" + camera.enemy_color, camera.engine_class_id);
+        node.get_parameter("infantry3_" + camera.enemy_color, camera.infantry_3_class_id);
+        node.get_parameter("infantry4_" + camera.enemy_color, camera.infantry_4_class_id);
         node.get_parameter("sentry_" + camera.enemy_color, camera.sentry_class_id);
         node.get_parameter("drone_" + camera.enemy_color, camera.drone_class_id);
         node.get_parameter("camera_matrix", camera.camera_matrix);
@@ -128,6 +135,7 @@ auto ConfigsLoader(rclcpp::Node& node, camera_config::CameraConfig& camera,
         node.get_parameter("sub_topic_name", camera.sub_topic_name);
 
         node.get_parameter("model_path", inference.model_path);
+        node.get_parameter("device_name", inference.device_name);
         node.get_parameter("conf_threshold", inference.conf_threshold);
         node.get_parameter("min_length_width_rate", inference.min_length_width_rate);
         node.get_parameter("max_length_width_rate", inference.max_length_width_rate);

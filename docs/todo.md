@@ -2,14 +2,10 @@
 
 更新时间：2026-07-15
 
-## TF Authority 设计定稿
+## TF Authority
 
-系统内所有 frame 变换均为**静态 TF**，由 `radar_bringup` 统一发布。
-无运行时动态 TF，所有定位/检测结果通过 topic 传递。
-
-- [x] `radar_bringup` 负责所有 static tf（安装关系 / 外参）
-- [x] 目标观测 / 轨迹不进 tf，走 topic（`/lidar/dynamic`, `/fusion/tracks`, `/camera/detection`）
-- [x] GICP 配准为一次性 Action，结果写入 `extrinsics.yaml` 作为静态 TF
+全静态 TF，由 `radar_bringup` 负责。无运行时动态 TF。
+定位/检测结果走 topic，不进 tf。
 
 ## Odin1 内置重定位集成（2026-07-05 完成）
 

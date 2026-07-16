@@ -13,6 +13,7 @@ robot_class_id:
   sentry_blue: 9
   drone_blue: 11
 model_path: "/workspace/ros_ws/src/radar_camera/config/camera_inference_model.onnx"
+device_name: "CPU"
 model_input_width: 1280
 model_input_height: 1280
 conf_threshold: 0.6
