@@ -4,33 +4,33 @@
 namespace radar_camera::model_inference {
 
 auto ModelInference::infer_preprocess(const cv::Mat& image, size_t width, size_t height)
-    -> std::expected<ov::Tensor, std::string> {
+    -> std::expected<std::reference_wrapper<const ov::Tensor>, std::string> {
     try {
-        cv::Mat resized_img;
-        cv::resize(image, resized_img, cv::Size(static_cast<int>(width), static_cast<int>(height)));
+        cv::resize(image, resized_img_, cv::Size(static_cast<int>(width), static_cast<int>(height)));
 
-        cv::Mat rgb_img;
-        cv::cvtColor(resized_img, rgb_img, cv::COLOR_BGR2RGB);
+        cv::cvtColor(resized_img_, rgb_img_, cv::COLOR_BGR2RGB);
 
-        cv::Mat float_img;
-        rgb_img.convertTo(float_img, CV_32FC3, 1.0 / 255.0);
+        rgb_img_.convertTo(float_img_, CV_32FC3, 1.0 / 255.0);
 
-        ov::Tensor input_tensor(ov::element::f32, ov::Shape{ 1, 3, height, width });
+        ov::Shape expected_shape{ 1, 3, height, width };
+        if (input_tensor_.get_shape() != expected_shape) {
+            input_tensor_ = ov::Tensor(ov::element::f32, expected_shape);
+        }
 
-        float* data        = input_tensor.data<float>();
-        const int channels = 3;
-        const int h        = static_cast<int>(height);
-        const int w        = static_cast<int>(width);
+        float* data = input_tensor_.data<float>();
+        constexpr int channels = 3;
+        const int h = static_cast<int>(height);
+        const int w = static_cast<int>(width);
 
         for (int c = 0; c < channels; ++c) {
             for (int row = 0; row < h; ++row) {
                 for (int col = 0; col < w; ++col) {
-                    data[c * h * w + row * w + col] = float_img.at<cv::Vec3f>(row, col)[c];
+                    data[c * h * w + row * w + col] = float_img_.at<cv::Vec3f>(row, col)[c];
                 }
             }
         }
 
-        return input_tensor;
+        return std::ref(input_tensor_);
     } catch (const std::exception& e) {
         return std::unexpected(std::string("infer_preprocess failed: ") + e.what());
     }
@@ -67,21 +67,23 @@ auto ModelInference::infer_runtime_async(const ov::Tensor& input_tensor)
     }
 }
 
-auto ModelInference::infer_runtime_wait() -> std::expected<std::vector<float>, std::string> {
+auto ModelInference::infer_runtime_wait()
+    -> std::expected<std::reference_wrapper<const std::vector<float>>, std::string> {
     try {
         infer_request_.wait();
 
         auto output_tensor = infer_request_.get_output_tensor();
         auto* output_data  = output_tensor.data<float>();
         auto output_size   = output_tensor.get_size();
-        return std::vector<float>(output_data, output_data + output_size);
+        raw_buffer_.assign(output_data, output_data + output_size);
+        return std::ref(raw_buffer_);
     } catch (const std::exception& e) {
         return std::unexpected(std::string("Async inference wait failed: ") + e.what());
     }
 }
 
 auto ModelInference::infer_postprocess(const std::vector<float>& raw_output)
-    -> std::expected<std::vector<detection::Detection>, std::string> {
+    -> std::expected<std::reference_wrapper<const std::vector<detection::Detection>>, std::string> {
     try {
         auto output_tensor = infer_request_.get_output_tensor();
         auto shape         = output_tensor.get_shape();
@@ -99,12 +101,12 @@ auto ModelInference::infer_postprocess(const std::vector<float>& raw_output)
             return std::unexpected("Unsupported output shape");
         }
 
-        if (stride < 6) {
+        constexpr int kMinStride = 6;
+        if (stride < kMinStride) {
             return std::unexpected("Output stride too small: expected >= 6");
         }
 
-        std::vector<detection::Detection> results;
-        results.reserve(static_cast<size_t>(num_detections));
+        postprocess_buffer_.clear();
 
         for (int i = 0; i < num_detections; ++i) {
             const float* ptr = &raw_output[i * stride];
@@ -125,14 +127,14 @@ auto ModelInference::infer_postprocess(const std::vector<float>& raw_output)
             float ratio = std::max(box_w, box_h) / std::min(box_w, box_h);
             if (ratio < config_.min_length_width_rate || ratio > config_.max_length_width_rate) continue;
 
-            results.push_back(detection::Detection{
+            postprocess_buffer_.push_back(detection::Detection{
                 .center     = cv::Point2d((x1 + x2) * 0.5f, (y1 + y2) * 0.5f),
                 .id         = cls,
                 .confidence = conf
             });
         }
 
-        return results;
+        return std::ref(postprocess_buffer_);
     } catch (const std::exception& e) {
         return std::unexpected(std::string("Filter failed: ") + e.what());
     }

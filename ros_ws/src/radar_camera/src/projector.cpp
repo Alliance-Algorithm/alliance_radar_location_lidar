@@ -117,16 +117,16 @@ auto Projector::proj_pixel_to_ray(const cv::Point2d& pixel)
         return std::unexpected("Projector not initialized");
     }
 
-    std::vector<cv::Point2f> src{ pixel };
-    std::vector<cv::Point2f> dst;
-    cv::undistortPoints(src, dst, camera_matrix_, dist_coeffs_, cv::noArray(), camera_matrix_);
+    undistort_src_.clear();
+    undistort_src_.push_back(cv::Point2f(static_cast<float>(pixel.x), static_cast<float>(pixel.y)));
+    cv::undistortPoints(undistort_src_, undistort_dst_, camera_matrix_, dist_coeffs_, cv::noArray(), camera_matrix_);
 
-    if (dst.empty()) {
+    if (undistort_dst_.empty()) {
         return std::unexpected("undistortPoints failed");
     }
 
-    double x_norm = dst[0].x;
-    double y_norm = dst[0].y;
+    double x_norm = undistort_dst_[0].x;
+    double y_norm = undistort_dst_[0].y;
 
     Eigen::Vector3d dir_cam(x_norm, y_norm, 1.0);
     dir_cam.normalize();

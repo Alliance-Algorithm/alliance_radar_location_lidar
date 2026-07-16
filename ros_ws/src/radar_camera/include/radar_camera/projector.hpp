@@ -42,6 +42,9 @@ public:
         -> std::expected<robot_pose::RobotPose, std::string>;
 
 private:
+    std::vector<cv::Point2f> undistort_src_;
+    std::vector<cv::Point2f> undistort_dst_;
+
     camera_config::CameraConfig camera_cfg_;
     std::vector<Triangle> triangles_;
     Eigen::Isometry3d t_map_camera_;
