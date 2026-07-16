@@ -1,5 +1,4 @@
 #include "radar_camera/radar_camera_node.hpp"
-#include "radar_camera/preprocess.hpp"
 
 namespace radar_camera::node {
 
@@ -65,7 +64,7 @@ auto RadarCameraNode::ImageCallback(sensor_msgs::msg::Image::SharedPtr msg) -> v
         std::chrono::steady_clock::time_point(std::chrono::seconds(msg->header.stamp.sec)
             + std::chrono::nanoseconds(msg->header.stamp.nanosec));
 
-    auto tensor_ret = preprocess::image_to_tensor(
+    auto tensor_ret = model_inference::ModelInference::infer_preprocess(
         ImageData, inference_config_.model_input_width, inference_config_.model_input_height);
     if (!tensor_ret) {
         RCLCPP_WARN(get_logger(), "Preprocess failed: %s", tensor_ret.error().c_str());
