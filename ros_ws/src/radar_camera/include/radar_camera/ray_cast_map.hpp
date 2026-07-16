@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-#include <Eigen/Core>
+#include <Eigen/Geometry>
 
 namespace radar_camera::projection {
 
