@@ -20,13 +20,6 @@ public:
 
 private:
     auto infer_init(const inference_config::InferenceConfig& config) -> std::expected<void, std::string>;
-    auto parse_output(const ov::Tensor& output_tensor) -> std::expected<void, std::string>;
-
-    struct Box {
-        float x1, y1, x2, y2;
-        float confidence;
-        int class_id;
-    };
 
     inference_config::InferenceConfig config_;
     ov::Core core_;
