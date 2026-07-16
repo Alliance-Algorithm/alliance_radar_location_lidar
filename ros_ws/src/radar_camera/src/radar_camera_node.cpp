@@ -11,9 +11,14 @@ RadarCameraNode::RadarCameraNode()
 
     model_inference_ = std::make_unique<model_inference::ModelInference>(inference_config_);
 
-    auto proj_ret = projector_.proj_init(camera_config_, projection_config_);
-    if (!proj_ret) {
-        RCLCPP_WARN(get_logger(), "Projector init failed: %s", proj_ret.error().c_str());
+    auto cam_ret = projector_.proj_init_camera(camera_config_);
+    if (!cam_ret) {
+        RCLCPP_WARN(get_logger(), "Camera init failed: %s", cam_ret.error().c_str());
+    }
+
+    auto map_ret = projector_.proj_init_map(projection_config_);
+    if (!map_ret) {
+        RCLCPP_WARN(get_logger(), "Map init failed: %s", map_ret.error().c_str());
     }
 
     pose_publisher_ = this->create_publisher<radar_interfaces::msg::CameraDetectionPose>(
@@ -30,24 +35,43 @@ auto RadarCameraNode::ImageCallback(sensor_msgs::msg::Image::SharedPtr msg) -> v
         std::chrono::steady_clock::time_point(std::chrono::seconds(msg->header.stamp.sec)
             + std::chrono::nanoseconds(msg->header.stamp.nanosec));
 
-    auto async_ret = model_inference_->infer_runtime_async(ImageData);
+    auto tensor = model_inference_->infer_preprocess(
+        ImageData, inference_config_.model_input_width, inference_config_.model_input_height);
+    if (!tensor) {
+        RCLCPP_WARN(get_logger(), "Infer preprocess failed: %s", tensor.error().c_str());
+        return;
+    }
+
+    auto async_ret = model_inference_->infer_runtime_async(*tensor);
     if (!async_ret) {
         RCLCPP_WARN(get_logger(), "Inference failed: %s", async_ret.error().c_str());
         return;
     }
 
-    auto wait_ret = model_inference_->infer_runtime_wait();
-    if (!wait_ret) {
-        RCLCPP_WARN(get_logger(), "Inference failed: %s", wait_ret.error().c_str());
+    auto raw = model_inference_->infer_runtime_wait();
+    if (!raw) {
+        RCLCPP_WARN(get_logger(), "Inference failed: %s", raw.error().c_str());
         return;
     }
 
-    auto proj_ret = projector_.proj_process(*wait_ret);
-    if (!proj_ret) {
-        RCLCPP_WARN(get_logger(), "Projection failed: %s", proj_ret.error().c_str());
+    auto dets = model_inference_->infer_postprocess(*raw);
+    if (!dets) {
+        RCLCPP_WARN(get_logger(), "Infer postprocess failed: %s", dets.error().c_str());
         return;
     }
-    PublishCallback(*proj_ret);
+
+    auto projected = projector_.proj_preprocess(*dets);
+    if (!projected) {
+        RCLCPP_WARN(get_logger(), "Projection preprocess failed: %s", projected.error().c_str());
+        return;
+    }
+
+    auto pose = projector_.proj_postprocess(*projected, *dets);
+    if (!pose) {
+        RCLCPP_WARN(get_logger(), "Projection postprocess failed: %s", pose.error().c_str());
+        return;
+    }
+    PublishCallback(*pose);
 }
 
 auto RadarCameraNode::PublishCallback(const robot_pose::RobotPose& robot_poses) -> void {

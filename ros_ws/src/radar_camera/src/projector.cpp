@@ -8,89 +8,8 @@
 
 namespace radar_camera::projection {
 
-auto Projector::map_init(const std::string& mesh_path) -> std::expected<void, std::string> {
-    if (!std::filesystem::exists(mesh_path)) {
-        return std::unexpected("Mesh file not found: " + mesh_path);
-    }
-
-    Assimp::Importer importer;
-    const aiScene* scene = importer.ReadFile(mesh_path,
-        aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_GenNormals | aiProcess_OptimizeMeshes);
-
-    if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
-        return std::unexpected("Assimp error: " + std::string(importer.GetErrorString()));
-    }
-
-    triangles_.clear();
-
-    std::function<void(aiNode*, const aiScene*)> collect;
-    collect = [this, &collect](aiNode* node, const aiScene* scene) {
-        for (unsigned int i = 0; i < node->mNumMeshes; ++i) {
-            aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
-            for (unsigned int f = 0; f < mesh->mNumFaces; ++f) {
-                const aiFace& face = mesh->mFaces[f];
-                if (face.mNumIndices != 3) continue;
-
-                Eigen::Vector3f v0(mesh->mVertices[face.mIndices[0]].x,
-                                    mesh->mVertices[face.mIndices[0]].y,
-                                    mesh->mVertices[face.mIndices[0]].z);
-                Eigen::Vector3f v1(mesh->mVertices[face.mIndices[1]].x,
-                                    mesh->mVertices[face.mIndices[1]].y,
-                                    mesh->mVertices[face.mIndices[1]].z);
-                Eigen::Vector3f v2(mesh->mVertices[face.mIndices[2]].x,
-                                    mesh->mVertices[face.mIndices[2]].y,
-                                    mesh->mVertices[face.mIndices[2]].z);
-                triangles_.push_back({ v0, v1, v2 });
-            }
-        }
-        for (unsigned int i = 0; i < node->mNumChildren; ++i) {
-            collect(node->mChildren[i], scene);
-        }
-    };
-
-    collect(scene->mRootNode, scene);
-
-    if (triangles_.empty()) {
-        return std::unexpected("No triangles found in mesh");
-    }
-    return {};
-}
-
-auto Projector::map_intersect(const Eigen::Vector3f& origin,
-    const Eigen::Vector3f& direction) const -> std::optional<Eigen::Vector3f> {
-    constexpr float kEpsilon = 1e-8f;
-    float nearest = std::numeric_limits<float>::max();
-    std::optional<Eigen::Vector3f> hit_point;
-
-    for (const auto& tri : triangles_) {
-        Eigen::Vector3f e1 = tri.v1 - tri.v0;
-        Eigen::Vector3f e2 = tri.v2 - tri.v0;
-
-        Eigen::Vector3f pvec = direction.cross(e2);
-        float det = e1.dot(pvec);
-        if (std::fabs(det) < kEpsilon) continue;
-
-        float inv_det = 1.0f / det;
-        Eigen::Vector3f tvec = origin - tri.v0;
-        float u = tvec.dot(pvec) * inv_det;
-        if (u < 0.0f || u > 1.0f) continue;
-
-        Eigen::Vector3f qvec = tvec.cross(e1);
-        float v = direction.dot(qvec) * inv_det;
-        if (v < 0.0f || u + v > 1.0f) continue;
-
-        float t = e2.dot(qvec) * inv_det;
-        if (t < kEpsilon || t >= nearest) continue;
-
-        nearest = t;
-        hit_point = origin + direction * t;
-    }
-
-    return hit_point;
-}
-
-auto Projector::proj_init(const camera_config::CameraConfig& camera_cfg,
-    const projection_config::ProjectionConfig& proj_cfg) -> std::expected<void, std::string> {
+auto Projector::proj_init_camera(const camera_config::CameraConfig& camera_cfg)
+    -> std::expected<void, std::string> {
     camera_cfg_ = camera_cfg;
     if (camera_cfg.camera_matrix.size() != 9) {
         return std::unexpected("camera_matrix must have 9 elements (3x3 row-major)");
@@ -136,19 +55,64 @@ auto Projector::proj_init(const camera_config::CameraConfig& camera_cfg,
     t_map_camera_.linear() = R;
     t_map_camera_.translation() = t;
 
-    if (!proj_cfg.mesh_path.empty()) {
-        auto ret = map_init(proj_cfg.mesh_path);
-        if (!ret) {
-            return std::unexpected(ret.error());
-        }
-    }
-
     init_ = true;
     return {};
 }
 
-auto Projector::proj_runtime(const cv::Point2d& pixel)
-    -> std::expected<cv::Point2d, std::string> {
+auto Projector::proj_init_map(const projection_config::ProjectionConfig& proj_cfg)
+    -> std::expected<void, std::string> {
+    if (proj_cfg.mesh_path.empty()) {
+        return {};
+    }
+    if (!std::filesystem::exists(proj_cfg.mesh_path)) {
+        return std::unexpected("Mesh file not found: " + proj_cfg.mesh_path);
+    }
+
+    Assimp::Importer importer;
+    const aiScene* scene = importer.ReadFile(proj_cfg.mesh_path,
+        aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_GenNormals | aiProcess_OptimizeMeshes);
+
+    if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
+        return std::unexpected("Assimp error: " + std::string(importer.GetErrorString()));
+    }
+
+    triangles_.clear();
+
+    std::function<void(aiNode*, const aiScene*)> collect;
+    collect = [this, &collect](aiNode* node, const aiScene* scene) {
+        for (unsigned int i = 0; i < node->mNumMeshes; ++i) {
+            aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
+            for (unsigned int f = 0; f < mesh->mNumFaces; ++f) {
+                const aiFace& face = mesh->mFaces[f];
+                if (face.mNumIndices != 3) continue;
+
+                Eigen::Vector3f v0(mesh->mVertices[face.mIndices[0]].x,
+                                    mesh->mVertices[face.mIndices[0]].y,
+                                    mesh->mVertices[face.mIndices[0]].z);
+                Eigen::Vector3f v1(mesh->mVertices[face.mIndices[1]].x,
+                                    mesh->mVertices[face.mIndices[1]].y,
+                                    mesh->mVertices[face.mIndices[1]].z);
+                Eigen::Vector3f v2(mesh->mVertices[face.mIndices[2]].x,
+                                    mesh->mVertices[face.mIndices[2]].y,
+                                    mesh->mVertices[face.mIndices[2]].z);
+                triangles_.push_back({ v0, v1, v2 });
+            }
+        }
+        for (unsigned int i = 0; i < node->mNumChildren; ++i) {
+            collect(node->mChildren[i], scene);
+        }
+    };
+
+    collect(scene->mRootNode, scene);
+
+    if (triangles_.empty()) {
+        return std::unexpected("No triangles found in mesh");
+    }
+    return {};
+}
+
+auto Projector::proj_pixel_to_ray(const cv::Point2d& pixel)
+    -> std::expected<Ray, std::string> {
     if (!init_) {
         return std::unexpected("Projector not initialized");
     }
@@ -167,45 +131,86 @@ auto Projector::proj_runtime(const cv::Point2d& pixel)
     Eigen::Vector3d dir_cam(x_norm, y_norm, 1.0);
     dir_cam.normalize();
 
-    Eigen::Vector3d origin = t_map_camera_.translation();
-    Eigen::Vector3d dir_world = t_map_camera_.rotation() * dir_cam;
+    Eigen::Vector3f origin = t_map_camera_.translation().cast<float>();
+    Eigen::Vector3f dir_world = (t_map_camera_.rotation() * dir_cam).cast<float>();
 
-    auto hit = map_intersect(origin.cast<float>(), dir_world.cast<float>());
-    if (!hit) {
-        return std::unexpected("Ray did not hit any triangle");
-    }
-
-    return cv::Point2d(hit->x(), hit->y());
+    return Ray{ origin, dir_world };
 }
 
-auto Projector::proj_process(const std::vector<detection::Detection>& detections)
+auto Projector::proj_map_intersect(const Ray& ray) -> std::expected<cv::Point2d, std::string> {
+    constexpr float kEpsilon = 1e-8f;
+    float nearest = std::numeric_limits<float>::max();
+    std::optional<Eigen::Vector3f> hit_point;
+
+    for (const auto& tri : triangles_) {
+        Eigen::Vector3f e1 = tri.v1 - tri.v0;
+        Eigen::Vector3f e2 = tri.v2 - tri.v0;
+
+        Eigen::Vector3f pvec = ray.direction.cross(e2);
+        float det = e1.dot(pvec);
+        if (std::fabs(det) < kEpsilon) continue;
+
+        float inv_det = 1.0f / det;
+        Eigen::Vector3f tvec = ray.origin - tri.v0;
+        float u = tvec.dot(pvec) * inv_det;
+        if (u < 0.0f || u > 1.0f) continue;
+
+        Eigen::Vector3f qvec = tvec.cross(e1);
+        float v = ray.direction.dot(qvec) * inv_det;
+        if (v < 0.0f || u + v > 1.0f) continue;
+
+        float t = (tri.v2 - tri.v0).dot(qvec) * inv_det;
+        if (t < kEpsilon || t >= nearest) continue;
+
+        nearest = t;
+        hit_point = ray.origin + ray.direction * t;
+    }
+
+    if (!hit_point) {
+        return std::unexpected("Ray did not hit any triangle");
+    }
+    return cv::Point2d(hit_point->x(), hit_point->y());
+}
+
+auto Projector::proj_preprocess(const std::vector<detection::Detection>& detections)
+    -> std::expected<std::vector<cv::Point2d>, std::string> {
+    std::vector<cv::Point2d> projected;
+    projected.reserve(detections.size());
+    for (const auto& det : detections) {
+        auto ray = proj_pixel_to_ray(det.center);
+        if (!ray) continue;
+        auto pt = proj_map_intersect(*ray);
+        if (!pt) continue;
+        projected.push_back(*pt);
+    }
+    if (projected.empty()) {
+        return std::unexpected("No detection projected successfully");
+    }
+    return projected;
+}
+
+auto Projector::proj_postprocess(const std::vector<cv::Point2d>& projected,
+    const std::vector<detection::Detection>& detections)
     -> std::expected<robot_pose::RobotPose, std::string> {
     robot_pose::RobotPose pose;
-    bool any_hit = false;
-    for (const auto& det : detections) {
-        auto pt = proj_runtime(det.center);
-        if (!pt) continue;
-        any_hit = true;
-
+    for (size_t i = 0; i < projected.size(); ++i) {
+        const auto& det = detections[i];
         if (det.id == camera_cfg_.hero_class_id) {
-            pose.hero_position   = *pt;
+            pose.hero_position   = projected[i];
             pose.hero_confidence = det.confidence;
         } else if (det.id == camera_cfg_.engine_class_id) {
-            pose.engine_position   = *pt;
+            pose.engine_position   = projected[i];
             pose.engine_confidence = det.confidence;
         } else if (det.id == camera_cfg_.infantry_3_class_id) {
-            pose.infantry_3_position   = *pt;
+            pose.infantry_3_position   = projected[i];
             pose.infantry_3_confidence = det.confidence;
         } else if (det.id == camera_cfg_.infantry_4_class_id) {
-            pose.infantry_4_position   = *pt;
+            pose.infantry_4_position   = projected[i];
             pose.infantry_4_confidence = det.confidence;
         } else if (det.id == camera_cfg_.sentry_class_id) {
-            pose.sentry_position   = *pt;
+            pose.sentry_position   = projected[i];
             pose.sentry_confidence = det.confidence;
         }
-    }
-    if (!any_hit) {
-        return std::unexpected("No detection projected successfully");
     }
     return pose;
 }

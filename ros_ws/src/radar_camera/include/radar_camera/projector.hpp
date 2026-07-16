@@ -15,24 +15,33 @@ struct Triangle {
     Eigen::Vector3f v0, v1, v2;
 };
 
+struct Ray {
+    Eigen::Vector3f origin;
+    Eigen::Vector3f direction;
+};
+
 class Projector {
 public:
     Projector()  = default;
     ~Projector() = default;
-    auto proj_init(const camera_config::CameraConfig& camera_cfg,
-                   const projection_config::ProjectionConfig& proj_cfg)
+    auto proj_init_camera(const camera_config::CameraConfig& camera_cfg)
         -> std::expected<void, std::string>;
 
-    auto proj_runtime(const cv::Point2d& pixel) -> std::expected<cv::Point2d, std::string>;
+    auto proj_init_map(const projection_config::ProjectionConfig& proj_cfg)
+        -> std::expected<void, std::string>;
 
-    auto proj_process(const std::vector<detection::Detection>& detections)
+    auto proj_preprocess(const std::vector<detection::Detection>& detections)
+        -> std::expected<std::vector<cv::Point2d>, std::string>;
+
+    auto proj_pixel_to_ray(const cv::Point2d& pixel) -> std::expected<Ray, std::string>;
+
+    auto proj_map_intersect(const Ray& ray) -> std::expected<cv::Point2d, std::string>;
+
+    auto proj_postprocess(const std::vector<cv::Point2d>& projected,
+        const std::vector<detection::Detection>& detections)
         -> std::expected<robot_pose::RobotPose, std::string>;
 
 private:
-    auto map_init(const std::string& mesh_path) -> std::expected<void, std::string>;
-    auto map_intersect(const Eigen::Vector3f& origin, const Eigen::Vector3f& direction) const
-        -> std::optional<Eigen::Vector3f>;
-
     camera_config::CameraConfig camera_cfg_;
     std::vector<Triangle> triangles_;
     Eigen::Isometry3d t_map_camera_;
