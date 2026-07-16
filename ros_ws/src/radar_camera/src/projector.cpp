@@ -178,11 +178,14 @@ auto Projector::proj_runtime(const cv::Point2d& pixel)
 }
 
 auto Projector::proj_process(const std::vector<detection::Detection>& detections,
-    const camera_config::CameraConfig& camera_cfg) -> robot_pose::RobotPose {
+    const camera_config::CameraConfig& camera_cfg)
+    -> std::expected<robot_pose::RobotPose, std::string> {
     robot_pose::RobotPose pose;
+    bool any_hit = false;
     for (const auto& det : detections) {
         auto pt = proj_runtime(det.center);
         if (!pt) continue;
+        any_hit = true;
 
         if (det.id == camera_cfg.hero_class_id) {
             pose.hero_position   = *pt;
@@ -200,6 +203,9 @@ auto Projector::proj_process(const std::vector<detection::Detection>& detections
             pose.sentry_position   = *pt;
             pose.sentry_confidence = det.confidence;
         }
+    }
+    if (!any_hit) {
+        return std::unexpected("No detection projected successfully");
     }
     return pose;
 }

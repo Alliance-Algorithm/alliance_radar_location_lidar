@@ -42,7 +42,12 @@ auto RadarCameraNode::ImageCallback(sensor_msgs::msg::Image::SharedPtr msg) -> v
         return;
     }
 
-    PublishCallback(projector_.proj_process(*wait_ret, camera_config_));
+    auto proj_ret = projector_.proj_process(*wait_ret, camera_config_);
+    if (!proj_ret) {
+        RCLCPP_WARN(get_logger(), "Projection failed: %s", proj_ret.error().c_str());
+        return;
+    }
+    PublishCallback(*proj_ret);
 }
 
 auto RadarCameraNode::PublishCallback(const robot_pose::RobotPose& robot_poses) -> void {
