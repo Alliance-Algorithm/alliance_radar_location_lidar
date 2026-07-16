@@ -3,6 +3,16 @@
 #include <string>
 #include <vector>
 
+namespace radar_camera::detection {
+
+struct Detection {
+    cv::Point2d center;
+    int id;
+    float confidence;
+};
+
+} // namespace radar_camera::detection
+
 namespace radar_camera::camera_config {
 
 struct CameraConfig {

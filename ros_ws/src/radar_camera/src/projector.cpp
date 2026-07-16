@@ -177,4 +177,31 @@ auto Projector::proj_runtime(const cv::Point2d& pixel)
     return cv::Point2d(hit->x(), hit->y());
 }
 
+auto Projector::proj_process(const std::vector<detection::Detection>& detections,
+    const camera_config::CameraConfig& camera_cfg) -> robot_pose::RobotPose {
+    robot_pose::RobotPose pose;
+    for (const auto& det : detections) {
+        auto pt = proj_runtime(det.center);
+        if (!pt) continue;
+
+        if (det.id == camera_cfg.hero_class_id) {
+            pose.hero_position   = *pt;
+            pose.hero_confidence = det.confidence;
+        } else if (det.id == camera_cfg.engine_class_id) {
+            pose.engine_position   = *pt;
+            pose.engine_confidence = det.confidence;
+        } else if (det.id == camera_cfg.infantry_3_class_id) {
+            pose.infantry_3_position   = *pt;
+            pose.infantry_3_confidence = det.confidence;
+        } else if (det.id == camera_cfg.infantry_4_class_id) {
+            pose.infantry_4_position   = *pt;
+            pose.infantry_4_confidence = det.confidence;
+        } else if (det.id == camera_cfg.sentry_class_id) {
+            pose.sentry_position   = *pt;
+            pose.sentry_confidence = det.confidence;
+        }
+    }
+    return pose;
+}
+
 } // namespace radar_camera::projection
