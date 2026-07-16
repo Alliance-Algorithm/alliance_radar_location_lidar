@@ -13,7 +13,6 @@ public:
     explicit ModelInference(const inference_config::InferenceConfig& config);
     ~ModelInference() = default;
 
-    auto infer_runtime(const ov::Tensor& input_tensor) -> std::expected<std::vector<float>, std::string>;
     auto infer_runtime_async(const ov::Tensor& input_tensor) -> std::expected<void, std::string>;
     auto infer_runtime_wait() -> std::expected<std::vector<float>, std::string>;
     auto infer_filter(const std::vector<float>& raw_output) -> std::expected<std::vector<float>, std::string>;
