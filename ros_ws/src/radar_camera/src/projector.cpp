@@ -110,8 +110,8 @@ auto Projector::proj_pixel_to_ray(const cv::Point2d& pixel) -> std::expected<Ray
 
     undistort_src_.clear();
     undistort_src_.push_back(cv::Point2f(static_cast<float>(pixel.x), static_cast<float>(pixel.y)));
-    cv::undistortPoints(undistort_src_, undistort_dst_, camera_matrix_, dist_coeffs_, cv::noArray(),
-        camera_matrix_);
+    cv::undistortPoints(
+        undistort_src_, undistort_dst_, camera_matrix_, dist_coeffs_, cv::noArray(), cv::noArray());
 
     if (undistort_dst_.empty()) {
         return std::unexpected("undistortPoints failed");
