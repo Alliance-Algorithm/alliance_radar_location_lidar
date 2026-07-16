@@ -47,7 +47,7 @@ private:
 
     camera_config::CameraConfig camera_cfg_;
     std::vector<Triangle> triangles_;
-    Eigen::Isometry3d t_map_camera_;
+    Eigen::Isometry3d t_map_camera_ = Eigen::Isometry3d::Identity();
     cv::Mat camera_matrix_;
     cv::Mat dist_coeffs_;
     bool init_ = false;

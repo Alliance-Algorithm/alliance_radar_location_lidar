@@ -64,7 +64,7 @@ auto RadarCameraNode::ImageCallback(sensor_msgs::msg::Image::SharedPtr msg) -> v
         return;
     }
 
-    auto dets = model_inference_->infer_postprocess(raw->get());
+    auto dets = model_inference_->infer_postprocess(raw->get(), ImageData.cols, ImageData.rows);
     if (!dets) {
         RCLCPP_WARN(get_logger(), "Infer postprocess failed: %s", dets.error().c_str());
         return;
@@ -129,7 +129,6 @@ auto ConfigsLoader(rclcpp::Node& node, camera_config::CameraConfig& camera,
 
         node.get_parameter("model_path", inference.model_path);
         node.get_parameter("conf_threshold", inference.conf_threshold);
-        node.get_parameter("nms_threshold", inference.nms_threshold);
         node.get_parameter("min_length_width_rate", inference.min_length_width_rate);
         node.get_parameter("max_length_width_rate", inference.max_length_width_rate);
         node.get_parameter("use_openvino", inference.use_openvino);

@@ -22,7 +22,7 @@ public:
     auto infer_runtime_wait()
         -> std::expected<std::reference_wrapper<const std::vector<float>>, std::string>;
 
-    auto infer_postprocess(const std::vector<float>& raw_output)
+    auto infer_postprocess(const std::vector<float>& raw_output, int src_width, int src_height)
         -> std::expected<std::reference_wrapper<const std::vector<detection::Detection>>,
             std::string>;
 

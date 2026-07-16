@@ -16,7 +16,6 @@ model_path: "/workspace/ros_ws/src/radar_camera/config/camera_inference_model.on
 model_input_width: 1280
 model_input_height: 1280
 conf_threshold: 0.6
-nms_threshold: 0.45
 min_length_width_rate: 0.8
 max_length_width_rate: 1.5
 use_openvino: 1
