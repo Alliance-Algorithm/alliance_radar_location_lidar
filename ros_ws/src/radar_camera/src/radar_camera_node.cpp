@@ -1,3 +1,5 @@
+#include <cv_bridge/cv_bridge.hpp>
+
 #include "radar_camera/radar_camera_node.hpp"
 
 namespace radar_camera::node {
@@ -13,12 +15,16 @@ RadarCameraNode::RadarCameraNode()
 
     auto cam_ret = projector_.proj_init_camera(camera_config_);
     if (!cam_ret) {
-        RCLCPP_WARN(get_logger(), "Camera init failed: %s", cam_ret.error().c_str());
+        RCLCPP_FATAL(get_logger(), "Camera init failed: %s", cam_ret.error().c_str());
+        rclcpp::shutdown();
+        return;
     }
 
     auto map_ret = projector_.proj_init_map(projection_config_);
     if (!map_ret) {
-        RCLCPP_WARN(get_logger(), "Map init failed: %s", map_ret.error().c_str());
+        RCLCPP_FATAL(get_logger(), "Map init failed: %s", map_ret.error().c_str());
+        rclcpp::shutdown();
+        return;
     }
 
     pose_publisher_ = this->create_publisher<radar_interfaces::msg::CameraDetectionPose>(
@@ -29,8 +35,12 @@ RadarCameraNode::RadarCameraNode()
 }
 
 auto RadarCameraNode::ImageCallback(sensor_msgs::msg::Image::SharedPtr msg) -> void {
-    ImageData =
-        cv::Mat(msg->height, msg->width, CV_8UC3, const_cast<uint8_t*>(&msg->data[0])).clone();
+    auto cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
+    if (!cv_ptr) {
+        RCLCPP_WARN(get_logger(), "cv_bridge conversion failed");
+        return;
+    }
+    ImageData = cv_ptr->image;
     capture_timestamp_ =
         std::chrono::steady_clock::time_point(std::chrono::seconds(msg->header.stamp.sec)
             + std::chrono::nanoseconds(msg->header.stamp.nanosec));
@@ -77,7 +87,7 @@ auto RadarCameraNode::ImageCallback(sensor_msgs::msg::Image::SharedPtr msg) -> v
 auto RadarCameraNode::PublishCallback(const robot_pose::RobotPose& robot_poses) -> void {
     auto pose_msg                  = radar_interfaces::msg::CameraDetectionPose();
     pose_msg.header.stamp          = rclcpp::Time(capture_timestamp_.time_since_epoch().count());
-    pose_msg.header.frame_id       = "camera_frame";
+    pose_msg.header.frame_id       = "map";
     pose_msg.hero_position.x       = robot_poses.hero_position.x;
     pose_msg.hero_position.y       = robot_poses.hero_position.y;
     pose_msg.engine_position.x     = robot_poses.engine_position.x;
@@ -109,6 +119,7 @@ auto ConfigsLoader(rclcpp::Node& node, camera_config::CameraConfig& camera,
         node.get_parameter("infantry_3_" + camera.enemy_color, camera.infantry_3_class_id);
         node.get_parameter("infantry_4_" + camera.enemy_color, camera.infantry_4_class_id);
         node.get_parameter("sentry_" + camera.enemy_color, camera.sentry_class_id);
+        node.get_parameter("drone_" + camera.enemy_color, camera.drone_class_id);
         node.get_parameter("camera_matrix", camera.camera_matrix);
         node.get_parameter("distortion_coefficients", camera.distortion_coefficients);
         node.get_parameter("rotation", camera.rotation);

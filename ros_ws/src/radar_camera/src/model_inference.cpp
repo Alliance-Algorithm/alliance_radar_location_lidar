@@ -6,30 +6,15 @@ namespace radar_camera::model_inference {
 auto ModelInference::infer_preprocess(const cv::Mat& image, size_t width, size_t height)
     -> std::expected<std::reference_wrapper<const ov::Tensor>, std::string> {
     try {
-        cv::resize(
-            image, resized_img_, cv::Size(static_cast<int>(width), static_cast<int>(height)));
-
-        cv::cvtColor(resized_img_, rgb_img_, cv::COLOR_BGR2RGB);
-
-        rgb_img_.convertTo(float_img_, CV_32FC3, 1.0 / 255.0);
+        cv::Mat blob = cv::dnn::blobFromImage(image, 1.0 / 255.0,
+            cv::Size(static_cast<int>(width), static_cast<int>(height)), cv::Scalar(), true, false);
 
         ov::Shape expected_shape { 1, 3, height, width };
         if (input_tensor_.get_shape() != expected_shape) {
             input_tensor_ = ov::Tensor(ov::element::f32, expected_shape);
         }
 
-        float* data            = input_tensor_.data<float>();
-        constexpr int channels = 3;
-        const int h            = static_cast<int>(height);
-        const int w            = static_cast<int>(width);
-
-        for (int c = 0; c < channels; ++c) {
-            for (int row = 0; row < h; ++row) {
-                for (int col = 0; col < w; ++col) {
-                    data[c * h * w + row * w + col] = float_img_.at<cv::Vec3f>(row, col)[c];
-                }
-            }
-        }
+        std::memcpy(input_tensor_.data<float>(), blob.data, blob.total() * sizeof(float));
 
         return std::ref(input_tensor_);
     } catch (const std::exception& e) {

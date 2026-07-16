@@ -31,13 +31,13 @@ public:
         -> std::expected<void, std::string>;
 
     auto proj_preprocess(const std::vector<detection::Detection>& detections)
-        -> std::expected<std::vector<cv::Point2d>, std::string>;
+        -> std::expected<std::vector<std::optional<cv::Point2d>>, std::string>;
 
     auto proj_pixel_to_ray(const cv::Point2d& pixel) -> std::expected<Ray, std::string>;
 
     auto proj_map_intersect(const Ray& ray) -> std::expected<cv::Point2d, std::string>;
 
-    auto proj_postprocess(const std::vector<cv::Point2d>& projected,
+    auto proj_postprocess(const std::vector<std::optional<cv::Point2d>>& projected,
         const std::vector<detection::Detection>& detections)
         -> std::expected<robot_pose::RobotPose, std::string>;
 
@@ -50,7 +50,6 @@ private:
     Eigen::Isometry3d t_map_camera_;
     cv::Mat camera_matrix_;
     cv::Mat dist_coeffs_;
-    cv::Mat map1_, map2_;
     bool init_ = false;
 };
 
