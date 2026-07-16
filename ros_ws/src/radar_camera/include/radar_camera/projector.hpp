@@ -25,6 +25,10 @@ public:
 
     auto proj_runtime(const cv::Point2d& pixel) -> std::expected<cv::Point2d, std::string>;
 
+    auto proj_process(const std::vector<detection::Detection>& detections,
+                      const camera_config::CameraConfig& camera_cfg)
+        -> robot_pose::RobotPose;
+
 private:
     auto map_init(const std::string& mesh_path) -> std::expected<void, std::string>;
     auto map_intersect(const Eigen::Vector3f& origin, const Eigen::Vector3f& direction) const

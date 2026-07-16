@@ -9,20 +9,14 @@
 
 namespace radar_camera::model_inference {
 
-struct Detection {
-    cv::Point2d center;
-    int id;
-    float confidence;
-};
-
 class ModelInference {
 public:
     explicit ModelInference(const inference_config::InferenceConfig& config);
     ~ModelInference() = default;
 
     auto infer_runtime_async(const cv::Mat& image) -> std::expected<void, std::string>;
-    auto infer_runtime_wait() -> std::expected<std::vector<Detection>, std::string>;
-    auto infer_filter(const std::vector<float>& raw_output) -> std::expected<std::vector<Detection>, std::string>;
+    auto infer_runtime_wait() -> std::expected<std::vector<detection::Detection>, std::string>;
+    auto infer_filter(const std::vector<float>& raw_output) -> std::expected<std::vector<detection::Detection>, std::string>;
 
 private:
     auto infer_init(const inference_config::InferenceConfig& config) -> std::expected<void, std::string>;

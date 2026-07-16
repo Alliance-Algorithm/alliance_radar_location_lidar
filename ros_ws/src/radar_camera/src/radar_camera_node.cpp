@@ -42,29 +42,7 @@ auto RadarCameraNode::ImageCallback(sensor_msgs::msg::Image::SharedPtr msg) -> v
         return;
     }
 
-    for (const auto& det : *wait_ret) {
-        auto map_point = projector_.proj_runtime(det.center);
-        if (!map_point) continue;
-
-        if (det.id == camera_config_.hero_class_id) {
-            robot_poses_.hero_position   = *map_point;
-            robot_poses_.hero_confidence = det.confidence;
-        } else if (det.id == camera_config_.engine_class_id) {
-            robot_poses_.engine_position   = *map_point;
-            robot_poses_.engine_confidence = det.confidence;
-        } else if (det.id == camera_config_.infantry_3_class_id) {
-            robot_poses_.infantry_3_position   = *map_point;
-            robot_poses_.infantry_3_confidence = det.confidence;
-        } else if (det.id == camera_config_.infantry_4_class_id) {
-            robot_poses_.infantry_4_position   = *map_point;
-            robot_poses_.infantry_4_confidence = det.confidence;
-        } else if (det.id == camera_config_.sentry_class_id) {
-            robot_poses_.sentry_position   = *map_point;
-            robot_poses_.sentry_confidence = det.confidence;
-        }
-    }
-
-    PublishCallback(robot_poses_);
+    PublishCallback(projector_.proj_process(*wait_ret, camera_config_));
 }
 
 auto RadarCameraNode::PublishCallback(const robot_pose::RobotPose& robot_poses) -> void {

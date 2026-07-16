@@ -71,7 +71,7 @@ auto ModelInference::infer_runtime_async(const cv::Mat& image)
     }
 }
 
-auto ModelInference::infer_runtime_wait() -> std::expected<std::vector<Detection>, std::string> {
+auto ModelInference::infer_runtime_wait() -> std::expected<std::vector<detection::Detection>, std::string> {
     try {
         infer_request_.wait();
 
@@ -86,7 +86,7 @@ auto ModelInference::infer_runtime_wait() -> std::expected<std::vector<Detection
 }
 
 auto ModelInference::infer_filter(const std::vector<float>& raw_output)
-    -> std::expected<std::vector<Detection>, std::string> {
+    -> std::expected<std::vector<detection::Detection>, std::string> {
     try {
         auto output_tensor = infer_request_.get_output_tensor();
         auto shape         = output_tensor.get_shape();
@@ -108,7 +108,7 @@ auto ModelInference::infer_filter(const std::vector<float>& raw_output)
             return std::unexpected("Output stride too small: expected >= 6");
         }
 
-        std::vector<Detection> results;
+        std::vector<detection::Detection> results;
         results.reserve(static_cast<size_t>(num_detections));
 
         for (int i = 0; i < num_detections; ++i) {
@@ -130,7 +130,7 @@ auto ModelInference::infer_filter(const std::vector<float>& raw_output)
             float ratio = std::max(box_w, box_h) / std::min(box_w, box_h);
             if (ratio < config_.min_length_width_rate || ratio > config_.max_length_width_rate) continue;
 
-            results.push_back(Detection{
+            results.push_back(detection::Detection{
                 .center     = cv::Point2d((x1 + x2) * 0.5f, (y1 + y2) * 0.5f),
                 .id         = cls,
                 .confidence = conf
