@@ -18,6 +18,8 @@ find_package(OpenVINO REQUIRED PATHS "${OpenVINO_DIR_PY}")
 find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_auto REQUIRED)
 find_package(OpenCV REQUIRED)
+find_package(Eigen3 REQUIRED)
+find_package(assimp REQUIRED)
 
 ament_auto_find_build_dependencies()
 
@@ -26,8 +28,9 @@ ament_auto_add_executable(${PROJECT_NAME}_node
     src/radar_camera_node.cpp
     src/model_inference.cpp
     src/preprocess.cpp
+    src/ray_cast_map.cpp
 )
-target_link_libraries(${PROJECT_NAME}_node ${OpenCV_LIBS} openvino::runtime)
+target_link_libraries(${PROJECT_NAME}_node ${OpenCV_LIBS} openvino::runtime Eigen3::Eigen assimp::assimp)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
