@@ -22,6 +22,7 @@ max_length_width_rate: 1.5
 use_openvino: 1
 num_classes: 12
 device_name: "CPU"
+mesh_path: ""
 internal_parameter:
   camera_matrix: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
   distortion_coefficients: [0.0, 0.0, 0.0, 0.0, 0.0]

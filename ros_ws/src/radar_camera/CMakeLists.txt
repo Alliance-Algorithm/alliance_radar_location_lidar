@@ -29,6 +29,7 @@ ament_auto_add_executable(${PROJECT_NAME}_node
     src/model_inference.cpp
     src/preprocess.cpp
     src/ray_cast_map.cpp
+    src/projector.cpp
 )
 target_link_libraries(${PROJECT_NAME}_node ${OpenCV_LIBS} openvino::runtime Eigen3::Eigen assimp::assimp)
 
