@@ -255,7 +255,7 @@ PR #33 提交后 CodeRabbit review 修复（2026-07-05）：
 待完成（未来）：
 - [x] `radar_camera` 包通信框架完成：ConfigsLoader + ImageCallback + PublishCallback，
       CameraDetectionPose 发布到 /camera/detection，FusionNode 消费
-- [ ] `radar_camera` 推理管线：YOLO ONNX 模型加载 + 预处理 + 后处理 + 外参投影
+- [x] `radar_camera` 推理管线：YOLO ONNX 模型加载 + 预处理 + 后处理 + 外参投影
 - [ ] `config/initial_guess.yaml` 当前是占位全零，需实测/估算 RoboMaster
       雷达站相机相对地图系的安装几何（平移 + RPY）后填入
 - [ ] `camera_lidar_calibration.cpp` 解析 `T_lidar_camera` 时对 JSON 数组
