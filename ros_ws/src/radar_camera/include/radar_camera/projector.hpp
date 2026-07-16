@@ -1,14 +1,19 @@
 #pragma once
 #include <expected>
+#include <optional>
 #include <opencv2/opencv.hpp>
 #include <string>
+#include <vector>
 
 #include <Eigen/Geometry>
 
 #include "radar_camera/data_format.hpp"
-#include "radar_camera/ray_cast_map.hpp"
 
 namespace radar_camera::projection {
+
+struct Triangle {
+    Eigen::Vector3f v0, v1, v2;
+};
 
 class Projector {
 public:
@@ -23,7 +28,11 @@ public:
         -> std::expected<Eigen::Vector3d, std::string>;
 
 private:
-    RayCastMap map_;
+    auto map_init(const std::string& mesh_path) -> std::expected<void, std::string>;
+    auto map_intersect(const Eigen::Vector3f& origin, const Eigen::Vector3f& direction) const
+        -> std::optional<Eigen::Vector3f>;
+
+    std::vector<Triangle> triangles_;
     Eigen::Isometry3d t_map_camera_;
     cv::Mat camera_matrix_;
     cv::Mat dist_coeffs_;
