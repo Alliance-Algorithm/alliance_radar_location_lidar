@@ -56,14 +56,10 @@ auto ModelInference::infer_init(const inference_config::InferenceConfig& config)
     }
 }
 
-auto ModelInference::infer_runtime_async(const cv::Mat& image)
+auto ModelInference::infer_runtime_async(const ov::Tensor& input_tensor)
     -> std::expected<void, std::string> {
     try {
-        auto tensor = infer_preprocess(image, config_.model_input_width, config_.model_input_height);
-        if (!tensor) {
-            return std::unexpected(tensor.error());
-        }
-        infer_request_.set_input_tensor(*tensor);
+        infer_request_.set_input_tensor(input_tensor);
         infer_request_.start_async();
         return {};
     } catch (const std::exception& e) {
@@ -71,21 +67,20 @@ auto ModelInference::infer_runtime_async(const cv::Mat& image)
     }
 }
 
-auto ModelInference::infer_runtime_wait() -> std::expected<std::vector<detection::Detection>, std::string> {
+auto ModelInference::infer_runtime_wait() -> std::expected<std::vector<float>, std::string> {
     try {
         infer_request_.wait();
 
         auto output_tensor = infer_request_.get_output_tensor();
         auto* output_data  = output_tensor.data<float>();
         auto output_size   = output_tensor.get_size();
-        std::vector<float> raw(output_data, output_data + output_size);
-        return infer_filter(raw);
+        return std::vector<float>(output_data, output_data + output_size);
     } catch (const std::exception& e) {
         return std::unexpected(std::string("Async inference wait failed: ") + e.what());
     }
 }
 
-auto ModelInference::infer_filter(const std::vector<float>& raw_output)
+auto ModelInference::infer_postprocess(const std::vector<float>& raw_output)
     -> std::expected<std::vector<detection::Detection>, std::string> {
     try {
         auto output_tensor = infer_request_.get_output_tensor();
