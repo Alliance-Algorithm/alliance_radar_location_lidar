@@ -23,22 +23,6 @@ auto ModelInference::infer_init(const inference_config::InferenceConfig& config)
     }
 }
 
-auto ModelInference::infer_runtime(const ov::Tensor& input_tensor)
-    -> std::expected<std::vector<float>, std::string> {
-    try {
-        infer_request_.set_input_tensor(input_tensor);
-        infer_request_.start_async();
-        infer_request_.wait();
-
-        auto output_tensor = infer_request_.get_output_tensor();
-        auto* output_data  = output_tensor.data<float>();
-        auto output_size   = output_tensor.get_size();
-        return std::vector<float>(output_data, output_data + output_size);
-    } catch (const std::exception& e) {
-        return std::unexpected(std::string("Inference failed: ") + e.what());
-    }
-}
-
 auto ModelInference::infer_runtime_async(const ov::Tensor& input_tensor)
     -> std::expected<void, std::string> {
     try {
