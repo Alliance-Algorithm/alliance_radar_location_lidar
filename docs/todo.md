@@ -43,12 +43,10 @@
 **提案文档**：`docs/2026-07-14-gicp-registration-action.md`
 
 **背景**：雷达底座固定，GICP scan-to-map 配准收敛后位姿不再变化，本质是一次性
-外参标定。当前在 `radar_lidar_node` 中作为持续节点运行，浪费 CPU、占用动态 TF。
+外参标定。当前在 `radar_lidar_node` 中作为持续节点运行，浪费 CPU。
 
 **方案**：将 GICP 配准封装为 `radar_calibration` 包中的 Action Server，配准结果
-写入 `extrinsics.yaml` 作为 `map→radar_base` 静态 TF。`radar_lidar` 精简为纯感知
-（动态提取 + 聚类），不再跑配准和广播 TF。省出的动态 TF 广播权留给后续
-prefusion（LiDAR-Visual-IMU 前融合）节点。
+写入 `extrinsics.yaml`。`radar_lidar` 精简为纯感知（动态提取 + 聚类）。
 
 ### 已决议
 

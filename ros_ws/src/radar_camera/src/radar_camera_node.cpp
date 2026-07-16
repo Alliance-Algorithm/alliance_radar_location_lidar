@@ -120,7 +120,9 @@ auto ConfigsLoader(rclcpp::Node& node, camera_config::CameraConfig& camera,
     inference_config::InferenceConfig& inference, projection_config::ProjectionConfig& projection)
     -> std::expected<void, std::string> {
     try {
-        node.get_parameter("enemy_color", camera.enemy_color);
+        if (!node.get_parameter("enemy_color", camera.enemy_color)) {
+            return std::unexpected("enemy_color not found — check YAML format");
+        }
         node.get_parameter("hero_" + camera.enemy_color, camera.hero_class_id);
         node.get_parameter("engineer_" + camera.enemy_color, camera.engine_class_id);
         node.get_parameter("infantry3_" + camera.enemy_color, camera.infantry_3_class_id);
