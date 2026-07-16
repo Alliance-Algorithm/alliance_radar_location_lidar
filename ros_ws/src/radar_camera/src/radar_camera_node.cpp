@@ -64,16 +64,9 @@ auto RadarCameraNode::ImageCallback(sensor_msgs::msg::Image::SharedPtr msg) -> v
         std::chrono::steady_clock::time_point(std::chrono::seconds(msg->header.stamp.sec)
             + std::chrono::nanoseconds(msg->header.stamp.nanosec));
 
-    auto tensor_ret = model_inference::ModelInference::infer_preprocess(
-        ImageData, inference_config_.model_input_width, inference_config_.model_input_height);
-    if (!tensor_ret) {
-        RCLCPP_WARN(get_logger(), "Preprocess failed: %s", tensor_ret.error().c_str());
-        return;
-    }
-
-    auto async_ret = model_inference_->infer_runtime_async(*tensor_ret);
+    auto async_ret = model_inference_->infer_runtime_async(ImageData);
     if (!async_ret) {
-        RCLCPP_WARN(get_logger(), "Async inference start failed: %s", async_ret.error().c_str());
+        RCLCPP_WARN(get_logger(), "Inference failed: %s", async_ret.error().c_str());
         return;
     }
 
@@ -90,35 +83,32 @@ auto RadarCameraNode::ImageCallback(sensor_msgs::msg::Image::SharedPtr msg) -> v
     }
 
     auto& boxes = *filter_ret;
-    for (size_t i = 0; i < boxes.size(); i += 6) {
-        float x1 = boxes[i], y1 = boxes[i + 1], x2 = boxes[i + 2], y2 = boxes[i + 3];
-        float conf = boxes[i + 4];
-        int cls    = static_cast<int>(boxes[i + 5]);
+    for (size_t i = 0; i < boxes.size(); i += 4) {
+        float cx   = boxes[i];
+        float cy   = boxes[i + 1];
+        float conf = boxes[i + 2];
+        int cls    = static_cast<int>(boxes[i + 3]);
 
-        cv::Point2d center((x1 + x2) / 2.0, (y1 + y2) / 2.0);
-
-        auto world_ret = projector_.proj_runtime(center);
-        if (!world_ret) {
-            RCLCPP_WARN(get_logger(), "Projection failed: %s", world_ret.error().c_str());
+        auto map_point = projector_.proj_runtime(cv::Point2d(cx, cy));
+        if (!map_point) {
+            RCLCPP_WARN(get_logger(), "Projection failed: %s", map_point.error().c_str());
             continue;
         }
 
-        cv::Point2d map_point(world_ret->x(), world_ret->y());
-
         if (cls == camera_config_.hero_class_id) {
-            robot_poses_.hero_position   = map_point;
+            robot_poses_.hero_position   = *map_point;
             robot_poses_.hero_confidence = conf;
         } else if (cls == camera_config_.engine_class_id) {
-            robot_poses_.engine_position   = map_point;
+            robot_poses_.engine_position   = *map_point;
             robot_poses_.engine_confidence = conf;
         } else if (cls == camera_config_.infantry_3_class_id) {
-            robot_poses_.infantry_3_position   = map_point;
+            robot_poses_.infantry_3_position   = *map_point;
             robot_poses_.infantry_3_confidence = conf;
         } else if (cls == camera_config_.infantry_4_class_id) {
-            robot_poses_.infantry_4_position   = map_point;
+            robot_poses_.infantry_4_position   = *map_point;
             robot_poses_.infantry_4_confidence = conf;
         } else if (cls == camera_config_.sentry_class_id) {
-            robot_poses_.sentry_position   = map_point;
+            robot_poses_.sentry_position   = *map_point;
             robot_poses_.sentry_confidence = conf;
         }
     }

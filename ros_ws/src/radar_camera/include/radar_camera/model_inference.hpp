@@ -14,15 +14,14 @@ public:
     explicit ModelInference(const inference_config::InferenceConfig& config);
     ~ModelInference() = default;
 
-    static auto infer_preprocess(const cv::Mat& image, size_t width, size_t height)
-        -> std::expected<ov::Tensor, std::string>;
-
-    auto infer_runtime_async(const ov::Tensor& input_tensor) -> std::expected<void, std::string>;
+    auto infer_runtime_async(const cv::Mat& image) -> std::expected<void, std::string>;
     auto infer_runtime_wait() -> std::expected<std::vector<float>, std::string>;
     auto infer_filter(const std::vector<float>& raw_output) -> std::expected<std::vector<float>, std::string>;
 
 private:
     auto infer_init(const inference_config::InferenceConfig& config) -> std::expected<void, std::string>;
+    auto infer_preprocess(const cv::Mat& image, size_t width, size_t height)
+        -> std::expected<ov::Tensor, std::string>;
 
     inference_config::InferenceConfig config_;
     ov::Core core_;

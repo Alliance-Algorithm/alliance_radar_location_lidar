@@ -56,10 +56,14 @@ auto ModelInference::infer_init(const inference_config::InferenceConfig& config)
     }
 }
 
-auto ModelInference::infer_runtime_async(const ov::Tensor& input_tensor)
+auto ModelInference::infer_runtime_async(const cv::Mat& image)
     -> std::expected<void, std::string> {
     try {
-        infer_request_.set_input_tensor(input_tensor);
+        auto tensor = infer_preprocess(image, config_.model_input_width, config_.model_input_height);
+        if (!tensor) {
+            return std::unexpected(tensor.error());
+        }
+        infer_request_.set_input_tensor(*tensor);
         infer_request_.start_async();
         return {};
     } catch (const std::exception& e) {
@@ -104,7 +108,7 @@ auto ModelInference::infer_filter(const std::vector<float>& raw_output)
         }
 
         std::vector<float> results;
-        results.reserve(static_cast<size_t>(num_detections) * 6);
+        results.reserve(static_cast<size_t>(num_detections) * 4);
 
         for (int i = 0; i < num_detections; ++i) {
             const float* ptr = &raw_output[i * stride];
@@ -125,10 +129,10 @@ auto ModelInference::infer_filter(const std::vector<float>& raw_output)
             float ratio = std::max(box_w, box_h) / std::min(box_w, box_h);
             if (ratio < config_.min_length_width_rate || ratio > config_.max_length_width_rate) continue;
 
-            results.push_back(x1);
-            results.push_back(y1);
-            results.push_back(x2);
-            results.push_back(y2);
+            float cx = (x1 + x2) * 0.5f;
+            float cy = (y1 + y2) * 0.5f;
+            results.push_back(cx);
+            results.push_back(cy);
             results.push_back(conf);
             results.push_back(static_cast<float>(cls));
         }
