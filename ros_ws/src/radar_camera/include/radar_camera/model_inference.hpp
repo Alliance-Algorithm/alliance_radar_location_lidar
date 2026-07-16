@@ -1,5 +1,6 @@
 #pragma once
 #include <expected>
+#include <opencv2/opencv.hpp>
 #include <openvino/openvino.hpp>
 #include <string>
 #include <vector>
@@ -12,6 +13,9 @@ class ModelInference {
 public:
     explicit ModelInference(const inference_config::InferenceConfig& config);
     ~ModelInference() = default;
+
+    static auto infer_preprocess(const cv::Mat& image, size_t width, size_t height)
+        -> std::expected<ov::Tensor, std::string>;
 
     auto infer_runtime_async(const ov::Tensor& input_tensor) -> std::expected<void, std::string>;
     auto infer_runtime_wait() -> std::expected<std::vector<float>, std::string>;

@@ -27,7 +27,6 @@ ament_auto_add_executable(${PROJECT_NAME}_node
     src/runtime.cpp
     src/radar_camera_node.cpp
     src/model_inference.cpp
-    src/preprocess.cpp
     src/projector.cpp
 )
 target_link_libraries(${PROJECT_NAME}_node ${OpenCV_LIBS} openvino::runtime Eigen3::Eigen assimp::assimp)
