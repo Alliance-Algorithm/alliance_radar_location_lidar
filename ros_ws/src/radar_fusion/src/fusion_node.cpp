@@ -58,10 +58,12 @@ FusionNode::FusionNode(const rclcpp::NodeOptions& options)
         [this](const sensor_msgs::msg::PointCloud2::SharedPtr msg) { on_cluster(msg); });
 
     if (cfg_.enable_camera_fusion) {
-        sub_camera_detection_ = this->create_subscription<geometry_msgs::msg::PoseArray>(
-            "/camera/detection", 10, [this](const geometry_msgs::msg::PoseArray::SharedPtr msg) {
-                on_camera_detection(msg);
-            });
+        sub_camera_detection_ =
+            this->create_subscription<radar_interfaces::msg::CameraDetectionPose>("/camera/"
+                                                                                  "detection",
+                10, [this](const radar_interfaces::msg::CameraDetectionPose::SharedPtr msg) {
+                    on_camera_detection(msg);
+                });
     }
 
     pub_tracks_ =
@@ -82,21 +84,32 @@ void FusionNode::on_lidar_pose(const geometry_msgs::msg::PoseWithCovarianceStamp
     publish_status(rclcpp::Time(msg->header.stamp));
 }
 
-void FusionNode::on_camera_detection(const geometry_msgs::msg::PoseArray::SharedPtr msg) {
+void FusionNode::on_camera_detection(
+    const radar_interfaces::msg::CameraDetectionPose::SharedPtr msg) {
     auto stamp              = rclcpp::Time(msg->header.stamp);
     latest_camera_stamp_ns_ = stamp.nanoseconds();
     latest_camera_observations_.clear();
-    latest_camera_observations_.reserve(msg->poses.size());
+
+    struct {
+        geometry_msgs::msg::Point pos;
+        double conf;
+    } slots[6] = {
+        { msg->hero_position, msg->hero_confidence },
+        { msg->engine_position, msg->engine_confidence },
+        { msg->infantry_3_position, msg->infantry_3_confidence },
+        { msg->infantry_4_position, msg->infantry_4_confidence },
+        { msg->sentry_position, msg->sentry_confidence },
+        { msg->drone_position, msg->drone_confidence },
+    };
 
     std::vector<Eigen::Vector2d> measurements;
-    measurements.reserve(msg->poses.size());
-    for (const auto& detection_pose : msg->poses) {
-        latest_camera_observations_.push_back(CameraObservation {
-            .position   = detection_pose.position,
-            .confidence = 1.0,
-        });
-        if (std::isfinite(detection_pose.position.x) && std::isfinite(detection_pose.position.y)) {
-            measurements.emplace_back(detection_pose.position.x, detection_pose.position.y);
+    for (const auto& slot : slots) {
+        if (slot.conf > 0.0 && std::isfinite(slot.pos.x) && std::isfinite(slot.pos.y)) {
+            latest_camera_observations_.push_back(CameraObservation {
+                .position   = slot.pos,
+                .confidence = slot.conf,
+            });
+            measurements.emplace_back(slot.pos.x, slot.pos.y);
         }
     }
 

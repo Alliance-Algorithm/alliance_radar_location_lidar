@@ -8,6 +8,7 @@ CompileFlags:
   Add:
     - -std=gnu++23
     - -I/usr/lib/gcc/x86_64-linux-gnu/14/include
+    - -I/usr/include/eigen3
 Diagnostics:
   UnusedIncludes: None
   ClangTidy:
