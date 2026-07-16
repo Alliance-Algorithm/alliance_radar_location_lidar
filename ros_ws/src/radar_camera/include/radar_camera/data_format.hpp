@@ -26,33 +26,42 @@ namespace radar_camera::inference_config {
 
 struct InferenceConfig {
     std::string model_path;
-    std::string device_name        = "CPU";
-    int model_input_width          = 1280;
-    int model_input_height         = 1280;
-    int num_classes                = 12;
-    float conf_threshold           = 0.6f;
-    float nms_threshold            = 0.45f;
-    float min_length_width_rate    = 0.8f;
-    float max_length_width_rate    = 1.5f;
-    bool use_openvino              = true;
+    std::string device_name     = "CPU";
+    int model_input_width       = 1280;
+    int model_input_height      = 1280;
+    int num_classes             = 12;
+    float conf_threshold        = 0.6f;
+    float nms_threshold         = 0.45f;
+    float min_length_width_rate = 0.8f;
+    float max_length_width_rate = 1.5f;
+    bool use_openvino           = true;
 };
 
 } // namespace radar_camera::inference_config
 
+namespace radar_camera::projection_config {
+
+struct ProjectionConfig {
+    std::string mesh_path;
+    std::string device_name = "CPU";
+};
+
+} // namespace radar_camera::projection_config
+
 namespace radar_camera::robot_pose {
 
 struct RobotPose {
-    cv::Point hero_position;
+    cv::Point2d hero_position;
     double hero_confidence;
-    cv::Point engine_position;
+    cv::Point2d engine_position;
     double engine_confidence;
-    cv::Point infantry_3_position;
+    cv::Point2d infantry_3_position;
     double infantry_3_confidence;
-    cv::Point infantry_4_position;
+    cv::Point2d infantry_4_position;
     double infantry_4_confidence;
-    cv::Point sentry_position;
+    cv::Point2d sentry_position;
     double sentry_confidence;
-    cv::Point drone_position;
+    cv::Point2d drone_position;
     double drone_confidence;
 };
 
