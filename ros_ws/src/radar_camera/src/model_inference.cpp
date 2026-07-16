@@ -6,21 +6,22 @@ namespace radar_camera::model_inference {
 auto ModelInference::infer_preprocess(const cv::Mat& image, size_t width, size_t height)
     -> std::expected<std::reference_wrapper<const ov::Tensor>, std::string> {
     try {
-        cv::resize(image, resized_img_, cv::Size(static_cast<int>(width), static_cast<int>(height)));
+        cv::resize(
+            image, resized_img_, cv::Size(static_cast<int>(width), static_cast<int>(height)));
 
         cv::cvtColor(resized_img_, rgb_img_, cv::COLOR_BGR2RGB);
 
         rgb_img_.convertTo(float_img_, CV_32FC3, 1.0 / 255.0);
 
-        ov::Shape expected_shape{ 1, 3, height, width };
+        ov::Shape expected_shape { 1, 3, height, width };
         if (input_tensor_.get_shape() != expected_shape) {
             input_tensor_ = ov::Tensor(ov::element::f32, expected_shape);
         }
 
-        float* data = input_tensor_.data<float>();
+        float* data            = input_tensor_.data<float>();
         constexpr int channels = 3;
-        const int h = static_cast<int>(height);
-        const int w = static_cast<int>(width);
+        const int h            = static_cast<int>(height);
+        const int w            = static_cast<int>(width);
 
         for (int c = 0; c < channels; ++c) {
             for (int row = 0; row < h; ++row) {
@@ -50,7 +51,7 @@ auto ModelInference::infer_init(const inference_config::InferenceConfig& config)
         core_           = ov::Core();
         compiled_model_ = core_.compile_model(config_.model_path, config_.device_name);
         infer_request_  = compiled_model_.create_infer_request();
-        return {};
+        return { };
     } catch (const std::exception& e) {
         return std::unexpected(std::string("OpenVINO init failed: ") + e.what());
     }
@@ -61,7 +62,7 @@ auto ModelInference::infer_runtime_async(const ov::Tensor& input_tensor)
     try {
         infer_request_.set_input_tensor(input_tensor);
         infer_request_.start_async();
-        return {};
+        return { };
     } catch (const std::exception& e) {
         return std::unexpected(std::string("Async inference start failed: ") + e.what());
     }
@@ -111,10 +112,10 @@ auto ModelInference::infer_postprocess(const std::vector<float>& raw_output)
         for (int i = 0; i < num_detections; ++i) {
             const float* ptr = &raw_output[i * stride];
 
-            float x1 = ptr[0];
-            float y1 = ptr[1];
-            float x2 = ptr[2];
-            float y2 = ptr[3];
+            float x1   = ptr[0];
+            float y1   = ptr[1];
+            float x2   = ptr[2];
+            float y2   = ptr[3];
             float conf = ptr[4];
             int cls    = static_cast<int>(ptr[5]);
 
@@ -125,13 +126,13 @@ auto ModelInference::infer_postprocess(const std::vector<float>& raw_output)
             if (box_w < 1.0f || box_h < 1.0f) continue;
 
             float ratio = std::max(box_w, box_h) / std::min(box_w, box_h);
-            if (ratio < config_.min_length_width_rate || ratio > config_.max_length_width_rate) continue;
+            if (ratio < config_.min_length_width_rate || ratio > config_.max_length_width_rate)
+                continue;
 
-            postprocess_buffer_.push_back(detection::Detection{
-                .center     = cv::Point2d((x1 + x2) * 0.5f, (y1 + y2) * 0.5f),
-                .id         = cls,
-                .confidence = conf
-            });
+            postprocess_buffer_.push_back(
+                detection::Detection { .center = cv::Point2d((x1 + x2) * 0.5f, (y1 + y2) * 0.5f),
+                    .id                        = cls,
+                    .confidence                = conf });
         }
 
         return std::ref(postprocess_buffer_);

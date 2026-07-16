@@ -15,8 +15,8 @@
 namespace radar_camera::node {
 
 auto ConfigsLoader(rclcpp::Node& node, camera_config::CameraConfig& camera,
-    inference_config::InferenceConfig& inference,
-    projection_config::ProjectionConfig& projection) -> std::expected<void, std::string>;
+    inference_config::InferenceConfig& inference, projection_config::ProjectionConfig& projection)
+    -> std::expected<void, std::string>;
 
 class RadarCameraNode final : public rclcpp::Node {
 public:

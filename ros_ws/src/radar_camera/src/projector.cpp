@@ -35,7 +35,7 @@ auto Projector::proj_init_camera(const camera_config::CameraConfig& camera_cfg)
     }
 
     cv::Size image_size(static_cast<int>(camera_cfg.camera_matrix[0] * 2),
-                        static_cast<int>(camera_cfg.camera_matrix[4] * 2));
+        static_cast<int>(camera_cfg.camera_matrix[4] * 2));
     cv::initUndistortRectifyMap(camera_matrix_, dist_coeffs_, cv::Mat_<double>::eye(3, 3),
         camera_matrix_, image_size, CV_32FC1, map1_, map2_);
 
@@ -48,21 +48,20 @@ auto Projector::proj_init_camera(const camera_config::CameraConfig& camera_cfg)
     Eigen::AngleAxisd yaw_angle(yaw, Eigen::Vector3d::UnitZ());
     Eigen::Matrix3d R = (yaw_angle * pitch_angle * roll_angle).toRotationMatrix();
 
-    Eigen::Vector3d t(camera_cfg.translation[0],
-                      camera_cfg.translation[1],
-                      camera_cfg.translation[2]);
+    Eigen::Vector3d t(
+        camera_cfg.translation[0], camera_cfg.translation[1], camera_cfg.translation[2]);
 
-    t_map_camera_.linear() = R;
+    t_map_camera_.linear()      = R;
     t_map_camera_.translation() = t;
 
     init_ = true;
-    return {};
+    return { };
 }
 
 auto Projector::proj_init_map(const projection_config::ProjectionConfig& proj_cfg)
     -> std::expected<void, std::string> {
     if (proj_cfg.mesh_path.empty()) {
-        return {};
+        return { };
     }
     if (!std::filesystem::exists(proj_cfg.mesh_path)) {
         return std::unexpected("Mesh file not found: " + proj_cfg.mesh_path);
@@ -70,7 +69,8 @@ auto Projector::proj_init_map(const projection_config::ProjectionConfig& proj_cf
 
     Assimp::Importer importer;
     const aiScene* scene = importer.ReadFile(proj_cfg.mesh_path,
-        aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_GenNormals | aiProcess_OptimizeMeshes);
+        aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_GenNormals
+            | aiProcess_OptimizeMeshes);
 
     if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
         return std::unexpected("Assimp error: " + std::string(importer.GetErrorString()));
@@ -87,14 +87,11 @@ auto Projector::proj_init_map(const projection_config::ProjectionConfig& proj_cf
                 if (face.mNumIndices != 3) continue;
 
                 Eigen::Vector3f v0(mesh->mVertices[face.mIndices[0]].x,
-                                    mesh->mVertices[face.mIndices[0]].y,
-                                    mesh->mVertices[face.mIndices[0]].z);
+                    mesh->mVertices[face.mIndices[0]].y, mesh->mVertices[face.mIndices[0]].z);
                 Eigen::Vector3f v1(mesh->mVertices[face.mIndices[1]].x,
-                                    mesh->mVertices[face.mIndices[1]].y,
-                                    mesh->mVertices[face.mIndices[1]].z);
+                    mesh->mVertices[face.mIndices[1]].y, mesh->mVertices[face.mIndices[1]].z);
                 Eigen::Vector3f v2(mesh->mVertices[face.mIndices[2]].x,
-                                    mesh->mVertices[face.mIndices[2]].y,
-                                    mesh->mVertices[face.mIndices[2]].z);
+                    mesh->mVertices[face.mIndices[2]].y, mesh->mVertices[face.mIndices[2]].z);
                 triangles_.push_back({ v0, v1, v2 });
             }
         }
@@ -108,18 +105,18 @@ auto Projector::proj_init_map(const projection_config::ProjectionConfig& proj_cf
     if (triangles_.empty()) {
         return std::unexpected("No triangles found in mesh");
     }
-    return {};
+    return { };
 }
 
-auto Projector::proj_pixel_to_ray(const cv::Point2d& pixel)
-    -> std::expected<Ray, std::string> {
+auto Projector::proj_pixel_to_ray(const cv::Point2d& pixel) -> std::expected<Ray, std::string> {
     if (!init_) {
         return std::unexpected("Projector not initialized");
     }
 
     undistort_src_.clear();
     undistort_src_.push_back(cv::Point2f(static_cast<float>(pixel.x), static_cast<float>(pixel.y)));
-    cv::undistortPoints(undistort_src_, undistort_dst_, camera_matrix_, dist_coeffs_, cv::noArray(), camera_matrix_);
+    cv::undistortPoints(undistort_src_, undistort_dst_, camera_matrix_, dist_coeffs_, cv::noArray(),
+        camera_matrix_);
 
     if (undistort_dst_.empty()) {
         return std::unexpected("undistortPoints failed");
@@ -131,15 +128,15 @@ auto Projector::proj_pixel_to_ray(const cv::Point2d& pixel)
     Eigen::Vector3d dir_cam(x_norm, y_norm, 1.0);
     dir_cam.normalize();
 
-    Eigen::Vector3f origin = t_map_camera_.translation().cast<float>();
+    Eigen::Vector3f origin    = t_map_camera_.translation().cast<float>();
     Eigen::Vector3f dir_world = (t_map_camera_.rotation() * dir_cam).cast<float>();
 
-    return Ray{ origin, dir_world };
+    return Ray { origin, dir_world };
 }
 
 auto Projector::proj_map_intersect(const Ray& ray) -> std::expected<cv::Point2d, std::string> {
     constexpr float kEpsilon = 1e-8f;
-    float nearest = std::numeric_limits<float>::max();
+    float nearest            = std::numeric_limits<float>::max();
     std::optional<Eigen::Vector3f> hit_point;
 
     for (const auto& tri : triangles_) {
@@ -147,22 +144,22 @@ auto Projector::proj_map_intersect(const Ray& ray) -> std::expected<cv::Point2d,
         Eigen::Vector3f e2 = tri.v2 - tri.v0;
 
         Eigen::Vector3f pvec = ray.direction.cross(e2);
-        float det = e1.dot(pvec);
+        float det            = e1.dot(pvec);
         if (std::fabs(det) < kEpsilon) continue;
 
-        float inv_det = 1.0f / det;
+        float inv_det        = 1.0f / det;
         Eigen::Vector3f tvec = ray.origin - tri.v0;
-        float u = tvec.dot(pvec) * inv_det;
+        float u              = tvec.dot(pvec) * inv_det;
         if (u < 0.0f || u > 1.0f) continue;
 
         Eigen::Vector3f qvec = tvec.cross(e1);
-        float v = ray.direction.dot(qvec) * inv_det;
+        float v              = ray.direction.dot(qvec) * inv_det;
         if (v < 0.0f || u + v > 1.0f) continue;
 
         float t = (tri.v2 - tri.v0).dot(qvec) * inv_det;
         if (t < kEpsilon || t >= nearest) continue;
 
-        nearest = t;
+        nearest   = t;
         hit_point = ray.origin + ray.direction * t;
     }
 
@@ -189,8 +186,8 @@ auto Projector::proj_preprocess(const std::vector<detection::Detection>& detecti
     return projected;
 }
 
-auto Projector::proj_postprocess(const std::vector<cv::Point2d>& projected,
-    const std::vector<detection::Detection>& detections)
+auto Projector::proj_postprocess(
+    const std::vector<cv::Point2d>& projected, const std::vector<detection::Detection>& detections)
     -> std::expected<robot_pose::RobotPose, std::string> {
     robot_pose::RobotPose pose;
     for (size_t i = 0; i < projected.size(); ++i) {
