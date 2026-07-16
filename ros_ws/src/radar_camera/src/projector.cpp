@@ -147,7 +147,7 @@ auto Projector::proj_init(const camera_config::CameraConfig& camera_cfg,
 }
 
 auto Projector::proj_runtime(const cv::Point2d& pixel)
-    -> std::expected<Eigen::Vector3d, std::string> {
+    -> std::expected<cv::Point2d, std::string> {
     if (!init_) {
         return std::unexpected("Projector not initialized");
     }
@@ -174,7 +174,7 @@ auto Projector::proj_runtime(const cv::Point2d& pixel)
         return std::unexpected("Ray did not hit any triangle");
     }
 
-    return hit->cast<double>();
+    return cv::Point2d(hit->x(), hit->y());
 }
 
 } // namespace radar_camera::projection

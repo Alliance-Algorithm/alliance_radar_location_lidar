@@ -1,7 +1,7 @@
 #pragma once
 #include <expected>
-#include <optional>
 #include <opencv2/opencv.hpp>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -17,15 +17,13 @@ struct Triangle {
 
 class Projector {
 public:
-    Projector() = default;
+    Projector()  = default;
     ~Projector() = default;
 
     auto proj_init(const camera_config::CameraConfig& camera_cfg,
-                   const projection_config::ProjectionConfig& proj_cfg)
-        -> std::expected<void, std::string>;
+        const projection_config::ProjectionConfig& proj_cfg) -> std::expected<void, std::string>;
 
-    auto proj_runtime(const cv::Point2d& pixel)
-        -> std::expected<Eigen::Vector3d, std::string>;
+    auto proj_runtime(const cv::Point2d& pixel) -> std::expected<cv::Point2d, std::string>;
 
 private:
     auto map_init(const std::string& mesh_path) -> std::expected<void, std::string>;
