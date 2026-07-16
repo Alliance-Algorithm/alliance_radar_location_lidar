@@ -91,6 +91,7 @@ auto Projector::map_intersect(const Eigen::Vector3f& origin,
 
 auto Projector::proj_init(const camera_config::CameraConfig& camera_cfg,
     const projection_config::ProjectionConfig& proj_cfg) -> std::expected<void, std::string> {
+    camera_cfg_ = camera_cfg;
     if (camera_cfg.camera_matrix.size() != 9) {
         return std::unexpected("camera_matrix must have 9 elements (3x3 row-major)");
     }
@@ -177,8 +178,7 @@ auto Projector::proj_runtime(const cv::Point2d& pixel)
     return cv::Point2d(hit->x(), hit->y());
 }
 
-auto Projector::proj_process(const std::vector<detection::Detection>& detections,
-    const camera_config::CameraConfig& camera_cfg)
+auto Projector::proj_process(const std::vector<detection::Detection>& detections)
     -> std::expected<robot_pose::RobotPose, std::string> {
     robot_pose::RobotPose pose;
     bool any_hit = false;
@@ -187,19 +187,19 @@ auto Projector::proj_process(const std::vector<detection::Detection>& detections
         if (!pt) continue;
         any_hit = true;
 
-        if (det.id == camera_cfg.hero_class_id) {
+        if (det.id == camera_cfg_.hero_class_id) {
             pose.hero_position   = *pt;
             pose.hero_confidence = det.confidence;
-        } else if (det.id == camera_cfg.engine_class_id) {
+        } else if (det.id == camera_cfg_.engine_class_id) {
             pose.engine_position   = *pt;
             pose.engine_confidence = det.confidence;
-        } else if (det.id == camera_cfg.infantry_3_class_id) {
+        } else if (det.id == camera_cfg_.infantry_3_class_id) {
             pose.infantry_3_position   = *pt;
             pose.infantry_3_confidence = det.confidence;
-        } else if (det.id == camera_cfg.infantry_4_class_id) {
+        } else if (det.id == camera_cfg_.infantry_4_class_id) {
             pose.infantry_4_position   = *pt;
             pose.infantry_4_confidence = det.confidence;
-        } else if (det.id == camera_cfg.sentry_class_id) {
+        } else if (det.id == camera_cfg_.sentry_class_id) {
             pose.sentry_position   = *pt;
             pose.sentry_confidence = det.confidence;
         }
