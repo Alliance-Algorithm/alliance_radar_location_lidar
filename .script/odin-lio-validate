@@ -159,9 +159,15 @@ if [[ $LOOP_ONLY -eq 0 ]]; then
     sleep 2
 
     echo "[2/4] 启动 LIO ..."
-    export LD_PRELOAD
-    LD_PRELOAD=$(gcc -print-file-name=libasan.so) \
-        stdbuf -oL -eL ros2 launch radar_bringup odin_fast_livo2_mapping.launch.py \
+    # FIXME: 曾用 `export LD_PRELOAD=libasan.so` 强行给整条 launch 链注入
+    # ASAN，结果连 host_sdk_sample（Odin1 厂商闭源驱动二进制，非 ASAN 构建）
+    # 也被注入了，导致驱动卡死在 "Device ready and streams activated" 之后
+    # 再无任何数据发布（实测复现：60s 内 cloud_raw/imu 均无数据，node 侧
+    # First frame 永远等不到）。radar_fast_livo2_node 若需要 ASAN，应通过
+    # `colcon build --cmake-args -DENABLE_ASAN=ON` 让编译器自己链接
+    # sanitizer runtime（见 CMakeLists.txt ENABLE_ASAN 选项），不需要也不该
+    # 用全局 LD_PRELOAD 污染其他子进程。
+    stdbuf -oL -eL ros2 launch radar_bringup odin_fast_livo2_mapping.launch.py \
         > "$LAUNCH_LOG" 2>&1 &
     LAUNCH_PID=$!
     echo "  PID: $LAUNCH_PID"
