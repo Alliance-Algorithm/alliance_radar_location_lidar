@@ -90,19 +90,22 @@ void FusionNode::on_camera_detection(
     latest_camera_stamp_ns_ = stamp.nanoseconds();
     latest_camera_observations_.clear();
 
-    struct { geometry_msgs::msg::Point pos; double conf; } slots[6] = {
-        {msg->hero_position,        msg->hero_confidence},
-        {msg->engine_position,      msg->engine_confidence},
-        {msg->infantry_3_position,  msg->infantry_3_confidence},
-        {msg->infantry_4_position,  msg->infantry_4_confidence},
-        {msg->sentry_position,      msg->sentry_confidence},
-        {msg->drone_position,       msg->drone_confidence},
+    struct {
+        geometry_msgs::msg::Point pos;
+        double conf;
+    } slots[6] = {
+        { msg->hero_position, msg->hero_confidence },
+        { msg->engine_position, msg->engine_confidence },
+        { msg->infantry_3_position, msg->infantry_3_confidence },
+        { msg->infantry_4_position, msg->infantry_4_confidence },
+        { msg->sentry_position, msg->sentry_confidence },
+        { msg->drone_position, msg->drone_confidence },
     };
 
     std::vector<Eigen::Vector2d> measurements;
     for (const auto& slot : slots) {
         if (slot.conf > 0.0 && std::isfinite(slot.pos.x) && std::isfinite(slot.pos.y)) {
-            latest_camera_observations_.push_back(CameraObservation{
+            latest_camera_observations_.push_back(CameraObservation {
                 .position   = slot.pos,
                 .confidence = slot.conf,
             });

@@ -100,8 +100,8 @@ auto RadarCameraNode::PublishCallback(const robot_pose::RobotPose& robot_poses) 
 }
 
 auto ConfigsLoader(rclcpp::Node& node, camera_config::CameraConfig& camera,
-    inference_config::InferenceConfig& inference,
-    projection_config::ProjectionConfig& projection) -> std::expected<void, std::string> {
+    inference_config::InferenceConfig& inference, projection_config::ProjectionConfig& projection)
+    -> std::expected<void, std::string> {
     try {
         node.get_parameter("enemy_color", camera.enemy_color);
         node.get_parameter("hero_" + camera.enemy_color, camera.hero_class_id);
@@ -130,7 +130,7 @@ auto ConfigsLoader(rclcpp::Node& node, camera_config::CameraConfig& camera,
     } catch (const std::exception& e) {
         return std::unexpected(std::string("Error loading configuration: ") + e.what());
     }
-    return {};
+    return { };
 }
 
 } // namespace radar_camera::node

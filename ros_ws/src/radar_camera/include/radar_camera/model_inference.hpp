@@ -19,13 +19,16 @@ public:
         -> std::expected<std::reference_wrapper<const ov::Tensor>, std::string>;
 
     auto infer_runtime_async(const ov::Tensor& input_tensor) -> std::expected<void, std::string>;
-    auto infer_runtime_wait() -> std::expected<std::reference_wrapper<const std::vector<float>>, std::string>;
+    auto infer_runtime_wait()
+        -> std::expected<std::reference_wrapper<const std::vector<float>>, std::string>;
 
     auto infer_postprocess(const std::vector<float>& raw_output)
-        -> std::expected<std::reference_wrapper<const std::vector<detection::Detection>>, std::string>;
+        -> std::expected<std::reference_wrapper<const std::vector<detection::Detection>>,
+            std::string>;
 
 private:
-    auto infer_init(const inference_config::InferenceConfig& config) -> std::expected<void, std::string>;
+    auto infer_init(const inference_config::InferenceConfig& config)
+        -> std::expected<void, std::string>;
 
     cv::Mat resized_img_;
     cv::Mat rgb_img_;
