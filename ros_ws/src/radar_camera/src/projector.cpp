@@ -34,11 +34,6 @@ auto Projector::proj_init_camera(const camera_config::CameraConfig& camera_cfg)
         dist_coeffs_.at<double>(i) = camera_cfg.distortion_coefficients[i];
     }
 
-    cv::Size image_size(static_cast<int>(camera_cfg.camera_matrix[0] * 2),
-        static_cast<int>(camera_cfg.camera_matrix[4] * 2));
-    cv::initUndistortRectifyMap(camera_matrix_, dist_coeffs_, cv::Mat_<double>::eye(3, 3),
-        camera_matrix_, image_size, CV_32FC1, map1_, map2_);
-
     double roll  = camera_cfg.rotation[0];
     double pitch = camera_cfg.rotation[1];
     double yaw   = camera_cfg.rotation[2];
@@ -170,43 +165,50 @@ auto Projector::proj_map_intersect(const Ray& ray) -> std::expected<cv::Point2d,
 }
 
 auto Projector::proj_preprocess(const std::vector<detection::Detection>& detections)
-    -> std::expected<std::vector<cv::Point2d>, std::string> {
-    std::vector<cv::Point2d> projected;
+    -> std::expected<std::vector<std::optional<cv::Point2d>>, std::string> {
+    std::vector<std::optional<cv::Point2d>> projected;
     projected.reserve(detections.size());
     for (const auto& det : detections) {
         auto ray = proj_pixel_to_ray(det.center);
-        if (!ray) continue;
+        if (!ray) {
+            projected.push_back(std::nullopt);
+            continue;
+        }
         auto pt = proj_map_intersect(*ray);
-        if (!pt) continue;
+        if (!pt) {
+            projected.push_back(std::nullopt);
+            continue;
+        }
         projected.push_back(*pt);
-    }
-    if (projected.empty()) {
-        return std::unexpected("No detection projected successfully");
     }
     return projected;
 }
 
-auto Projector::proj_postprocess(
-    const std::vector<cv::Point2d>& projected, const std::vector<detection::Detection>& detections)
+auto Projector::proj_postprocess(const std::vector<std::optional<cv::Point2d>>& projected,
+    const std::vector<detection::Detection>& detections)
     -> std::expected<robot_pose::RobotPose, std::string> {
     robot_pose::RobotPose pose;
-    for (size_t i = 0; i < projected.size(); ++i) {
+    for (size_t i = 0; i < detections.size(); ++i) {
+        if (!projected[i]) continue;
         const auto& det = detections[i];
         if (det.id == camera_cfg_.hero_class_id) {
-            pose.hero_position   = projected[i];
+            pose.hero_position   = *projected[i];
             pose.hero_confidence = det.confidence;
         } else if (det.id == camera_cfg_.engine_class_id) {
-            pose.engine_position   = projected[i];
+            pose.engine_position   = *projected[i];
             pose.engine_confidence = det.confidence;
         } else if (det.id == camera_cfg_.infantry_3_class_id) {
-            pose.infantry_3_position   = projected[i];
+            pose.infantry_3_position   = *projected[i];
             pose.infantry_3_confidence = det.confidence;
         } else if (det.id == camera_cfg_.infantry_4_class_id) {
-            pose.infantry_4_position   = projected[i];
+            pose.infantry_4_position   = *projected[i];
             pose.infantry_4_confidence = det.confidence;
         } else if (det.id == camera_cfg_.sentry_class_id) {
-            pose.sentry_position   = projected[i];
+            pose.sentry_position   = *projected[i];
             pose.sentry_confidence = det.confidence;
+        } else if (det.id == camera_cfg_.drone_class_id) {
+            pose.drone_position   = *projected[i];
+            pose.drone_confidence = det.confidence;
         }
     }
     return pose;

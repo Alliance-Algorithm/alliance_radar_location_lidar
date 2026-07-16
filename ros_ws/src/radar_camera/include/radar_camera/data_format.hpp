@@ -22,6 +22,7 @@ struct CameraConfig {
     int infantry_3_class_id;
     int infantry_4_class_id;
     int sentry_class_id;
+    int drone_class_id;
     std::string pub_topic_name;
     std::string sub_topic_name;
     std::vector<double> camera_matrix;
