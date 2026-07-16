@@ -74,6 +74,7 @@ COLON_ARGS=(
         radar_camera
         radar_fusion
         radar_bridge
+        radar_fast_livo2
         radar_bringup
         radar_calibration
     --symlink-install
