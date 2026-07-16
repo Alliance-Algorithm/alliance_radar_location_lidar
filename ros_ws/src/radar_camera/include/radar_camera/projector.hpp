@@ -27,7 +27,7 @@ public:
 
     auto proj_process(const std::vector<detection::Detection>& detections,
                       const camera_config::CameraConfig& camera_cfg)
-        -> robot_pose::RobotPose;
+        -> std::expected<robot_pose::RobotPose, std::string>;
 
 private:
     auto map_init(const std::string& mesh_path) -> std::expected<void, std::string>;
