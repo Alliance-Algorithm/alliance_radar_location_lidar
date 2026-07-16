@@ -42,7 +42,7 @@ auto RadarCameraNode::ImageCallback(sensor_msgs::msg::Image::SharedPtr msg) -> v
         return;
     }
 
-    auto async_ret = model_inference_->infer_runtime_async(*tensor);
+    auto async_ret = model_inference_->infer_runtime_async(tensor->get());
     if (!async_ret) {
         RCLCPP_WARN(get_logger(), "Inference failed: %s", async_ret.error().c_str());
         return;
@@ -54,19 +54,19 @@ auto RadarCameraNode::ImageCallback(sensor_msgs::msg::Image::SharedPtr msg) -> v
         return;
     }
 
-    auto dets = model_inference_->infer_postprocess(*raw);
+    auto dets = model_inference_->infer_postprocess(raw->get());
     if (!dets) {
         RCLCPP_WARN(get_logger(), "Infer postprocess failed: %s", dets.error().c_str());
         return;
     }
 
-    auto projected = projector_.proj_preprocess(*dets);
+    auto projected = projector_.proj_preprocess(dets->get());
     if (!projected) {
         RCLCPP_WARN(get_logger(), "Projection preprocess failed: %s", projected.error().c_str());
         return;
     }
 
-    auto pose = projector_.proj_postprocess(*projected, *dets);
+    auto pose = projector_.proj_postprocess(*projected, dets->get());
     if (!pose) {
         RCLCPP_WARN(get_logger(), "Projection postprocess failed: %s", pose.error().c_str());
         return;
