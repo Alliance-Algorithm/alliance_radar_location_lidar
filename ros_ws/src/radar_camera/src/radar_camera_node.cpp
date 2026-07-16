@@ -23,6 +23,75 @@ RadarCameraNode::RadarCameraNode()
             [this](sensor_msgs::msg::Image::SharedPtr msg) { ImageCallback(msg); });
 }
 
+auto RadarCameraNode::ImageCallback(sensor_msgs::msg::Image::SharedPtr msg) -> void {
+    ImageData =
+        cv::Mat(msg->height, msg->width, CV_8UC3, const_cast<uint8_t*>(&msg->data[0])).clone();
+    capture_timestamp_ =
+        std::chrono::steady_clock::time_point(std::chrono::seconds(msg->header.stamp.sec)
+            + std::chrono::nanoseconds(msg->header.stamp.nanosec));
+
+    auto async_ret = model_inference_->infer_runtime_async(ImageData);
+    if (!async_ret) {
+        RCLCPP_WARN(get_logger(), "Inference failed: %s", async_ret.error().c_str());
+        return;
+    }
+
+    auto wait_ret = model_inference_->infer_runtime_wait();
+    if (!wait_ret) {
+        RCLCPP_WARN(get_logger(), "Inference failed: %s", wait_ret.error().c_str());
+        return;
+    }
+
+    for (const auto& det : *wait_ret) {
+        auto map_point = projector_.proj_runtime(det.center);
+        if (!map_point) continue;
+
+        if (det.id == camera_config_.hero_class_id) {
+            robot_poses_.hero_position   = *map_point;
+            robot_poses_.hero_confidence = det.confidence;
+        } else if (det.id == camera_config_.engine_class_id) {
+            robot_poses_.engine_position   = *map_point;
+            robot_poses_.engine_confidence = det.confidence;
+        } else if (det.id == camera_config_.infantry_3_class_id) {
+            robot_poses_.infantry_3_position   = *map_point;
+            robot_poses_.infantry_3_confidence = det.confidence;
+        } else if (det.id == camera_config_.infantry_4_class_id) {
+            robot_poses_.infantry_4_position   = *map_point;
+            robot_poses_.infantry_4_confidence = det.confidence;
+        } else if (det.id == camera_config_.sentry_class_id) {
+            robot_poses_.sentry_position   = *map_point;
+            robot_poses_.sentry_confidence = det.confidence;
+        }
+    }
+
+    PublishCallback(robot_poses_);
+}
+
+auto RadarCameraNode::PublishCallback(const robot_pose::RobotPose& robot_poses) -> void {
+    auto pose_msg                  = radar_interfaces::msg::CameraDetectionPose();
+    pose_msg.header.stamp          = rclcpp::Time(capture_timestamp_.time_since_epoch().count());
+    pose_msg.header.frame_id       = "camera_frame";
+    pose_msg.hero_position.x       = robot_poses.hero_position.x;
+    pose_msg.hero_position.y       = robot_poses.hero_position.y;
+    pose_msg.engine_position.x     = robot_poses.engine_position.x;
+    pose_msg.engine_position.y     = robot_poses.engine_position.y;
+    pose_msg.infantry_3_position.x = robot_poses.infantry_3_position.x;
+    pose_msg.infantry_3_position.y = robot_poses.infantry_3_position.y;
+    pose_msg.infantry_4_position.x = robot_poses.infantry_4_position.x;
+    pose_msg.infantry_4_position.y = robot_poses.infantry_4_position.y;
+    pose_msg.sentry_position.x     = robot_poses.sentry_position.x;
+    pose_msg.sentry_position.y     = robot_poses.sentry_position.y;
+    pose_msg.drone_position.x      = robot_poses.drone_position.x;
+    pose_msg.drone_position.y      = robot_poses.drone_position.y;
+    pose_msg.hero_confidence       = robot_poses.hero_confidence;
+    pose_msg.engine_confidence     = robot_poses.engine_confidence;
+    pose_msg.infantry_3_confidence = robot_poses.infantry_3_confidence;
+    pose_msg.infantry_4_confidence = robot_poses.infantry_4_confidence;
+    pose_msg.sentry_confidence     = robot_poses.sentry_confidence;
+    pose_msg.drone_confidence      = robot_poses.drone_confidence;
+    pose_publisher_->publish(pose_msg);
+}
+
 auto ConfigsLoader(rclcpp::Node& node, camera_config::CameraConfig& camera,
     inference_config::InferenceConfig& inference,
     projection_config::ProjectionConfig& projection) -> std::expected<void, std::string> {
@@ -55,90 +124,6 @@ auto ConfigsLoader(rclcpp::Node& node, camera_config::CameraConfig& camera,
         return std::unexpected(std::string("Error loading configuration: ") + e.what());
     }
     return {};
-}
-
-auto RadarCameraNode::ImageCallback(sensor_msgs::msg::Image::SharedPtr msg) -> void {
-    ImageData =
-        cv::Mat(msg->height, msg->width, CV_8UC3, const_cast<uint8_t*>(&msg->data[0])).clone();
-    capture_timestamp_ =
-        std::chrono::steady_clock::time_point(std::chrono::seconds(msg->header.stamp.sec)
-            + std::chrono::nanoseconds(msg->header.stamp.nanosec));
-
-    auto async_ret = model_inference_->infer_runtime_async(ImageData);
-    if (!async_ret) {
-        RCLCPP_WARN(get_logger(), "Inference failed: %s", async_ret.error().c_str());
-        return;
-    }
-
-    auto wait_ret = model_inference_->infer_runtime_wait();
-    if (!wait_ret) {
-        RCLCPP_WARN(get_logger(), "Inference failed: %s", wait_ret.error().c_str());
-        return;
-    }
-
-    auto filter_ret = model_inference_->infer_filter(*wait_ret);
-    if (!filter_ret) {
-        RCLCPP_WARN(get_logger(), "Filter failed: %s", filter_ret.error().c_str());
-        return;
-    }
-
-    auto& boxes = *filter_ret;
-    for (size_t i = 0; i < boxes.size(); i += 4) {
-        float cx   = boxes[i];
-        float cy   = boxes[i + 1];
-        float conf = boxes[i + 2];
-        int cls    = static_cast<int>(boxes[i + 3]);
-
-        auto map_point = projector_.proj_runtime(cv::Point2d(cx, cy));
-        if (!map_point) {
-            RCLCPP_WARN(get_logger(), "Projection failed: %s", map_point.error().c_str());
-            continue;
-        }
-
-        if (cls == camera_config_.hero_class_id) {
-            robot_poses_.hero_position   = *map_point;
-            robot_poses_.hero_confidence = conf;
-        } else if (cls == camera_config_.engine_class_id) {
-            robot_poses_.engine_position   = *map_point;
-            robot_poses_.engine_confidence = conf;
-        } else if (cls == camera_config_.infantry_3_class_id) {
-            robot_poses_.infantry_3_position   = *map_point;
-            robot_poses_.infantry_3_confidence = conf;
-        } else if (cls == camera_config_.infantry_4_class_id) {
-            robot_poses_.infantry_4_position   = *map_point;
-            robot_poses_.infantry_4_confidence = conf;
-        } else if (cls == camera_config_.sentry_class_id) {
-            robot_poses_.sentry_position   = *map_point;
-            robot_poses_.sentry_confidence = conf;
-        }
-    }
-
-    PublishCallback(robot_poses_);
-}
-
-auto RadarCameraNode::PublishCallback(const robot_pose::RobotPose& robot_poses) -> void {
-    auto pose_msg                  = radar_interfaces::msg::CameraDetectionPose();
-    pose_msg.header.stamp          = rclcpp::Time(capture_timestamp_.time_since_epoch().count());
-    pose_msg.header.frame_id       = "camera_frame";
-    pose_msg.hero_position.x       = robot_poses.hero_position.x;
-    pose_msg.hero_position.y       = robot_poses.hero_position.y;
-    pose_msg.engine_position.x     = robot_poses.engine_position.x;
-    pose_msg.engine_position.y     = robot_poses.engine_position.y;
-    pose_msg.infantry_3_position.x = robot_poses.infantry_3_position.x;
-    pose_msg.infantry_3_position.y = robot_poses.infantry_3_position.y;
-    pose_msg.infantry_4_position.x = robot_poses.infantry_4_position.x;
-    pose_msg.infantry_4_position.y = robot_poses.infantry_4_position.y;
-    pose_msg.sentry_position.x     = robot_poses.sentry_position.x;
-    pose_msg.sentry_position.y     = robot_poses.sentry_position.y;
-    pose_msg.drone_position.x      = robot_poses.drone_position.x;
-    pose_msg.drone_position.y      = robot_poses.drone_position.y;
-    pose_msg.hero_confidence       = robot_poses.hero_confidence;
-    pose_msg.engine_confidence     = robot_poses.engine_confidence;
-    pose_msg.infantry_3_confidence = robot_poses.infantry_3_confidence;
-    pose_msg.infantry_4_confidence = robot_poses.infantry_4_confidence;
-    pose_msg.sentry_confidence     = robot_poses.sentry_confidence;
-    pose_msg.drone_confidence      = robot_poses.drone_confidence;
-    pose_publisher_->publish(pose_msg);
 }
 
 } // namespace radar_camera::node
