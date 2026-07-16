@@ -1,0 +1,159 @@
+#!/bin/bash
+# pcd-foxglove - publish a static PCD map for Foxglove inspection
+#
+# Usage:
+#   pcd-foxglove [map.pcd] [--topic /odin_static_map] [--frame odom]
+#
+# Start Foxglove bridge in another terminal with: foxglove
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+: "${RADAR_WS:=$(cd "${SCRIPT_DIR}/.." && pwd -P)}"
+
+PCD_PATH="${RADAR_WS}/model/generated/odin_map_20260710_225603_rgb_voxel005.pcd"
+TOPIC="/odin_static_map"
+FRAME_ID="odom"
+
+resolve_path() {
+    local input="$1"
+    if [[ "$input" = /* ]]; then
+        printf '%s\n' "$input"
+    else
+        printf '%s\n' "$(cd "$PWD" && pwd -P)/$input"
+    fi
+}
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --topic)
+            if [[ $# -lt 2 ]]; then echo "> ERROR: --topic requires a value" >&2; exit 1; fi
+            TOPIC="$2"; shift 2 ;;
+        --frame)
+            if [[ $# -lt 2 ]]; then echo "> ERROR: --frame requires a value" >&2; exit 1; fi
+            FRAME_ID="$2"; shift 2 ;;
+        -*)
+            echo "> ERROR: Unknown option: $1" >&2
+            echo "Usage: pcd-foxglove [map.pcd] [--topic /odin_static_map] [--frame odom]" >&2
+            exit 1 ;;
+        *)
+            PCD_PATH="$1"; shift ;;
+    esac
+done
+
+PCD_PATH="$(resolve_path "$PCD_PATH")"
+
+if [[ ! -f "$PCD_PATH" ]]; then
+    echo "> ERROR: PCD file not found: $PCD_PATH" >&2
+    exit 1
+fi
+if [[ ! -f /opt/ros/jazzy/setup.bash ]]; then
+    echo "> ERROR: ROS2 Jazzy not found" >&2; exit 1
+fi
+if [[ ! -f "${RADAR_WS}/ros_ws/install/setup.bash" ]]; then
+    echo "> ERROR: Workspace not built. Run build-all or build-radar first." >&2; exit 1
+fi
+
+set +u
+source /opt/ros/jazzy/setup.bash
+source "${RADAR_WS}/ros_ws/install/setup.bash"
+set -u
+
+echo "[pcd-foxglove] PCD:   $PCD_PATH"
+echo "[pcd-foxglove] Topic: $TOPIC"
+echo "[pcd-foxglove] Frame: $FRAME_ID"
+echo "[pcd-foxglove] Foxglove bridge: run 'foxglove' in another terminal, connect ws://localhost:8765"
+
+python3 - "$PCD_PATH" "$TOPIC" "$FRAME_ID" <<'PY'
+import sys
+from pathlib import Path
+from typing import Final
+
+import numpy as np
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from sensor_msgs.msg import PointCloud2, PointField
+
+POINT_STEP: Final = 16
+
+
+def _load_pcd(path: Path) -> PointCloud2:
+    fields_line = ""
+    point_count = 0
+    with path.open("rb") as handle:
+        while True:
+            line = handle.readline().decode("ascii").strip()
+            if line.startswith("FIELDS "):
+                fields_line = line
+            elif line.startswith("POINTS "):
+                point_count = int(line.split()[1])
+            elif line == "DATA binary":
+                break
+        payload = handle.read()
+
+    names = fields_line.split()[1:]
+    if names == ["x", "y", "z", "rgb"]:
+        src = np.frombuffer(payload, dtype=[("x", "<f4"), ("y", "<f4"), ("z", "<f4"), ("rgb", "<f4")], count=point_count)
+        rgb = src["rgb"]
+    elif names == ["x", "y", "z", "rgba"]:
+        src = np.frombuffer(payload, dtype=[("x", "<f4"), ("y", "<f4"), ("z", "<f4"), ("rgba", "<f4")], count=point_count)
+        rgb = src["rgba"]
+    else:
+        raise SystemExit(f"unsupported PCD fields: {' '.join(names)}")
+
+    out = np.empty(point_count, dtype=[("x", "<f4"), ("y", "<f4"), ("z", "<f4"), ("rgb", "<f4")])
+    out["x"] = src["x"]
+    out["y"] = src["y"]
+    out["z"] = src["z"]
+    out["rgb"] = rgb
+
+    msg = PointCloud2()
+    msg.height = 1
+    msg.width = point_count
+    msg.fields = [
+        PointField(name="x", offset=0, datatype=PointField.FLOAT32, count=1),
+        PointField(name="y", offset=4, datatype=PointField.FLOAT32, count=1),
+        PointField(name="z", offset=8, datatype=PointField.FLOAT32, count=1),
+        PointField(name="rgb", offset=12, datatype=PointField.FLOAT32, count=1),
+    ]
+    msg.is_bigendian = False
+    msg.point_step = POINT_STEP
+    msg.row_step = POINT_STEP * point_count
+    msg.is_dense = False
+    msg.data = out.tobytes()
+    return msg
+
+
+class StaticPointCloudPublisher(Node):
+    def __init__(self, cloud: PointCloud2, topic: str, frame_id: str) -> None:
+        super().__init__("pcd_foxglove")
+        qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        self.publisher = self.create_publisher(PointCloud2, topic, qos)
+        self.cloud = cloud
+        self.cloud.header.frame_id = frame_id
+        self.timer = self.create_timer(1.0, self._publish)
+        self.get_logger().info(f"Publishing {cloud.width} colored points on {topic} in frame {frame_id}")
+
+    def _publish(self) -> None:
+        self.cloud.header.stamp = self.get_clock().now().to_msg()
+        self.publisher.publish(self.cloud)
+
+
+def main() -> None:
+    pcd_path = Path(sys.argv[1])
+    topic = sys.argv[2]
+    frame_id = sys.argv[3]
+    cloud = _load_pcd(pcd_path)
+    rclpy.init()
+    node = StaticPointCloudPublisher(cloud, topic, frame_id)
+    try:
+        rclpy.spin(node)
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+if __name__ == "__main__":
+    main()
+PY
