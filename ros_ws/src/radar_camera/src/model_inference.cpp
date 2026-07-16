@@ -71,21 +71,22 @@ auto ModelInference::infer_runtime_async(const cv::Mat& image)
     }
 }
 
-auto ModelInference::infer_runtime_wait() -> std::expected<std::vector<float>, std::string> {
+auto ModelInference::infer_runtime_wait() -> std::expected<std::vector<Detection>, std::string> {
     try {
         infer_request_.wait();
 
         auto output_tensor = infer_request_.get_output_tensor();
         auto* output_data  = output_tensor.data<float>();
         auto output_size   = output_tensor.get_size();
-        return std::vector<float>(output_data, output_data + output_size);
+        std::vector<float> raw(output_data, output_data + output_size);
+        return infer_filter(raw);
     } catch (const std::exception& e) {
         return std::unexpected(std::string("Async inference wait failed: ") + e.what());
     }
 }
 
 auto ModelInference::infer_filter(const std::vector<float>& raw_output)
-    -> std::expected<std::vector<float>, std::string> {
+    -> std::expected<std::vector<Detection>, std::string> {
     try {
         auto output_tensor = infer_request_.get_output_tensor();
         auto shape         = output_tensor.get_shape();
@@ -107,8 +108,8 @@ auto ModelInference::infer_filter(const std::vector<float>& raw_output)
             return std::unexpected("Output stride too small: expected >= 6");
         }
 
-        std::vector<float> results;
-        results.reserve(static_cast<size_t>(num_detections) * 4);
+        std::vector<Detection> results;
+        results.reserve(static_cast<size_t>(num_detections));
 
         for (int i = 0; i < num_detections; ++i) {
             const float* ptr = &raw_output[i * stride];
@@ -129,12 +130,11 @@ auto ModelInference::infer_filter(const std::vector<float>& raw_output)
             float ratio = std::max(box_w, box_h) / std::min(box_w, box_h);
             if (ratio < config_.min_length_width_rate || ratio > config_.max_length_width_rate) continue;
 
-            float cx = (x1 + x2) * 0.5f;
-            float cy = (y1 + y2) * 0.5f;
-            results.push_back(cx);
-            results.push_back(cy);
-            results.push_back(conf);
-            results.push_back(static_cast<float>(cls));
+            results.push_back(Detection{
+                .center     = cv::Point2d((x1 + x2) * 0.5f, (y1 + y2) * 0.5f),
+                .id         = cls,
+                .confidence = conf
+            });
         }
 
         return results;
