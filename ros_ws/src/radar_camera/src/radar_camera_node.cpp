@@ -67,15 +67,52 @@ auto RadarCameraNode::ImageCallback(sensor_msgs::msg::Image::SharedPtr msg) -> v
         return;
     }
 
-    auto infer_ret = model_inference_->infer_runtime(*tensor_ret);
-    if (!infer_ret) {
-        RCLCPP_WARN(get_logger(), "Inference failed: %s", infer_ret.error().c_str());
+    auto async_ret = model_inference_->infer_runtime_async(*tensor_ret);
+    if (!async_ret) {
+        RCLCPP_WARN(get_logger(), "Async inference start failed: %s", async_ret.error().c_str());
         return;
     }
 
-    auto output_data = std::move(*infer_ret);
-    // infer_filter 会解析 output_data → result_.boxes 等
-    // PublishCallback 待 infer_filter 实现后调用
+    auto wait_ret = model_inference_->infer_runtime_wait();
+    if (!wait_ret) {
+        RCLCPP_WARN(get_logger(), "Inference failed: %s", wait_ret.error().c_str());
+        return;
+    }
+
+    auto filter_ret = model_inference_->infer_filter(*wait_ret);
+    if (!filter_ret) {
+        RCLCPP_WARN(get_logger(), "Filter failed: %s", filter_ret.error().c_str());
+        return;
+    }
+
+    robot_pose::RobotPose pose;
+    auto& boxes = *filter_ret;
+    for (size_t i = 0; i < boxes.size(); i += 6) {
+        float x1 = boxes[i], y1 = boxes[i + 1], x2 = boxes[i + 2], y2 = boxes[i + 3];
+        float conf  = boxes[i + 4];
+        int cls     = static_cast<int>(boxes[i + 5]);
+
+        cv::Point center(static_cast<int>((x1 + x2) / 2), static_cast<int>((y1 + y2) / 2));
+
+        if (cls == config_.hero_class_id) {
+            pose.hero_position = center;
+            pose.hero_confidence = conf;
+        } else if (cls == config_.engine_class_id) {
+            pose.engine_position = center;
+            pose.engine_confidence = conf;
+        } else if (cls == config_.infantry_3_class_id) {
+            pose.infantry_3_position = center;
+            pose.infantry_3_confidence = conf;
+        } else if (cls == config_.infantry_4_class_id) {
+            pose.infantry_4_position = center;
+            pose.infantry_4_confidence = conf;
+        } else if (cls == config_.sentry_class_id) {
+            pose.sentry_position = center;
+            pose.sentry_confidence = conf;
+        }
+    }
+
+    PublishCallback(pose);
 }
 
 auto RadarCameraNode::PublishCallback(const robot_pose::RobotPose& robot_poses) -> void {
