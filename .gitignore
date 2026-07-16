@@ -29,3 +29,14 @@ tools/jinan_to_scan/build/
 
 # Learnlog (local only)
 learnlog.md
+
+# Bag recordings / offline data (never commit binary data)
+/map_recording_*/
+**/__pycache__/
+
+# Odin driver runtime logs (written to ros_ws/src/odin_ros_driver/log/ at runtime;
+# driver source is a submodule under lidar_ros_driver/odin_ros_driver)
+/ros_ws/src/odin_ros_driver/
+
+# Script backups
+*.bak
