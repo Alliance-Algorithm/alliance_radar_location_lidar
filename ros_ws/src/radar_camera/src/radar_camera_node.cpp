@@ -13,9 +13,9 @@ RadarCameraNode::RadarCameraNode()
     model_inference_ = std::make_unique<model_inference::ModelInference>(inference_config_);
 
     pose_publisher_ = this->create_publisher<radar_interfaces::msg::CameraDetectionPose>(
-        camera_config_.topic_name, 10);
+        camera_config_.pub_topic_name, 10);
     image_subscription_ =
-        this->create_subscription<sensor_msgs::msg::Image>("/camera/image_raw", 10,
+        this->create_subscription<sensor_msgs::msg::Image>(camera_config_.sub_topic_name, 10,
             [this](sensor_msgs::msg::Image::SharedPtr msg) { ImageCallback(msg); });
 }
 
@@ -34,7 +34,8 @@ auto ConfigsLoader(rclcpp::Node& node,
         node.get_parameter("distortion_coefficients", camera.distortion_coefficients);
         node.get_parameter("rotation", camera.rotation);
         node.get_parameter("translation", camera.translation);
-        node.get_parameter("topic_name", camera.topic_name);
+        node.get_parameter("pub_topic_name", camera.pub_topic_name);
+        node.get_parameter("sub_topic_name", camera.sub_topic_name);
 
         node.get_parameter("model_path", inference.model_path);
         node.get_parameter("conf_threshold", inference.conf_threshold);
