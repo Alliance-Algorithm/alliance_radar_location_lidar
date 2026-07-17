@@ -1,0 +1,18 @@
+#!/bin/bash
+# odin-get-extrinsic - 从 /odin1/wiwc 抓取 IMU-LiDAR 外参
+source /opt/ros/jazzy/setup.bash 2>/dev/null
+source /workspace/ros_ws/install/setup.bash 2>/dev/null
+
+echo "等待 /odin1/wiwc 数据..."
+DATA=$(timeout 10 ros2 topic echo /odin1/wiwc --once --field twist.covariance 2>/dev/null)
+
+if [ -z "$DATA" ]; then
+    echo "错误: /odin1/wiwc 无数据。检查 sendodom 是否为 1"
+    exit 1
+fi
+
+echo "$DATA" | head -16 > /tmp/wiwc_raw.txt
+echo "已保存到 /tmp/wiwc_raw.txt"
+echo ""
+echo "T_IL (IMU→LiDAR)  4×4 column-major:"
+head -16 /tmp/wiwc_raw.txt

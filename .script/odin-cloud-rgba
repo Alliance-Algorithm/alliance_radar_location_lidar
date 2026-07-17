@@ -1,0 +1,135 @@
+#!/bin/bash
+# odin-cloud-rgba - convert Odin PointCloud2 rgb colors to rgba alpha=255 for Foxglove
+#
+# Usage:
+#   odin-cloud-rgba [--input /odin1/cloud_slam] [--output /odin1/cloud_slam_rgba]
+#
+# Start bag-replay or Odin driver in another terminal, then view output in Foxglove.
+
+set -euo pipefail
+
+: "${RADAR_WS:=/workspace}"
+
+INPUT_TOPIC="/odin1/cloud_slam"
+OUTPUT_TOPIC="/odin1/cloud_slam_rgba"
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --input)
+            if [[ $# -lt 2 ]]; then echo "> ERROR: --input requires a topic" >&2; exit 1; fi
+            INPUT_TOPIC="$2"; shift 2 ;;
+        --output)
+            if [[ $# -lt 2 ]]; then echo "> ERROR: --output requires a topic" >&2; exit 1; fi
+            OUTPUT_TOPIC="$2"; shift 2 ;;
+        -*)
+            echo "> ERROR: Unknown option: $1" >&2
+            echo "Usage: odin-cloud-rgba [--input /odin1/cloud_slam] [--output /odin1/cloud_slam_rgba]" >&2
+            exit 1 ;;
+        *)
+            echo "> ERROR: Unexpected argument: $1" >&2
+            echo "Usage: odin-cloud-rgba [--input /odin1/cloud_slam] [--output /odin1/cloud_slam_rgba]" >&2
+            exit 1 ;;
+    esac
+done
+
+if [[ ! -f /opt/ros/jazzy/setup.bash ]]; then
+    echo "> ERROR: ROS2 Jazzy not found" >&2; exit 1
+fi
+if [[ ! -f "${RADAR_WS}/ros_ws/install/setup.bash" ]]; then
+    echo "> ERROR: Workspace not built. Run build-all or build-radar first." >&2; exit 1
+fi
+
+set +u
+source /opt/ros/jazzy/setup.bash
+source "${RADAR_WS}/ros_ws/install/setup.bash"
+set -u
+
+echo "[odin-cloud-rgba] Input:  $INPUT_TOPIC"
+echo "[odin-cloud-rgba] Output: $OUTPUT_TOPIC"
+echo "[odin-cloud-rgba] Foxglove: color by packed rgba field"
+
+python3 - "$INPUT_TOPIC" "$OUTPUT_TOPIC" <<'PY'
+import sys
+from typing import Final
+
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
+from sensor_msgs.msg import PointCloud2, PointField
+
+RGB_FIELD: Final = "rgb"
+RGBA_FIELD: Final = "rgba"
+
+
+def _rgb_offset(msg: PointCloud2) -> int | None:
+    for field in msg.fields:
+        if field.name == RGB_FIELD:
+            return int(field.offset)
+        if field.name == RGBA_FIELD:
+            return int(field.offset)
+    return None
+
+
+def _with_rgba(msg: PointCloud2) -> PointCloud2:
+    offset = _rgb_offset(msg)
+    if offset is None:
+        return msg
+
+    out = PointCloud2()
+    out.header = msg.header
+    out.height = msg.height
+    out.width = msg.width
+    out.fields = [PointField(name=f.name, offset=f.offset, datatype=f.datatype, count=f.count) for f in msg.fields]
+    out.is_bigendian = msg.is_bigendian
+    out.point_step = msg.point_step
+    out.row_step = msg.row_step
+    out.is_dense = msg.is_dense
+    out.data = bytearray(msg.data)
+
+    for field in out.fields:
+        if field.offset == offset:
+            field.name = RGBA_FIELD
+            field.datatype = PointField.FLOAT32
+            field.count = 1
+            break
+
+    step = int(out.point_step)
+    point_count = int(out.width) * int(out.height)
+    for index in range(point_count):
+        alpha_index = index * step + offset + 3
+        out.data[alpha_index] = 0xFF
+
+    return out
+
+
+class RgbaAdapter(Node):
+    def __init__(self, input_topic: str, output_topic: str) -> None:
+        super().__init__("odin_cloud_rgba")
+        self.publisher = self.create_publisher(PointCloud2, output_topic, qos_profile_sensor_data)
+        self.subscription = self.create_subscription(
+            PointCloud2,
+            input_topic,
+            self._on_cloud,
+            qos_profile_sensor_data,
+        )
+        self.get_logger().info(f"republishing {input_topic} -> {output_topic} with rgba alpha=255")
+
+    def _on_cloud(self, msg: PointCloud2) -> None:
+        self.publisher.publish(_with_rgba(msg))
+
+
+def main() -> None:
+    input_topic = sys.argv[1]
+    output_topic = sys.argv[2]
+    rclpy.init()
+    node = RgbaAdapter(input_topic, output_topic)
+    try:
+        rclpy.spin(node)
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+if __name__ == "__main__":
+    main()
+PY
