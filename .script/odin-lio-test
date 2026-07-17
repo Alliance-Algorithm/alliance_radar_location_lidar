@@ -67,10 +67,10 @@ set -u
 
 # ── 1. 清理残留进程 + 重启 daemon ──
 echo "[1/5] 清理残留进程与 DDS discovery 缓存 ..."
-pkill -9 -f host_sdk_sample 2>/dev/null
-pkill -9 -f radar_fast_livo2_node 2>/dev/null
-pkill -9 -f static_tf 2>/dev/null
-pkill -9 -f "ros2 launch" 2>/dev/null
+pkill -9 -f host_sdk_sample 2>/dev/null || true
+pkill -9 -f radar_fast_livo2_node 2>/dev/null || true
+pkill -9 -f static_tf 2>/dev/null || true
+pkill -9 -f "ros2 launch" 2>/dev/null || true
 sleep 2
 ros2 daemon stop >/dev/null 2>&1
 sleep 1

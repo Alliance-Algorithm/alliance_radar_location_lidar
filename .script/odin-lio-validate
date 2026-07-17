@@ -224,7 +224,7 @@ if [[ $LOOP_ONLY -eq 0 ]]; then
 
     echo "[2/4] 启动 LIO ..."
     LAUNCH_PID=""
-    trap "kill \${MONITOR_PID:-} 2>/dev/null; [[ -n \${LAUNCH_PID:-} ]] && kill \"\$LAUNCH_PID\" 2>/dev/null; pkill -9 -f host_sdk_sample 2>/dev/null; pkill -9 -f radar_fast_livo2_node 2>/dev/null; pkill -9 -f static_transform_publisher 2>/dev/null" EXIT INT TERM
+    trap "kill \${MONITOR_PID:-} 2>/dev/null; [[ -n \${LAUNCH_PID:-} ]] && kill \"\$LAUNCH_PID\" 2>/dev/null; pkill -9 -f host_sdk_sample 2>/dev/null || true; pkill -9 -f radar_fast_livo2_node 2>/dev/null || true; pkill -9 -f static_transform_publisher 2>/dev/null || true" EXIT INT TERM
 
     echo ""
     echo "  ► 请将设备放在起始点，保持静止"
@@ -355,7 +355,7 @@ print(math.sqrt(sum((x-y)**2 for x,y in zip(a,b))))
     done
 } &
 PATH_PID=$!
-trap "kill $MONITOR_PID $PATH_PID 2>/dev/null; [[ -n '$LAUNCH_PID' ]] && kill '$LAUNCH_PID' 2>/dev/null; pkill -9 -f host_sdk_sample 2>/dev/null; pkill -9 -f radar_fast_livo2_node 2>/dev/null; pkill -9 -f static_transform_publisher 2>/dev/null" EXIT INT TERM
+trap "kill $MONITOR_PID $PATH_PID 2>/dev/null; [[ -n '$LAUNCH_PID' ]] && kill '$LAUNCH_PID' 2>/dev/null; pkill -9 -f host_sdk_sample 2>/dev/null || true; pkill -9 -f radar_fast_livo2_node 2>/dev/null || true; pkill -9 -f static_transform_publisher 2>/dev/null || true" EXIT INT TERM
 
 read -r -p ""
 
