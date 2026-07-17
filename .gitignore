@@ -1,6 +1,7 @@
 /ros_ws/build
 /ros_ws/install
 /ros_ws/log
+/ros_ws/MvSdkLog
 compile_commands.json
 
 # Build artifacts (root level)

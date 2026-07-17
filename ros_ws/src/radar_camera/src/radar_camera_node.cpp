@@ -8,32 +8,39 @@ RadarCameraNode::RadarCameraNode()
     : Node("radar_camera_node") {
     auto ret = ConfigsLoader(*this, camera_config_, inference_config_, projection_config_);
     if (!ret) {
-        RCLCPP_FATAL(get_logger(), "ConfigsLoader failed: %s", ret.error().c_str());
-        rclcpp::shutdown();
-        return;
+        RCLCPP_ERROR(get_logger(), "ConfigsLoader failed: %s", ret.error().c_str());
+        throw std::runtime_error("ConfigsLoader failed: " + ret.error());
     }
+    RCLCPP_INFO(get_logger(), "ConfigsLoader succeeded");
 
-    model_inference_ = std::make_unique<model_inference::ModelInference>(inference_config_);
+    model_inference_ = std::make_unique<model_inference::ModelInference>();
+    auto model_ret = model_inference_->infer_init(inference_config_);
+    if (!model_ret) {
+        RCLCPP_ERROR(get_logger(), "ModelInference infer_init failed: %s", model_ret.error().c_str());
+        throw std::runtime_error("ModelInference infer_init failed: " + model_ret.error());
+    }
+    RCLCPP_INFO(get_logger(), "ModelInference infer_init succeeded");
 
     auto cam_ret = projector_.proj_init_camera(camera_config_);
     if (!cam_ret) {
-        RCLCPP_FATAL(get_logger(), "Camera init failed: %s", cam_ret.error().c_str());
-        rclcpp::shutdown();
-        return;
+        RCLCPP_ERROR(get_logger(), "Camera init failed: %s", cam_ret.error().c_str());
+        throw std::runtime_error("Camera init failed: " + cam_ret.error());
     }
+    RCLCPP_INFO(get_logger(), "Camera init succeeded");
 
     auto map_ret = projector_.proj_init_map(projection_config_);
     if (!map_ret) {
-        RCLCPP_FATAL(get_logger(), "Map init failed: %s", map_ret.error().c_str());
-        rclcpp::shutdown();
-        return;
+        RCLCPP_ERROR(get_logger(), "Map init failed: %s", map_ret.error().c_str());
+        throw std::runtime_error("Map init failed: " + map_ret.error());
     }
+    RCLCPP_INFO(get_logger(), "Map init succeeded");
 
     pose_publisher_ = this->create_publisher<radar_interfaces::msg::CameraDetectionPose>(
         camera_config_.pub_topic_name, 10);
     image_subscription_ =
         this->create_subscription<sensor_msgs::msg::Image>(camera_config_.sub_topic_name, 10,
             [this](sensor_msgs::msg::Image::SharedPtr msg) { ImageCallback(msg); });
+    RCLCPP_INFO(get_logger(), "Publisher and subscriber created");
 }
 
 auto RadarCameraNode::ImageCallback(sensor_msgs::msg::Image::SharedPtr msg) -> void {
