@@ -149,10 +149,25 @@ monitor_features() {
 
 if [[ $LOOP_ONLY -eq 0 ]]; then
     echo "[1/4] 清理残留进程 ..."
+    # FIXME: 曾直接 pkill -9 host_sdk_sample（Odin1 厂商闭源驱动），SIGKILL
+    # 不给驱动任何机会释放 libusb 设备句柄/DMA 缓冲区，USB 设备残留在半开
+    # 状态；紧接着只 sleep 3s 就重新拉起驱动，实测复现 host_sdk_sample 在
+    # "Device ready and streams activated" 之后立刻 SIGSEGV（exit code -11）
+    # ——不是我们代码的问题，是驱动 init 阶段访问了未清理干净的设备状态。
+    # 修复：先发 SIGTERM 让驱动有机会走正常关闭路径释放 USB 资源，等它自己
+    # 退出（最多 3s），退不掉再 SIGKILL 兜底；之后把等待时间从 3s 加到 5s，
+    # 给 USB 子系统更充分的时间完成设备复位。
+    pkill -15 -f host_sdk_sample 2>/dev/null || true
+    pkill -15 -f radar_fast_livo2_node 2>/dev/null || true
+    pkill -15 -f "ros2 launch" 2>/dev/null || true
+    for _ in 1 2 3 4 5 6; do
+        pgrep -f "host_sdk_sample|radar_fast_livo2_node" >/dev/null 2>&1 || break
+        sleep 0.5
+    done
     pkill -9 -f host_sdk_sample 2>/dev/null || true
     pkill -9 -f radar_fast_livo2_node 2>/dev/null || true
     pkill -9 -f "ros2 launch" 2>/dev/null || true
-    sleep 3
+    sleep 5
     ros2 daemon stop >/dev/null 2>&1 || true
     sleep 1
     ros2 daemon start >/dev/null 2>&1 || true
