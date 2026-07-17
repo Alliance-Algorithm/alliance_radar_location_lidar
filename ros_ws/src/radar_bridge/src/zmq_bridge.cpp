@@ -3,16 +3,25 @@
 namespace radar_bridge::zmq_bridge {
 
 auto ZmqBridge::zmqpub_init(const std::string& pub_address) -> std::expected<void, std::string> {
-    publisher_ = zmq::socket_t(context_, zmq::socket_type::pub);
-    publisher_.bind(pub_address.data());
+    try {
+        publisher_ = zmq::socket_t(context_, zmq::socket_type::pub);
+        publisher_.bind(pub_address.data());
+    } catch (const zmq::error_t& e) {
+        return std::unexpected(std::string("zmqpub_init failed: ") + e.what());
+    }
     return { };
 }
 
 auto ZmqBridge::zmqsub_init(const std::vector<std::string>& sub_addresses)
     -> std::expected<void, std::string> {
-    subscriber_ = zmq::socket_t(context_, zmq::socket_type::sub);
-    for (const auto& address : sub_addresses) {
-        subscriber_.connect(address.data());
+    try {
+        subscriber_ = zmq::socket_t(context_, zmq::socket_type::sub);
+        for (const auto& address : sub_addresses) {
+            subscriber_.connect(address.data());
+        }
+        subscriber_.set(zmq::sockopt::subscribe, "");
+    } catch (const zmq::error_t& e) {
+        return std::unexpected(std::string("zmqsub_init failed: ") + e.what());
     }
     return { };
 }
@@ -35,8 +44,12 @@ auto ZmqBridge::zmqsub(radar_bridge::zmqdata::sub::TransmitGameState& game_state
     if (!recv_result.has_value()) {
         return std::unexpected("No data available");
     }
-    auto json   = nlohmann::json::parse(zmq_message.to_string());
-    game_state_ = zmq_json_decode<radar_bridge::zmqdata::sub::TransmitGameState>(json);
+    try {
+        auto json   = nlohmann::json::parse(zmq_message.to_string());
+        game_state_ = zmq_json_decode<radar_bridge::zmqdata::sub::TransmitGameState>(json);
+    } catch (const std::exception& e) {
+        return std::unexpected(std::string("zmqsub parse failed: ") + e.what());
+    }
     return { };
 }
 
