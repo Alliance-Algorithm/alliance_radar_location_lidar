@@ -77,9 +77,6 @@ def main():
             if xyz is None or len(xyz) == 0:
                 continue
 
-            all_xyz.append(xyz)
-            if args.rgb:
-                all_rgb.append(rgb)
             frame_count += 1
 
             if args.per_frame:
@@ -89,6 +86,14 @@ def main():
                 write_pcd(out_path, xyz, rgb, ascii_mode=args.ascii)
                 if frame_count % 50 == 0:
                     print(f"  Frame {frame_count}: {len(xyz)} points -> {out_path}")
+                # 逐帧模式已经写盘，不需要再累积进 all_xyz/all_rgb——之前会
+                # 一直累积，长 bag 内存持续增长到 OOM，逐帧模式本意就是为了
+                # 避免一次性把所有帧留在内存里。
+                continue
+
+            all_xyz.append(xyz)
+            if args.rgb:
+                all_rgb.append(rgb)
 
     if frame_count == 0:
         print("ERROR: no valid frames found", file=sys.stderr)
@@ -175,12 +180,11 @@ def voxel_downsample(xyz, rgb, leaf_size):
         return xyz, rgb
 
     voxel_idx = np.floor(xyz / leaf_size).astype(np.int64)
-    # 组合 3 个整数坐标为单个 hash key，用于 np.unique 去重
-    keys = (voxel_idx[:, 0].astype(np.int64) * 73856093
-            ^ voxel_idx[:, 1].astype(np.int64) * 19349663
-            ^ voxel_idx[:, 2].astype(np.int64) * 83492791)
-
-    _, first_idx = np.unique(keys, return_index=True)
+    # 直接对三列坐标做 np.unique(axis=0)，而非组合 XOR hash key 再去重——
+    # XOR key 存在哈希碰撞风险（不同体素坐标可能算出相同 key，导致有效点
+    # 被误删），NumPy 原生支持按行去重，同样是 O(n log n) 排序实现，没有
+    # 碰撞风险且不增加额外开销。
+    _, first_idx = np.unique(voxel_idx, axis=0, return_index=True)
     first_idx = np.sort(first_idx)
 
     xyz_ds = xyz[first_idx]
@@ -194,9 +198,15 @@ def write_pcd(path, xyz, rgb=None, ascii_mode=False):
     has_rgb = rgb is not None
 
     if has_rgb:
+        # PCL 约定：PointXYZRGB.rgb 在 PCD 里按 4 字节 float 存储（TYPE F），
+        # 携带的是打包 uint32 (0x00RRGGBB) 的 bit pattern 按 float32 重新
+        # 解释后的值，不是"颜色数值转成的浮点数"。之前用 TYPE U + <u4 写
+        # 整型，会让按 PointXYZRGB 类型读取的下游消费者（PCL/CloudCompare
+        # 等）把颜色字段解析错——它们按 float 位模式解包，读到 TYPE U 存的
+        # 整数值时会得到错误的颜色。
         fields_line = "FIELDS x y z rgb"
         size_line = "SIZE 4 4 4 4"
-        type_line = "TYPE F F F U"
+        type_line = "TYPE F F F F"
         count_line = "COUNT 1 1 1 1"
     else:
         fields_line = "FIELDS x y z"
@@ -224,9 +234,12 @@ def write_pcd(path, xyz, rgb=None, ascii_mode=False):
             f.write(header)
             f.write("DATA ascii\n")
             if has_rgb:
-                packed = _pack_pcl_rgb(rgb)
+                # .9g：float32 精确 round-trip 所需的十进制有效数字上限。
+                # 用 numpy scalar 的 repr（如 np.float32(...)）会把非数字
+                # 文本写进 ASCII PCD，导致解析失败——必须先转普通 float。
+                packed_f32 = _pack_pcl_rgb(rgb).astype(np.uint32).view(np.float32)
                 for i in range(n):
-                    f.write(f"{xyz[i, 0]:.6f} {xyz[i, 1]:.6f} {xyz[i, 2]:.6f} {packed[i]}\n")
+                    f.write(f"{xyz[i, 0]:.6f} {xyz[i, 1]:.6f} {xyz[i, 2]:.6f} {float(packed_f32[i]):.9g}\n")
             else:
                 for i in range(n):
                     f.write(f"{xyz[i, 0]:.6f} {xyz[i, 1]:.6f} {xyz[i, 2]:.6f}\n")
@@ -236,12 +249,12 @@ def write_pcd(path, xyz, rgb=None, ascii_mode=False):
         f.write(header.encode('ascii'))
         f.write(b"DATA binary\n")
         if has_rgb:
-            packed = _pack_pcl_rgb(rgb).astype(np.uint32)
-            record = np.empty(n, dtype=[('x', '<f4'), ('y', '<f4'), ('z', '<f4'), ('rgb', '<u4')])
+            packed_f32 = _pack_pcl_rgb(rgb).astype(np.uint32).view(np.float32)
+            record = np.empty(n, dtype=[('x', '<f4'), ('y', '<f4'), ('z', '<f4'), ('rgb', '<f4')])
             record['x'] = xyz[:, 0]
             record['y'] = xyz[:, 1]
             record['z'] = xyz[:, 2]
-            record['rgb'] = packed
+            record['rgb'] = packed_f32
         else:
             record = np.empty(n, dtype=[('x', '<f4'), ('y', '<f4'), ('z', '<f4')])
             record['x'] = xyz[:, 0]
