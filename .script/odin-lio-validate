@@ -404,7 +404,9 @@ echo ""
 # 活着（没有 --loop-only 之外的其它异常退出路径）就不会再丢数据。
 if pgrep -f radar_fast_livo2_node >/dev/null 2>&1; then
     echo "── 保存累积地图 ──"
-    "${SCRIPT_DIR}/odin-map-save" || echo "  ⚠ 地图保存失败（可能 pcd_save_en 未开启），继续报告结果"
+    # 确保 pcd_save_en 开启（YAML 可能被运行时 param set 覆盖过）
+    timeout 3 ros2 param set /radar_fast_livo2_node pcd_save_en true 2>/dev/null || true
+    "${SCRIPT_DIR}/odin-map-save" || echo "  ⚠ 地图保存失败，继续报告结果"
     echo ""
 fi
 
