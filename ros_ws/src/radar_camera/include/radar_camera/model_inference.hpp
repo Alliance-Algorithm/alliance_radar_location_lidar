@@ -12,8 +12,11 @@ namespace radar_camera::model_inference {
 
 class ModelInference {
 public:
-    explicit ModelInference(const inference_config::InferenceConfig& config);
+    ModelInference() = default;
     ~ModelInference() = default;
+
+    auto infer_init(const inference_config::InferenceConfig& config)
+        -> std::expected<void, std::string>;
 
     auto infer_preprocess(const cv::Mat& image, size_t width, size_t height)
         -> std::expected<std::reference_wrapper<const ov::Tensor>, std::string>;
@@ -27,8 +30,6 @@ public:
             std::string>;
 
 private:
-    auto infer_init(const inference_config::InferenceConfig& config)
-        -> std::expected<void, std::string>;
 
     cv::Mat resized_img_;
     cv::Mat rgb_img_;
