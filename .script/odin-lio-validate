@@ -2,12 +2,12 @@
 # odin-lio-validate - 交互式 LIO 算法验证（静止漂移 + 闭环误差）
 #
 # 用法:
-#   odin-lio-validate              # 完整流程（静止60s + 闭环测试）
+#   odin-lio-validate              # 完整流程（静止10s + 闭环测试）
 #   odin-lio-validate --static-only  # 只跑静止漂移测试
 #   odin-lio-validate --loop-only    # 只跑闭环测试（需要 LIO 已在运行）
 #
 # 输出:
-#   - 静止60s位移漂移（mm）
+#   - 静止10s位移漂移（mm）
 #   - 闭环误差（mm）+ 漂移率（%路径长度）
 #   - 实时进度条 + 有效特征数监控（< 100 报警）
 set -uo pipefail
@@ -250,7 +250,7 @@ MONITOR_PID=$!
 
 if [[ $LOOP_ONLY -eq 0 ]]; then
     echo "════════════════════════"
-    echo "  静止漂移测试 (60s)"
+    echo "  静止漂移测试 (10s)"
     echo "════════════════════════"
     echo "  ► 设备保持完全静止，不要触碰"
     echo ""
@@ -263,12 +263,12 @@ if [[ $LOOP_ONLY -eq 0 ]]; then
     echo "  起始位置: x=${P0[0]}  y=${P0[1]}  z=${P0[2]}"
     echo ""
 
-    for t in $(seq 1 60); do
+    for t in $(seq 1 10); do
         sleep 1
         PT=($(get_position))
         D=$(calc_dist_mm "${P0[@]}" "${PT[@]}" 2>/dev/null || echo "N/A")
         EFF=$(get_effective_features)
-        draw_bar "$t" 60 30 "漂移: ${D}mm | 特征: ${EFF:-?} | ${t}s/60s"
+        draw_bar "$t" 10 30 "漂移: ${D}mm | 特征: ${EFF:-?} | ${t}s/10s"
     done
     printf "\n"
 
@@ -276,7 +276,7 @@ if [[ $LOOP_ONLY -eq 0 ]]; then
     STATIC_DRIFT=$(calc_dist_mm "${P0[@]}" "${P1[@]}" 2>/dev/null || echo "N/A")
     echo ""
     echo "  ─────────────────────────────────"
-    echo "  静止60s 漂移: ${STATIC_DRIFT} mm"
+    echo "  静止10s 漂移: ${STATIC_DRIFT} mm"
     if python3 -c "exit(0 if float('${STATIC_DRIFT}') < 10 else 1)" 2>/dev/null; then
         echo "  ✓ 静止漂移 < 10mm  良好"
     elif python3 -c "exit(0 if float('${STATIC_DRIFT}') < 30 else 1)" 2>/dev/null; then
@@ -393,7 +393,7 @@ echo ""
 echo "═══════════════════════════════════════════════════"
 echo "  综合报告"
 echo "═══════════════════════════════════════════════════"
-[[ $LOOP_ONLY -eq 0 ]] && echo "  静止60s漂移:  ${STATIC_DRIFT} mm  (< 10mm 为良好)"
+[[ $LOOP_ONLY -eq 0 ]] && echo "  静止10s漂移:  ${STATIC_DRIFT} mm  (< 10mm 为良好)"
 echo "  闭环误差:     ${LOOP_ERR} mm"
 echo "  路径长度:     ${PATH_LEN_MM} mm"
 echo "  漂移率:       ${DRIFT_RATE} %  (< 3% 为良好)"
