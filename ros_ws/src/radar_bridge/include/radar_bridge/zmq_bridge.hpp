@@ -11,7 +11,7 @@ public:
     ZmqBridge()                            = default;
     ZmqBridge& operator=(const ZmqBridge&) = delete;
     ZmqBridge(const ZmqBridge&)            = delete;
-    ~ZmqBridge() = default;
+    ~ZmqBridge()                           = default;
     auto zmqpub_init(const std::string& pub_address) -> std::expected<void, std::string>;
     auto zmqsub_init(const std::vector<std::string>& sub_addresses)
         -> std::expected<void, std::string>;

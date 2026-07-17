@@ -53,12 +53,11 @@ RadarBridgeNode::RadarBridgeNode()
             }
         });
 
-    zmq_timer_ = this->create_wall_timer(
-        std::chrono::milliseconds(200), [this]() {
-            if (zmq_bridge_.zmqsub(game_state_)) {
-                pub_game_state_callback();
-            }
-        });
+    zmq_timer_ = this->create_wall_timer(std::chrono::milliseconds(200), [this]() {
+        if (zmq_bridge_.zmqsub(game_state_)) {
+            pub_game_state_callback();
+        }
+    });
 
     auto init_ret = video_bridge_.video_init(
         config_.shm_name, config_.video_pub_address, config_.video_width, config_.video_height);
@@ -107,7 +106,7 @@ auto RadarBridgeNode::sub_lidar_pose_callback(const radar_interfaces::msg::Lidar
     return { };
 }
 auto RadarBridgeNode::pub_game_state_callback() -> std::expected<void, std::string> {
-    auto msg = radar_interfaces::msg::GameState();
+    auto msg              = radar_interfaces::msg::GameState();
     msg.cmd_id            = game_state_.cmd_id;
     msg.game_type         = game_state_.game_type;
     msg.game_progress     = game_state_.game_progress;

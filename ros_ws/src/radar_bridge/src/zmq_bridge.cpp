@@ -35,7 +35,7 @@ auto ZmqBridge::zmqsub(radar_bridge::zmqdata::sub::TransmitGameState& game_state
     if (!recv_result.has_value()) {
         return std::unexpected("No data available");
     }
-    auto json = nlohmann::json::parse(zmq_message.to_string());
+    auto json   = nlohmann::json::parse(zmq_message.to_string());
     game_state_ = zmq_json_decode<radar_bridge::zmqdata::sub::TransmitGameState>(json);
     return { };
 }
