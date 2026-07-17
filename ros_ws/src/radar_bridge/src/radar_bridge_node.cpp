@@ -3,13 +3,17 @@
 namespace radar_bridge::node {
 
 auto ConfigsLoader(rclcpp::Node& node, BridgeConfig& config) -> std::expected<void, std::string> {
-    config.zmq_pub_address   = node.get_parameter("zmq_pub_address").as_string();
-    config.zmq_sub_addresses = node.get_parameter("zmq_sub_addresses").as_string_array();
-    config.shm_name          = node.get_parameter("shm_name").as_string();
-    config.video_pub_address = node.get_parameter("video_pub_address").as_string();
-    config.image_topic       = node.get_parameter("image_topic").as_string();
-    config.video_width       = node.get_parameter("video_width").as_int();
-    config.video_height      = node.get_parameter("video_height").as_int();
+    try {
+        config.zmq_pub_address   = node.get_parameter("zmq_pub_address").as_string();
+        config.zmq_sub_addresses = node.get_parameter("zmq_sub_addresses").as_string_array();
+        config.shm_name          = node.get_parameter("shm_name").as_string();
+        config.video_pub_address = node.get_parameter("video_pub_address").as_string();
+        config.image_topic       = node.get_parameter("image_topic").as_string();
+        config.video_width       = node.get_parameter("video_width").as_int();
+        config.video_height      = node.get_parameter("video_height").as_int();
+    } catch (const std::exception& e) {
+        return std::unexpected(std::string("ConfigsLoader failed: ") + e.what());
+    }
     return { };
 }
 
@@ -102,7 +106,10 @@ auto RadarBridgeNode::sub_lidar_pose_callback(const radar_interfaces::msg::Lidar
     lidar_location_.ally_aerial_y     = msg.ally_aerial_y;
     lidar_location_.ally_sentry_x     = msg.ally_sentry_x;
     lidar_location_.ally_sentry_y     = msg.ally_sentry_y;
-    zmq_bridge_.zmqpub(lidar_location_);
+    auto zmq_ret                      = zmq_bridge_.zmqpub(lidar_location_);
+    if (!zmq_ret.has_value()) {
+        RCLCPP_ERROR(this->get_logger(), "zmqpub failed: %s", zmq_ret.error().c_str());
+    }
     return { };
 }
 auto RadarBridgeNode::pub_game_state_callback() -> std::expected<void, std::string> {
