@@ -3,7 +3,6 @@
 #include "radar_bridge/zmq_data_format.hpp"
 #include "radar_interfaces/msg/game_state.hpp"
 #include "radar_interfaces/msg/lidar_location.hpp"
-#include <atomic>
 #include <expected>
 #include <memory>
 #include <rclcpp/rclcpp.hpp>
@@ -35,6 +34,7 @@ public:
 private:
     rclcpp::Publisher<radar_interfaces::msg::GameState>::SharedPtr game_state_publisher_;
     rclcpp::Subscription<radar_interfaces::msg::LidarLocation>::SharedPtr lidar_pose_subscription_;
+    rclcpp::TimerBase::SharedPtr zmq_timer_;
 
     radar_bridge::zmqdata::pub::LidarLocation lidar_location_ { };
     radar_bridge::zmqdata::sub::TransmitGameState game_state_ { };

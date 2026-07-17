@@ -22,13 +22,6 @@ auto ModelInference::infer_preprocess(const cv::Mat& image, size_t width, size_t
     }
 }
 
-ModelInference::ModelInference(const inference_config::InferenceConfig& config) {
-    auto ret = infer_init(config);
-    if (!ret) {
-        throw std::runtime_error(ret.error());
-    }
-}
-
 auto ModelInference::infer_init(const inference_config::InferenceConfig& config)
     -> std::expected<void, std::string> {
     config_ = config;
