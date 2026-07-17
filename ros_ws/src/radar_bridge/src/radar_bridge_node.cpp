@@ -22,6 +22,20 @@ RadarBridgeNode::RadarBridgeNode()
     }
     RCLCPP_INFO(this->get_logger(), "ConfigsLoader succeeded");
 
+    auto zmq_ret = zmq_bridge_.zmqpub_init(config_.zmq_pub_address);
+    if (!zmq_ret.has_value()) {
+        RCLCPP_ERROR(this->get_logger(), "zmqpub_init failed: %s", zmq_ret.error().c_str());
+        throw std::runtime_error("zmqpub_init failed: " + zmq_ret.error());
+    }
+    RCLCPP_INFO(this->get_logger(), "zmqpub_init succeeded");
+
+    auto sub_ret = zmq_bridge_.zmqsub_init(config_.zmq_sub_addresses);
+    if (!sub_ret.has_value()) {
+        RCLCPP_ERROR(this->get_logger(), "zmqsub_init failed: %s", sub_ret.error().c_str());
+        throw std::runtime_error("zmqsub_init failed: " + sub_ret.error());
+    }
+    RCLCPP_INFO(this->get_logger(), "zmqsub_init succeeded");
+
     game_state_publisher_ =
         this->create_publisher<radar_interfaces::msg::GameState>("/bridge/game_state", 10);
 
@@ -39,33 +53,12 @@ RadarBridgeNode::RadarBridgeNode()
             }
         });
 
-    auto zmq_ret = zmq_bridge_.zmqpub_init(config_.zmq_pub_address);
-    if (!zmq_ret.has_value()) {
-        RCLCPP_ERROR(this->get_logger(), "zmqpub_init failed: %s", zmq_ret.error().c_str());
-        throw std::runtime_error("zmqpub_init failed: " + zmq_ret.error());
-    }
-    RCLCPP_INFO(this->get_logger(), "zmqpub_init succeeded");
-
-    auto sub_ret = zmq_bridge_.zmqsub_init(config_.zmq_sub_addresses);
-    if (!sub_ret.has_value()) {
-        RCLCPP_ERROR(this->get_logger(), "zmqsub_init failed: %s", sub_ret.error().c_str());
-        throw std::runtime_error("zmqsub_init failed: " + sub_ret.error());
-    }
-    RCLCPP_INFO(this->get_logger(), "zmqsub_init succeeded");
-
-    auto pub_thread_ret = zmq_bridge_.zmqpub_thread(lidar_location_);
-    if (!pub_thread_ret.has_value()) {
-        RCLCPP_ERROR(this->get_logger(), "zmqpub_thread failed: %s", pub_thread_ret.error().c_str());
-        throw std::runtime_error("zmqpub_thread failed: " + pub_thread_ret.error());
-    }
-    RCLCPP_INFO(this->get_logger(), "zmqpub_thread started");
-
-    auto sub_thread_ret = zmq_bridge_.zmqsub_thread(game_state_);
-    if (!sub_thread_ret.has_value()) {
-        RCLCPP_ERROR(this->get_logger(), "zmqsub_thread failed: %s", sub_thread_ret.error().c_str());
-        throw std::runtime_error("zmqsub_thread failed: " + sub_thread_ret.error());
-    }
-    RCLCPP_INFO(this->get_logger(), "zmqsub_thread started");
+    zmq_timer_ = this->create_wall_timer(
+        std::chrono::milliseconds(200), [this]() {
+            if (zmq_bridge_.zmqsub(game_state_)) {
+                pub_game_state_callback();
+            }
+        });
 
     auto init_ret = video_bridge_.video_init(
         config_.shm_name, config_.video_pub_address, config_.video_width, config_.video_height);
@@ -110,11 +103,11 @@ auto RadarBridgeNode::sub_lidar_pose_callback(const radar_interfaces::msg::Lidar
     lidar_location_.ally_aerial_y     = msg.ally_aerial_y;
     lidar_location_.ally_sentry_x     = msg.ally_sentry_x;
     lidar_location_.ally_sentry_y     = msg.ally_sentry_y;
-
+    zmq_bridge_.zmqpub(lidar_location_);
     return { };
 }
 auto RadarBridgeNode::pub_game_state_callback() -> std::expected<void, std::string> {
-    auto msg              = radar_interfaces::msg::GameState();
+    auto msg = radar_interfaces::msg::GameState();
     msg.cmd_id            = game_state_.cmd_id;
     msg.game_type         = game_state_.game_type;
     msg.game_progress     = game_state_.game_progress;
