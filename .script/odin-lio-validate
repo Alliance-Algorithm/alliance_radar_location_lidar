@@ -108,25 +108,6 @@ print(f'{d*1000:.1f}')
 " "$@"
 }
 
-# 等待 LIO 首帧建图完成，用进度条显示（估算 60s 超时窗口）
-wait_for_first_frame() {
-    local timeout_s=60
-    local elapsed=0
-    while ! grep -q "First frame:" "$LAUNCH_LOG" 2>/dev/null; do
-        draw_bar "$elapsed" "$timeout_s" 30 "等待 IMU 初始化 + 首帧建图 (${elapsed}s/${timeout_s}s)"
-        sleep 1
-        elapsed=$((elapsed+1))
-        if [[ $elapsed -ge $timeout_s ]]; then
-            printf "\n  ✗ 超时\n"
-            return 1
-        fi
-    done
-    draw_bar "$timeout_s" "$timeout_s" 30 "首帧建图完成"
-    printf "\n"
-    grep "First frame:" "$LAUNCH_LOG" | tail -1 | sed 's/.*\]: /  /'
-    return 0
-}
-
 # 实时监控有效特征数（后台运行，检测到连续5帧<100报警，独立打印在新行避免打断进度条）
 monitor_features() {
     local warn_count=0
@@ -145,27 +126,94 @@ monitor_features() {
     done
 }
 
+# ── 等待首帧建图，内置重试（Odin1 驱动有时"已连接"但数据管道没真正启动）─────
+# 原因：快速反复 stop/start 后，host_sdk_sample 在 "Device ready and streams
+# activated" 之后仍可能不发布任何 cloud_raw/imu 数据（固件流水线没实际激活）。
+# 单纯等 60s 的策略在这种情况下必然超时；改为每 20s 检查一次数据是否流动，
+# 若没有则自动 kill + 加长冷却（10s）再重启，最多重试 MAX_TRIES 次。
+do_launch_with_retry() {
+    local MAX_TRIES=3
+    local attempt=0
+    while [[ $attempt -lt $MAX_TRIES ]]; do
+        attempt=$((attempt+1))
+
+        if [[ $attempt -gt 1 ]]; then
+            echo "  ↻ 第 ${attempt} 次尝试（驱动已启动但无数据，重启中...）"
+            # FIXME: pkill 曾只匹配 host_sdk_sample/radar_fast_livo2_node/
+            # ros2 launch 三个进程名，从没清理过 launch 文件里一并起的
+            # static_transform_publisher（3 个：radar_base→lidar_link、
+            # radar_base→camera_link、camera_link→camera_optical_frame）。
+            # 这三个子进程被 kill 主进程（ros2 launch）时不一定跟着退出
+            # （launch 只是父进程，子进程有独立生命周期），日积月累在这台
+            # 设备上堆到 84 个僵尸进程（`ros2 node list` 里同名节点刷屏），
+            # 污染 DDS discovery graph，是 `ros2 topic echo` 偶发超时/
+            # get_position 读取失败的真正原因——不是 discovery 缓存问题，
+            # 是真实进程泄漏。必须显式清理。
+            pkill -15 -f host_sdk_sample 2>/dev/null || true
+            pkill -15 -f radar_fast_livo2_node 2>/dev/null || true
+            pkill -15 -f static_transform_publisher 2>/dev/null || true
+            pkill -15 -f "ros2 launch" 2>/dev/null || true
+            [[ -n "${LAUNCH_PID:-}" ]] && kill "$LAUNCH_PID" 2>/dev/null || true
+            sleep 4
+            pkill -9 -f host_sdk_sample 2>/dev/null || true
+            pkill -9 -f radar_fast_livo2_node 2>/dev/null || true
+            pkill -9 -f static_transform_publisher 2>/dev/null || true
+            pkill -9 -f "ros2 launch" 2>/dev/null || true
+            sleep 10   # 长冷却让 USB 设备复位
+            echo "  ↳ 冷却完成，重新拉起..."
+        fi
+
+        stdbuf -oL -eL ros2 launch radar_bringup odin_fast_livo2_mapping.launch.py \
+            >> "$LAUNCH_LOG" 2>&1 &
+        LAUNCH_PID=$!
+
+        # 阶段1：等驱动层 "Device ready and streams activated"（最多 30s）
+        local t=0
+        while ! grep -q "streams activated" "$LAUNCH_LOG" 2>/dev/null; do
+            sleep 1; t=$((t+1))
+            draw_bar "$t" 30 30 "等驱动连接... (${t}s/30s)"
+            if [[ $t -ge 30 ]]; then
+                printf "\n  ✗ 驱动连接超时\n"; break
+            fi
+        done
+
+        # 阶段2：驱动已连接，等 cloud_raw 真正流动（最多 20s 检测）
+        if grep -q "streams activated" "$LAUNCH_LOG" 2>/dev/null; then
+            t=0
+            while [[ $t -lt 20 ]]; do
+                sleep 1; t=$((t+1))
+                draw_bar "$t" 20 30 "等数据流启动... (${t}s/20s)"
+                if grep -q "First frame:" "$LAUNCH_LOG" 2>/dev/null; then
+                    printf "\n"
+                    grep "First frame:" "$LAUNCH_LOG" | tail -1 | sed 's/.*\]: /  /'
+                    return 0
+                fi
+            done
+            printf "\n  ✗ 驱动已连接但无数据（固件流水线未启动）\n"
+        fi
+    done
+    echo "  ✗ ${MAX_TRIES} 次尝试均失败，放弃"
+    return 1
+}
+
 # ── 1. 启动 LIO（--loop-only 时跳过） ─────────────────────────────
 
 if [[ $LOOP_ONLY -eq 0 ]]; then
     echo "[1/4] 清理残留进程 ..."
-    # FIXME: 曾直接 pkill -9 host_sdk_sample（Odin1 厂商闭源驱动），SIGKILL
-    # 不给驱动任何机会释放 libusb 设备句柄/DMA 缓冲区，USB 设备残留在半开
-    # 状态；紧接着只 sleep 3s 就重新拉起驱动，实测复现 host_sdk_sample 在
-    # "Device ready and streams activated" 之后立刻 SIGSEGV（exit code -11）
-    # ——不是我们代码的问题，是驱动 init 阶段访问了未清理干净的设备状态。
-    # 修复：先发 SIGTERM 让驱动有机会走正常关闭路径释放 USB 资源，等它自己
-    # 退出（最多 3s），退不掉再 SIGKILL 兜底；之后把等待时间从 3s 加到 5s，
-    # 给 USB 子系统更充分的时间完成设备复位。
+    # WARN: 必须包含 static_transform_publisher——见 do_launch_with_retry
+    # 里的 FIXME，这三个 launch 子进程不会随主进程退出自动清理，实测在这台
+    # 设备上堆积到 84 个僵尸进程并污染 DDS discovery graph。
     pkill -15 -f host_sdk_sample 2>/dev/null || true
     pkill -15 -f radar_fast_livo2_node 2>/dev/null || true
+    pkill -15 -f static_transform_publisher 2>/dev/null || true
     pkill -15 -f "ros2 launch" 2>/dev/null || true
     for _ in 1 2 3 4 5 6; do
-        pgrep -f "host_sdk_sample|radar_fast_livo2_node" >/dev/null 2>&1 || break
+        pgrep -f "host_sdk_sample|radar_fast_livo2_node|static_transform_publisher" >/dev/null 2>&1 || break
         sleep 0.5
     done
     pkill -9 -f host_sdk_sample 2>/dev/null || true
     pkill -9 -f radar_fast_livo2_node 2>/dev/null || true
+    pkill -9 -f static_transform_publisher 2>/dev/null || true
     pkill -9 -f "ros2 launch" 2>/dev/null || true
     sleep 5
     ros2 daemon stop >/dev/null 2>&1 || true
@@ -174,31 +222,12 @@ if [[ $LOOP_ONLY -eq 0 ]]; then
     sleep 2
 
     echo "[2/4] 启动 LIO ..."
-    # FIXME: 曾用 `export LD_PRELOAD=libasan.so` 强行给整条 launch 链注入
-    # ASAN，结果连 host_sdk_sample（Odin1 厂商闭源驱动二进制，非 ASAN 构建）
-    # 也被注入了，导致驱动卡死在 "Device ready and streams activated" 之后
-    # 再无任何数据发布（实测复现：60s 内 cloud_raw/imu 均无数据，node 侧
-    # First frame 永远等不到）。radar_fast_livo2_node 若需要 ASAN，应通过
-    # `colcon build --cmake-args -DENABLE_ASAN=ON` 让编译器自己链接
-    # sanitizer runtime（见 CMakeLists.txt ENABLE_ASAN 选项），不需要也不该
-    # 用全局 LD_PRELOAD 污染其他子进程。
-    stdbuf -oL -eL ros2 launch radar_bringup odin_fast_livo2_mapping.launch.py \
-        > "$LAUNCH_LOG" 2>&1 &
-    LAUNCH_PID=$!
-    echo "  PID: $LAUNCH_PID"
+    LAUNCH_PID=""
+    trap "kill \${MONITOR_PID:-} 2>/dev/null; [[ -n \${LAUNCH_PID:-} ]] && kill \"\$LAUNCH_PID\" 2>/dev/null; pkill -9 -f host_sdk_sample 2>/dev/null; pkill -9 -f radar_fast_livo2_node 2>/dev/null; pkill -9 -f static_transform_publisher 2>/dev/null" EXIT
+
     echo ""
-
-    # trap 必须在 LAUNCH_PID 拿到手之后立刻注册，不能等 wait_for_first_frame
-    # 跑完再设置——之前超时 exit 1 会跳过 trap 注册那一行，导致进程残留
-    # （实测复现：host_sdk_sample 死了但 radar_fast_livo2_node 还活着）。
-    # WARN: MONITOR_PID 此时还未赋值（要到 monitor_features 启动后才有），
-    # trap 里必须用 ${MONITOR_PID:-} 而非 $MONITOR_PID——set -u 模式下若
-    # wait_for_first_frame 超时 exit，trap 触发时直接引用未定义变量会报
-    # "unbound variable" 二次报错，盖掉真正的失败原因（已实测复现）。
-    trap "kill \${MONITOR_PID:-} 2>/dev/null; kill '$LAUNCH_PID' 2>/dev/null; pkill -9 -f host_sdk_sample 2>/dev/null; pkill -9 -f radar_fast_livo2_node 2>/dev/null" EXIT
-
     echo "  ► 请将设备放在起始点，保持静止"
-    wait_for_first_frame || { echo "  ✗ LIO 未能初始化（检查 /odin1/cloud_raw 是否有数据，设备是否连接）"; exit 1; }
+    do_launch_with_retry || { echo "  ✗ LIO 未能初始化（检查设备连接）"; exit 1; }
     echo ""
 
     echo "  再等 5s 让初始地图充分建立..."
@@ -322,7 +351,7 @@ print(math.sqrt(sum((x-y)**2 for x,y in zip(a,b))))
     done
 } &
 PATH_PID=$!
-trap "kill $MONITOR_PID $PATH_PID 2>/dev/null; [[ -n '$LAUNCH_PID' ]] && kill '$LAUNCH_PID' 2>/dev/null; pkill -9 -f host_sdk_sample 2>/dev/null; pkill -9 -f radar_fast_livo2_node 2>/dev/null" EXIT
+trap "kill $MONITOR_PID $PATH_PID 2>/dev/null; [[ -n '$LAUNCH_PID' ]] && kill '$LAUNCH_PID' 2>/dev/null; pkill -9 -f host_sdk_sample 2>/dev/null; pkill -9 -f radar_fast_livo2_node 2>/dev/null; pkill -9 -f static_transform_publisher 2>/dev/null" EXIT
 
 read -r -p ""
 
