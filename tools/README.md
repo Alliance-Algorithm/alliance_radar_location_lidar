@@ -41,6 +41,20 @@ python3 tools/bag_to_pcd/bag_to_pcd.py <bag_dir> \
     [--per-frame --output-dir frames/]
 ```
 
+## pcd_postprocess
+
+将 `odin-map-save`（`radar_fast_livo2` 建图节点）导出的原始累积点云
+后处理成干净的静态地图：voxel 降采样去重（同一表面被扫过几百帧会重复
+几百次） + 半径离群点剔除（网格近邻计数近似实现，不依赖 KDTree）。
+
+```bash
+python3 tools/pcd_postprocess/pcd_postprocess.py <raw_map.pcd> \
+    [--output map_clean.pcd] [--voxel-size 0.05] \
+    [--outlier-radius 0.2] [--outlier-min-neighbors 5]
+```
+
+通常不直接调用，用 `.script/odin-map-export` 一步完成"触发保存 + 后处理"。
+
 ## make_synth_scan
 
 从规范 Z-up 地图合成一个**已知真值部署位姿**的 Odin scan，用于验证离线配准工具能否恢复

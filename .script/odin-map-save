@@ -1,0 +1,79 @@
+#!/bin/bash
+# odin-map-save - 触发 radar_fast_livo2_node 保存当前累积的扫描地图（不停止建图）
+#
+# 用法:
+#   odin-map-save                        # 立即保存，等待完成
+#   odin-map-save --no-wait              # 触发后不等待（后台保存）
+#   odin-map-save --output /path/to.pcd  # 保存到指定路径（覆盖 yaml 里的默认值）
+#
+# 原理:
+#   向 /tmp/fast_livo2_save_map 写入触发文件，节点里的 1Hz 定时器检测到
+#   后执行 savePCDFileBinary 并删除触发文件。保存完成后建图继续。
+#
+# 触发文件路径可通过 odin_livo2.yaml 里的 map_save_trigger 参数配置，
+# 默认 /tmp/fast_livo2_save_map。
+set -euo pipefail
+
+: "${RADAR_WS:=/workspace}"
+TRIGGER_FILE="/tmp/fast_livo2_save_map"
+NO_WAIT=0
+OUTPUT=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --no-wait)   NO_WAIT=1; shift ;;
+        --output)    OUTPUT="$2"; shift 2 ;;
+        --output=*)  OUTPUT="${1#*=}"; shift ;;
+        *) echo "未知参数: $1" >&2; exit 1 ;;
+    esac
+done
+
+source /opt/ros/jazzy/setup.bash 2>/dev/null
+source "${RADAR_WS}/ros_ws/install/setup.bash" 2>/dev/null
+
+if ! pgrep -f radar_fast_livo2_node >/dev/null 2>&1; then
+    echo "✗ radar_fast_livo2_node 未运行" >&2; exit 1
+fi
+
+MAP_PATH=$(timeout 3 ros2 param get /radar_fast_livo2_node map_save_path 2>/dev/null \
+    | grep "String value" | awk '{print $NF}')
+[[ -z "$MAP_PATH" ]] && MAP_PATH="${RADAR_WS}/model/generated/fast_livo2_map.pcd"
+
+if [[ -n "$OUTPUT" ]]; then
+    echo "注意: --output 指定的路径覆盖不会生效，请修改 odin_livo2.yaml 里的 map_save_path 参数。"
+    echo "当前保存路径: $MAP_PATH"
+fi
+
+echo "触发地图保存 → $MAP_PATH"
+touch "$TRIGGER_FILE"
+
+if [[ $NO_WAIT -eq 1 ]]; then
+    echo "已触发，后台保存中（不等待完成）。"
+    exit 0
+fi
+
+echo -n "等待保存完成"
+TIMEOUT=30
+for i in $(seq 1 $TIMEOUT); do
+    sleep 1
+    printf "."
+    if [[ ! -f "$TRIGGER_FILE" ]]; then
+        printf "\n"
+        if [[ -f "$MAP_PATH" ]]; then
+            SIZE=$(du -h "$MAP_PATH" 2>/dev/null | cut -f1)
+            # PCD 文件即便是 binary DATA 模式，头部仍是纯文本行，POINTS
+            # 字段直接给出点数，不需要按每点字节数猜测（PointXYZINormal
+            # 实际大小依赖 PCL 内部 padding，猜字节数不可靠）。
+            PTS=$(grep -a -m1 "^POINTS" "$MAP_PATH" 2>/dev/null | awk '{print $2}')
+            echo "✓ 保存完成"
+            echo "  路径: $MAP_PATH"
+            echo "  大小: $SIZE"
+            echo "  点数: ${PTS:-?}"
+        else
+            echo "⚠ 触发文件已被消费，但目标文件不存在: $MAP_PATH"
+        fi
+        exit 0
+    fi
+done
+printf "\n✗ 超时 ${TIMEOUT}s 后仍未完成（节点是否在运行且 pcd_save_en: true？）" >&2
+exit 1
