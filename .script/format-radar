@@ -6,7 +6,7 @@ set -euo pipefail
 SRC_BASE="${RADAR_WS}/ros_ws/src"
 
 echo "Formatting radar packages..."
-for pkg in radar_lidar radar_camera radar_fusion radar_bridge radar_calibration radar_bringup; do
+for pkg in radar_lidar radar_camera radar_fusion radar_bridge radar_calibration radar_bringup radar_fast_livo2 radar_interfaces; do
     PKG_DIR="${SRC_BASE}/${pkg}"
     if [ -d "${PKG_DIR}" ]; then
         count=$(find "${PKG_DIR}" -type f \( -name '*.cpp' -o -name '*.hpp' \) | wc -l)
