@@ -1,0 +1,63 @@
+#!/bin/bash
+# odin-map-export - 导出干净的静态扫描地图（触发保存 + voxel降采样 + 离群点剔除）
+#
+# 用法:
+#   odin-map-export                          # 触发保存 + 默认参数后处理
+#   odin-map-export --output map.pcd         # 指定最终输出路径
+#   odin-map-export --voxel-size 0.03        # 更精细的降采样
+#   odin-map-export --skip-save              # 跳过触发保存，直接对已有原始 PCD 后处理
+#   odin-map-export --raw /path/to/raw.pcd   # 指定要后处理的原始 PCD（默认用 map_save_path）
+#
+# 流程:
+#   1. 调 odin-map-save 触发节点保存当前累积点云（原始、未降采样、含重复点）
+#   2. 调 tools/pcd_postprocess/pcd_postprocess.py 做 voxel 降采样去重 +
+#      离群点剔除，输出干净地图
+#
+# 依赖: odin-map-save（同目录脚本）、tools/pcd_postprocess/pcd_postprocess.py
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+: "${RADAR_WS:=$(cd "${SCRIPT_DIR}/.." && pwd -P)}"
+
+SKIP_SAVE=0
+RAW_PATH=""
+OUTPUT_PATH=""
+POSTPROCESS_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --skip-save)  SKIP_SAVE=1; shift ;;
+        --raw)        RAW_PATH="$2"; shift 2 ;;
+        --output)     OUTPUT_PATH="$2"; shift 2 ;;
+        *)            POSTPROCESS_ARGS+=("$1"); shift ;;
+    esac
+done
+
+source /opt/ros/jazzy/setup.bash 2>/dev/null
+source "${RADAR_WS}/ros_ws/install/setup.bash" 2>/dev/null
+
+if [[ -z "$RAW_PATH" ]]; then
+    RAW_PATH=$(timeout 3 ros2 param get /radar_fast_livo2_node map_save_path 2>/dev/null \
+        | grep "String value" | awk '{print $NF}')
+    [[ -z "$RAW_PATH" ]] && RAW_PATH="${RADAR_WS}/model/generated/fast_livo2_map.pcd"
+fi
+
+if [[ $SKIP_SAVE -eq 0 ]]; then
+    echo "[1/2] 触发保存原始累积点云..."
+    "${SCRIPT_DIR}/odin-map-save"
+else
+    echo "[1/2] 跳过触发保存，直接使用已有文件: $RAW_PATH"
+fi
+
+if [[ ! -f "$RAW_PATH" ]]; then
+    echo "✗ 原始 PCD 文件不存在: $RAW_PATH" >&2
+    exit 1
+fi
+
+echo ""
+echo "[2/2] 后处理（降采样 + 离群点剔除）..."
+POST_ARGS=("$RAW_PATH")
+[[ -n "$OUTPUT_PATH" ]] && POST_ARGS+=(--output "$OUTPUT_PATH")
+POST_ARGS+=("${POSTPROCESS_ARGS[@]}")
+
+python3 "${RADAR_WS}/tools/pcd_postprocess/pcd_postprocess.py" "${POST_ARGS[@]}"
