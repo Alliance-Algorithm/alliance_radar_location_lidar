@@ -12,7 +12,7 @@ namespace radar_camera::model_inference {
 
 class ModelInference {
 public:
-    ModelInference() = default;
+    ModelInference()  = default;
     ~ModelInference() = default;
 
     auto infer_init(const inference_config::InferenceConfig& config)
@@ -30,7 +30,6 @@ public:
             std::string>;
 
 private:
-
     cv::Mat resized_img_;
     cv::Mat rgb_img_;
     cv::Mat float_img_;

@@ -14,9 +14,10 @@ RadarCameraNode::RadarCameraNode()
     RCLCPP_INFO(get_logger(), "ConfigsLoader succeeded");
 
     model_inference_ = std::make_unique<model_inference::ModelInference>();
-    auto model_ret = model_inference_->infer_init(inference_config_);
+    auto model_ret   = model_inference_->infer_init(inference_config_);
     if (!model_ret) {
-        RCLCPP_ERROR(get_logger(), "ModelInference infer_init failed: %s", model_ret.error().c_str());
+        RCLCPP_ERROR(
+            get_logger(), "ModelInference infer_init failed: %s", model_ret.error().c_str());
         throw std::runtime_error("ModelInference infer_init failed: " + model_ret.error());
     }
     RCLCPP_INFO(get_logger(), "ModelInference infer_init succeeded");
