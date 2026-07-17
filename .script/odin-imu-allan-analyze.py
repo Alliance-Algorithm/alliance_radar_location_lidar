@@ -124,22 +124,50 @@ def fit_bias_instability(taus, avars):
     return b, tau_min
 
 
+def fit_rrw_from_avar(taus, avars):
+    """Rate random walk 系数 K：长 tau 段 sigma(tau) = K * sqrt(tau/3)
+    即 log(sigma) = log(K) - 0.5*log(3) + 0.5*log(tau)，取斜率最接近 +0.5 的区间线性拟合。
+    返回 K（单位：unit/sqrt(s)，rate random walk 系数，cov = K²）。
+    """
+    log_tau = np.log10(taus)
+    log_sigma = 0.5 * np.log10(avars)
+
+    best_slope_diff = float("inf")
+    best_k = None
+    window = max(3, len(taus) // 10)
+    for i in range(len(taus) - window):
+        x = log_tau[i:i + window]
+        y = log_sigma[i:i + window]
+        slope, intercept = np.polyfit(x, y, 1)
+        diff = abs(slope - 0.5)
+        if diff < best_slope_diff:
+            best_slope_diff = diff
+            # sigma(tau=3) = K  → intercept = log10(K) when slope=+0.5
+            best_k = 10 ** intercept  # tau=1 => log_tau=0, sigma(1) = K / sqrt(3)
+            # correct: sigma(1) = K/sqrt(3), so K = sigma(1)*sqrt(3) = 10^intercept * sqrt(3)
+            best_k *= math.sqrt(3)
+
+    return best_k, best_slope_diff
+
+
 def analyze_axis(data, dt, label):
     n = len(data)
-    max_tau = dt * n / 10  # 最长 tau 不超过数据总长的 1/10，保证统计意义
+    max_tau = dt * n / 10
     taus = np.logspace(math.log10(dt * 2), math.log10(max_tau), 50)
 
     taus_valid, avars = allan_variance(data, dt, taus)
     if len(taus_valid) < 5:
         print(f"    ⚠ {label}: 数据太短，无法算出有效 Allan 方差曲线")
-        return None, None
+        return None, None, None
 
     n_coef, slope_diff = fit_arw_from_avar(taus_valid, avars)
     b_coef, tau_min = fit_bias_instability(taus_valid, avars)
+    k_coef, rrw_slope_diff = fit_rrw_from_avar(taus_valid, avars)
 
-    print(f"    {label}: ARW/VRW系数(N)={n_coef:.6f}  拟合斜率误差={slope_diff:.3f}  "
-          f"bias不稳定性(B)={b_coef:.6f}  拐点tau={tau_min:.1f}s")
-    return n_coef, b_coef
+    print(f"    {label}: ARW/VRW(N)={n_coef:.6f}  斜率误差={slope_diff:.3f}  "
+          f"bias不稳定性(B)={b_coef:.6f}@τ={tau_min:.1f}s  "
+          f"RRW(K)={k_coef:.6f}  斜率误差={rrw_slope_diff:.3f}")
+    return n_coef, b_coef, k_coef
 
 
 def main():
@@ -166,21 +194,23 @@ def main():
         print("")
 
     print("── 陀螺仪三轴 Allan 方差分析 ──")
-    gyr_n, gyr_b = [], []
+    gyr_n, gyr_b, gyr_k = [], [], []
     for i, axis in enumerate(["x", "y", "z"]):
-        n, b = analyze_axis(gyro[:, i], dt, f"gyro_{axis}")
+        n, b, k = analyze_axis(gyro[:, i], dt, f"gyro_{axis}")
         if n is not None:
             gyr_n.append(n)
             gyr_b.append(b)
+            gyr_k.append(k)
 
     print("")
     print("── 加速度计三轴 Allan 方差分析 ──")
-    acc_n, acc_b = [], []
+    acc_n, acc_b, acc_k = [], [], []
     for i, axis in enumerate(["x", "y", "z"]):
-        n, b = analyze_axis(acc[:, i], dt, f"acc_{axis}")
+        n, b, k = analyze_axis(acc[:, i], dt, f"acc_{axis}")
         if n is not None:
             acc_n.append(n)
             acc_b.append(b)
+            acc_k.append(k)
 
     if not gyr_n or not acc_n:
         print("✗ Allan 方差分析失败，数据不足或格式不对")
@@ -188,18 +218,15 @@ def main():
 
     gyr_n_avg = float(np.mean(gyr_n))
     gyr_b_avg = float(np.mean(gyr_b))
+    gyr_k_avg = float(np.mean(gyr_k))
     acc_n_avg = float(np.mean(acc_n))
     acc_b_avg = float(np.mean(acc_b))
+    acc_k_avg = float(np.mean(acc_k))
 
-    # 本项目 ESIKF 里 cov_w = cov_gyr * dt^2（imu_processing.cpp:297），
-    # cov_gyr 直接是方差量级（unit^2/Hz），Allan ARW 系数 N 的单位是
-    # unit/sqrt(Hz)，所以 cov_gyr 应填 N^2，不是 N。
     gyr_cov_val = gyr_n_avg ** 2
     acc_cov_val = acc_n_avg ** 2
-    # bias 随机游走同理，B 是 bias instability（unit），转成过程噪声方差密度
-    # 需要额外的时间尺度换算，这里给出保守估计：B^2 作为下限参考值
-    gyr_bias_cov_val = gyr_b_avg ** 2
-    acc_bias_cov_val = acc_b_avg ** 2
+    gyr_bias_cov_val = gyr_k_avg ** 2
+    acc_bias_cov_val = acc_k_avg ** 2
 
     print("")
     print("═══════════════════════════════════════════════════")
@@ -207,12 +234,14 @@ def main():
     print("═══════════════════════════════════════════════════")
     print(f"  gyr_cov:      {gyr_cov_val:.8f}   (ARW N={gyr_n_avg:.6f} rad/s/√Hz)")
     print(f"  acc_cov:      {acc_cov_val:.8f}   (VRW N={acc_n_avg:.6f} m/s²/√Hz)")
-    print(f"  gyr_bias_cov: {gyr_bias_cov_val:.10f}   (bias instability B={gyr_b_avg:.8f} rad/s)")
-    print(f"  acc_bias_cov: {acc_bias_cov_val:.10f}   (bias instability B={acc_b_avg:.8f} m/s²)")
+    print(f"  gyr_bias_cov: {gyr_bias_cov_val:.10f}   (RRW K={gyr_k_avg:.6f} rad/s/√s, B={gyr_b_avg:.8f} rad/s)")
+    print(f"  acc_bias_cov: {acc_bias_cov_val:.10f}   (RRW K={acc_k_avg:.6f} m/s²/√s, B={acc_b_avg:.8f} m/s²)")
     print("═══════════════════════════════════════════════════")
     print("")
-    print("  注意: bias_cov 是过程噪声方差密度，量级对滤波器收敛速度影响很大，")
-    print("  建议以此结果为初始值，再结合实际 LIO 运行效果做 ±2-5x 范围微调。")
+    print("  gyr_cov/acc_cov: ARW/VRW 白噪声方差密度 (N²)，对应传感器测量噪声")
+    print("  gyr_bias_cov/acc_bias_cov: RRW 系数方差 (K²)，对应 bias 随机游走过程噪声")
+    print("  bias_cov 量级对 ESIKF 收敛速度影响很大，建议以此结果为初始值")
+    print("  再结合实际 LIO 运行效果做 ±2-5x 范围微调。")
     print("  完整曲线数据建议另存 CSV 做 log-log 图目视检查拐点是否合理。")
 
     result = {
@@ -220,6 +249,12 @@ def main():
         "acc_cov": acc_cov_val,
         "gyr_bias_cov": gyr_bias_cov_val,
         "acc_bias_cov": acc_bias_cov_val,
+        "gyr_arw_n": gyr_n_avg,
+        "acc_vrw_n": acc_n_avg,
+        "gyr_bias_b": gyr_b_avg,
+        "acc_bias_b": acc_b_avg,
+        "gyr_rrw_k": gyr_k_avg,
+        "acc_rrw_k": acc_k_avg,
         "duration_sec": duration,
         "sample_rate_hz": 1.0 / dt,
     }

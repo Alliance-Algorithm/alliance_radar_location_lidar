@@ -5,6 +5,18 @@ set -eo pipefail
 : "${RADAR_WS:=/workspace}"
 BAG_DIR="/tmp/asan_bag_$(date +%Y%m%d_%H%M%S)"
 ASAN_LOG="/tmp/asan_lio"
+DRIVER_PID="" BAG_PID="" LIO_PID=""
+
+# Cleanup on any exit
+cleanup_asan() {
+    [[ -n "${DRIVER_PID:-}" ]] && kill "$DRIVER_PID" 2>/dev/null || true
+    [[ -n "${BAG_PID:-}" ]] && kill "$BAG_PID" 2>/dev/null || true
+    [[ -n "${LIO_PID:-}" ]] && kill "$LIO_PID" 2>/dev/null || true
+    pkill -9 -f host_sdk_sample 2>/dev/null || true
+    pkill -9 -f radar_fast_livo2 2>/dev/null || true
+    pkill -9 -f ros2.bag 2>/dev/null || true
+}
+trap cleanup_asan EXIT INT TERM
 
 set +u
 source /opt/ros/jazzy/setup.bash
