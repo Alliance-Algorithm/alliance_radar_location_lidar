@@ -13,10 +13,6 @@ hikcamera_ros_driver_node:
     # 帧率
     framerate: 60.0
 
-    # 图像调节
-    brightness: 128
-    sharpness: 3
-
     # 相机控制
     timeout_ms: 2000
     invert_image: false
