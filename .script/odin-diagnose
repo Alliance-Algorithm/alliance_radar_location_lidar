@@ -46,7 +46,7 @@ if [ -f "$UDEV_RULE" ]; then
 else
     echo "  ✗ 规则文件不存在: $UDEV_RULE"
     echo "    创建方法:"
-    echo "    echo 'SUBSYSTEM==\"usb\", ATTR{idVendor}==\"$VID\", MODE=\"0666\"' | sudo tee $UDEV_RULE"
+    echo "    echo 'SUBSYSTEM==\"usb\", ATTR{idVendor}==\"$VID\", MODE=\"0660\"' | sudo tee $UDEV_RULE"
     echo "    sudo udevadm control --reload-rules && sudo udevadm trigger"
 fi
 echo ""

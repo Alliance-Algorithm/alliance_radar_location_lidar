@@ -105,11 +105,9 @@ def voxel_downsample_with_extra(xyz, extra, leaf_size):
         return xyz, extra
 
     voxel_idx = np.floor(xyz / leaf_size).astype(np.int64)
-    keys = (voxel_idx[:, 0] * 73856093
-            ^ voxel_idx[:, 1] * 19349663
-            ^ voxel_idx[:, 2] * 83492791)
-
-    _, first_idx = np.unique(keys, return_index=True)
+    # 用 np.unique(axis=0) 直接按 (vx, vy, vz) 去重，避免 XOR 哈希碰撞
+    # （整数溢出/取模可能导致不同网格映射到同一 key）
+    _, first_idx = np.unique(voxel_idx, axis=0, return_index=True)
     first_idx = np.sort(first_idx)
 
     xyz_ds = xyz[first_idx]
@@ -122,39 +120,43 @@ def radius_outlier_removal(xyz, extra, radius, min_neighbors):
     每点的邻域点数 = 自身格子 + 26 个相邻格子内的总点数，低于
     min_neighbors 的点判定为离群点并剔除。
 
-    用 27 次向量化的 searchsorted 查表实现邻域计数，不需要 KDTree，
-    可以处理百万级点云。
+    用 lexsort + searchsorted 查表实现邻域计数，避免 XOR 哈希碰撞，
+    不需要 KDTree，可以处理百万级点云。
     """
     if radius <= 0 or min_neighbors <= 0:
         return xyz, extra, 0
 
     cell_idx = np.floor(xyz / radius).astype(np.int64)
-    keys = (cell_idx[:, 0] * 73856093
-            ^ cell_idx[:, 1] * 19349663
-            ^ cell_idx[:, 2] * 83492791)
+    n = len(xyz)
 
-    unique_keys, counts = np.unique(keys, return_counts=True)
-    order = np.argsort(unique_keys)
-    sorted_keys = unique_keys[order]
-    sorted_counts = counts[order]
+    # 用 lexsort 代替 XOR hash，避免不同网格映射到同一 key
+    sort_idx = np.lexsort((cell_idx[:, 2], cell_idx[:, 1], cell_idx[:, 0]))
+    sorted_cells = cell_idx[sort_idx]
+    # 找出每个 grid cell 的起止位置（边界检测：与上一行不同即新 cell 起点）
+    boundaries = np.concatenate([[0], 1 + np.where(
+        (sorted_cells[1:, 0] != sorted_cells[:-1, 0]) |
+        (sorted_cells[1:, 1] != sorted_cells[:-1, 1]) |
+        (sorted_cells[1:, 2] != sorted_cells[:-1, 2])
+    )[0], [n]])
+    # cell_key → (start, end) 映射：用每个 cell 的第一个点做 key
+    cell_starts = {tuple(sorted_cells[boundaries[i]]): (boundaries[i], boundaries[i+1])
+                   for i in range(len(boundaries) - 1)}
 
-    def lookup_count(query_keys):
-        pos = np.searchsorted(sorted_keys, query_keys)
-        pos = np.clip(pos, 0, len(sorted_keys) - 1)
-        found = sorted_keys[pos] == query_keys
-        result = np.zeros(len(query_keys), dtype=np.int64)
-        result[found] = sorted_counts[pos[found]]
+    def lookup_count(query_cells):
+        result = np.zeros(len(query_cells), dtype=np.int64)
+        for i in range(len(query_cells)):
+            key = (query_cells[i, 0], query_cells[i, 1], query_cells[i, 2])
+            se = cell_starts.get(key)
+            if se is not None:
+                result[i] = se[1] - se[0]
         return result
 
-    neighbor_count = np.zeros(len(xyz), dtype=np.int64)
+    neighbor_count = np.zeros(n, dtype=np.int64)
     for dx in (-1, 0, 1):
         for dy in (-1, 0, 1):
             for dz in (-1, 0, 1):
                 shifted = cell_idx + np.array([dx, dy, dz])
-                shifted_keys = (shifted[:, 0] * 73856093
-                                ^ shifted[:, 1] * 19349663
-                                ^ shifted[:, 2] * 83492791)
-                neighbor_count += lookup_count(shifted_keys)
+                neighbor_count += lookup_count(shifted)
 
     keep_mask = neighbor_count >= min_neighbors
     n_removed = int((~keep_mask).sum())
