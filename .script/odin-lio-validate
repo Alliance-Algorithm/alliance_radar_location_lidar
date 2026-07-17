@@ -224,7 +224,7 @@ if [[ $LOOP_ONLY -eq 0 ]]; then
 
     echo "[2/4] 启动 LIO ..."
     LAUNCH_PID=""
-    trap "kill \${MONITOR_PID:-} 2>/dev/null; [[ -n \${LAUNCH_PID:-} ]] && kill \"\$LAUNCH_PID\" 2>/dev/null; pkill -9 -f host_sdk_sample 2>/dev/null; pkill -9 -f radar_fast_livo2_node 2>/dev/null; pkill -9 -f static_transform_publisher 2>/dev/null" EXIT
+    trap "kill \${MONITOR_PID:-} 2>/dev/null; [[ -n \${LAUNCH_PID:-} ]] && kill \"\$LAUNCH_PID\" 2>/dev/null; pkill -9 -f host_sdk_sample 2>/dev/null; pkill -9 -f radar_fast_livo2_node 2>/dev/null; pkill -9 -f static_transform_publisher 2>/dev/null" EXIT INT TERM
 
     echo ""
     echo "  ► 请将设备放在起始点，保持静止"
@@ -240,7 +240,7 @@ if [[ $LOOP_ONLY -eq 0 ]]; then
 else
     LAUNCH_LOG=$(ls -t /tmp/lio_validate_*/launch.log /tmp/lio_fresh.log /tmp/lio_static_test/launch.log 2>/dev/null | head -1)
     echo "[--loop-only] 使用已有日志: $LAUNCH_LOG"
-    trap "kill \${MONITOR_PID:-} 2>/dev/null" EXIT
+    trap "kill \${MONITOR_PID:-} 2>/dev/null" EXIT INT TERM
 fi
 
 # 启动后台特征监控
@@ -264,12 +264,15 @@ if [[ $LOOP_ONLY -eq 0 ]]; then
     echo "  起始位置: x=${P0[0]}  y=${P0[1]}  z=${P0[2]}"
     echo ""
 
-    for t in $(seq 1 10); do
+    STATIC_START=$(date +%s)
+    ELAPSED=0
+    while [[ $ELAPSED -lt 10 ]]; do
         sleep 1
+        ELAPSED=$(( $(date +%s) - STATIC_START ))
         PT=($(get_position))
         D=$(calc_dist_mm "${P0[@]}" "${PT[@]}" 2>/dev/null || echo "N/A")
         EFF=$(get_effective_features)
-        draw_bar "$t" 10 30 "漂移: ${D}mm | 特征: ${EFF:-?} | ${t}s/10s"
+        draw_bar "$ELAPSED" 10 30 "漂移: ${D}mm | 特征: ${EFF:-?} | ${ELAPSED}s/10s"
     done
     printf "\n"
 
@@ -352,13 +355,17 @@ print(math.sqrt(sum((x-y)**2 for x,y in zip(a,b))))
     done
 } &
 PATH_PID=$!
-trap "kill $MONITOR_PID $PATH_PID 2>/dev/null; [[ -n '$LAUNCH_PID' ]] && kill '$LAUNCH_PID' 2>/dev/null; pkill -9 -f host_sdk_sample 2>/dev/null; pkill -9 -f radar_fast_livo2_node 2>/dev/null; pkill -9 -f static_transform_publisher 2>/dev/null" EXIT
+trap "kill $MONITOR_PID $PATH_PID 2>/dev/null; [[ -n '$LAUNCH_PID' ]] && kill '$LAUNCH_PID' 2>/dev/null; pkill -9 -f host_sdk_sample 2>/dev/null; pkill -9 -f radar_fast_livo2_node 2>/dev/null; pkill -9 -f static_transform_publisher 2>/dev/null" EXIT INT TERM
 
 read -r -p ""
 
 kill $PATH_PID 2>/dev/null
 printf "\n"
 END=($(get_position))
+if [[ ${#END[@]} -lt 3 ]]; then
+    echo "  ✗ 无法读取终点位置（LIO 是否宕了？）"
+    exit 1
+fi
 END_FRAME=$(get_frame)
 PATH_LEN=$(cat "$LOG_DIR/path_length.tmp" 2>/dev/null || echo "0")
 

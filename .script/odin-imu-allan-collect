@@ -53,7 +53,14 @@ echo "  ✓ /odin1/imu: $IMU_HZ"
 echo ""
 
 echo "[3/3] 录制 ${DURATION_MIN} 分钟 IMU 数据 ..."
-trap "kill $DRIVER_PID 2>/dev/null; pkill -9 -f host_sdk_sample 2>/dev/null" EXIT
+# Cleanup on any exit
+cleanup_allan() {
+    [[ -n "${DRIVER_PID:-}" ]] && kill "$DRIVER_PID" 2>/dev/null || true
+    [[ -n "${BAG_PID:-}" ]] && kill "$BAG_PID" 2>/dev/null || true
+    pkill -9 -f host_sdk_sample 2>/dev/null || true
+    pkill -9 -f "ros2 bag" 2>/dev/null || true
+}
+trap cleanup_allan EXIT INT TERM
 
 ros2 bag record -o "$BAG_DIR" /odin1/imu &
 BAG_PID=$!
