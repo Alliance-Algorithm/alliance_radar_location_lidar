@@ -38,6 +38,30 @@ _PCD_DTYPE_MAP = {
 }
 
 
+def merge_pcd_splits(base_path):
+    """合并定期刷盘产生的分片 PCD（base.0.pcd, base.1.pcd, ...）。
+    返回合并后的 (xyz, extra)，若没有分片则返回 None。
+    """
+    base = Path(base_path)
+    stem = base.stem
+    pattern = f"{stem}.*.pcd"
+    splits = sorted(base.parent.glob(pattern), key=lambda p: int(p.stem.rsplit(".", 1)[-1]))
+    if not splits:
+        return None
+    xyz_parts, extra_parts = [], []
+    for sp in splits:
+        xyz, ex = read_pcd(sp)
+        xyz_parts.append(xyz)
+        extra_parts.append(ex)
+    xyz = np.concatenate(xyz_parts, axis=0)
+    extra = {k: np.concatenate([ep[k] for ep in extra_parts]) for k in extra_parts[0]}
+    print(f"合并 {len(splits)} 个分片 → {len(xyz)} 点")
+    # 合并后直接用体素去重（分片边界处相邻帧可能有重复点）
+    xyz, extra = voxel_downsample_with_extra(xyz, extra, 0.05)
+    print(f"去重后: {len(xyz)} 点")
+    return xyz, extra
+
+
 def read_pcd(path):
     """读取 PCD 文件（ASCII 或 binary），返回 (xyz, extra_fields_dict)。
 
@@ -228,6 +252,7 @@ def main():
                          help="27 邻域内最少点数，低于此值判定为离群点（默认 5）")
     parser.add_argument("--no-outlier-removal", action="store_true", help="跳过离群点剔除步骤")
     parser.add_argument("--ascii", action="store_true", help="输出 ASCII PCD（默认 binary）")
+    parser.add_argument("--merge", action="store_true", help="合并定期刷盘分片（base.0.pcd, base.1.pcd, ...）")
     args = parser.parse_args()
 
     t_start = time.time()
@@ -240,7 +265,14 @@ def main():
         input_path.stem + "_clean" + input_path.suffix)
 
     print(f"读取: {input_path}")
-    xyz, extra = read_pcd(input_path)
+    if args.merge:
+        merged = merge_pcd_splits(input_path)
+        if merged is not None:
+            xyz, extra = merged
+        else:
+            xyz, extra = read_pcd(input_path)
+    else:
+        xyz, extra = read_pcd(input_path)
     print(f"原始点数: {len(xyz)}")
     if len(xyz) == 0:
         print("ERROR: 点云为空", file=sys.stderr)
