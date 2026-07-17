@@ -15,9 +15,13 @@
 set -euo pipefail
 
 : "${RADAR_WS:=/workspace}"
-TRIGGER_FILE="/tmp/fast_livo2_save_map"
 NO_WAIT=0
 OUTPUT=""
+
+# 尝试从 ROS2 param 读取触发文件路径，回退到默认值
+TRIGGER_FILE=$(timeout 3 ros2 param get /radar_fast_livo2_node map_save_trigger 2>/dev/null \
+    | grep "String value" | awk '{print $NF}')
+[[ -z "$TRIGGER_FILE" ]] && TRIGGER_FILE="/tmp/fast_livo2_save_map"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -40,8 +44,9 @@ MAP_PATH=$(timeout 3 ros2 param get /radar_fast_livo2_node map_save_path 2>/dev/
 [[ -z "$MAP_PATH" ]] && MAP_PATH="${RADAR_WS}/model/generated/fast_livo2_map.pcd"
 
 if [[ -n "$OUTPUT" ]]; then
-    echo "注意: --output 指定的路径覆盖不会生效，请修改 odin_livo2.yaml 里的 map_save_path 参数。"
-    echo "当前保存路径: $MAP_PATH"
+    ACTUAL_OUTPUT="$OUTPUT"
+else
+    ACTUAL_OUTPUT="$MAP_PATH"
 fi
 
 echo "触发地图保存 → $MAP_PATH"
@@ -69,6 +74,11 @@ for i in $(seq 1 $TIMEOUT); do
             echo "  路径: $MAP_PATH"
             echo "  大小: $SIZE"
             echo "  点数: ${PTS:-?}"
+            if [[ -n "$OUTPUT" && "$OUTPUT" != "$MAP_PATH" ]]; then
+                mkdir -p "$(dirname "$OUTPUT")"
+                cp "$MAP_PATH" "$OUTPUT"
+                echo "  已复制到: $OUTPUT"
+            fi
         else
             echo "⚠ 触发文件已被消费，但目标文件不存在: $MAP_PATH"
         fi

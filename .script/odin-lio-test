@@ -22,6 +22,8 @@ set -uo pipefail
 DURATION=60
 KEEP_RUNNING=0
 LOG_DIR="/tmp/odin_lio_test_$(date +%Y%m%d_%H%M%S)"
+FINAL_EXIT=0
+LAUNCH_PID=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -39,6 +41,16 @@ echo "  radar_fast_livo2 ONLY_LIO 硬件验证"
 echo "  日志目录: $LOG_DIR"
 echo "═══════════════════════════════════════════════════"
 echo ""
+
+# Cleanup on any exit path
+cleanup_lio_test() {
+    [[ -n "${LAUNCH_PID:-}" ]] && kill "$LAUNCH_PID" 2>/dev/null || true
+    pkill -9 -f host_sdk_sample 2>/dev/null || true
+    pkill -9 -f radar_fast_livo2_node 2>/dev/null || true
+    pkill -9 -f static_tf 2>/dev/null || true
+    exit "${FINAL_EXIT:-0}"
+}
+trap cleanup_lio_test EXIT INT TERM
 
 # ── 0. 前置检查 ──
 if [ ! -f /opt/ros/jazzy/setup.bash ]; then
@@ -147,13 +159,16 @@ if [ "$FIRST_FRAME" -gt 0 ] && [ "$FRAME_COUNT" -gt 0 ]; then
     echo "  ✓ LIO 主循环已运行：首帧建图成功，且已处理 $FRAME_COUNT 帧"
     echo "  下一步: 用 Foxglove 订阅 /fast_livo2/cloud_world + /fast_livo2/path"
     echo "          目视检查轨迹是否发散、地图是否可辨认场景结构"
+    FINAL_EXIT=0
 elif [ "$FIRST_FRAME" -gt 0 ]; then
     echo "  ⚠ 仅完成首帧建图，未见后续帧处理日志——检查 ESIKF 是否卡住"
+    FINAL_EXIT=2
 else
     echo "  ✗ 未见任何 LIO 处理日志。常见原因:"
     echo "    - IMU 静止初始化未完成（默认需要 init_imu_num=20 帧，设备是否静止？）"
     echo "    - 预处理后点云为空（confidence_threshold 过滤过严，或点云字段解析错误）"
     echo "    - 检查完整日志: $LAUNCH_LOG"
+    FINAL_EXIT=1
 fi
 echo "═══════════════════════════════════════════════════"
 
@@ -161,12 +176,8 @@ if [ "$KEEP_RUNNING" -eq 1 ]; then
     echo ""
     echo "  --keep-running 已指定，进程继续运行 (PID: $LAUNCH_PID)"
     echo "  日志: tail -f $LAUNCH_LOG"
-    echo "  停止: kill $LAUNCH_PID; pkill -f host_sdk_sample; pkill -f radar_fast_livo2_node"
+    echo "  停止: 再次运行本脚本（新实例会自动清理旧进程）"
 else
-    kill "$LAUNCH_PID" 2>/dev/null
-    pkill -9 -f host_sdk_sample 2>/dev/null
-    pkill -9 -f radar_fast_livo2_node 2>/dev/null
-    pkill -9 -f static_tf 2>/dev/null
     echo ""
-    echo "  测试进程已停止。完整日志: $LAUNCH_LOG"
+    echo "  测试进程将自动停止。完整日志: $LAUNCH_LOG"
 fi
