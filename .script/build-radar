@@ -71,6 +71,7 @@ COLON_ARGS=(
         odin_ros_driver
         radar_lidar
         radar_camera
+        radar_interfaces
         radar_fusion
         radar_bridge
         radar_fast_livo2
