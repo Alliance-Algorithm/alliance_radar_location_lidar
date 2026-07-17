@@ -12,7 +12,7 @@ source /opt/ros/jazzy/setup.bash
 source "${RADAR_WS}/ros_ws/install/setup.bash"
 set -u
 
-trap 'echo ""; echo "停止中..."; [[ -n "${TAIL_PID:-}" ]] && kill "$TAIL_PID" 2>/dev/null; pkill -f host_sdk_sample 2>/dev/null; pkill -f radar_fast_livo2 2>/dev/null; pkill -f static_tf 2>/dev/null; echo "已停止"; exit 0' EXIT INT TERM
+trap 'echo ""; echo "停止中..."; [[ -n "${TAIL_PID:-}" ]] && kill "$TAIL_PID" 2>/dev/null; pkill -f host_sdk_sample 2>/dev/null || true; pkill -f radar_fast_livo2 2>/dev/null || true; pkill -f static_tf 2>/dev/null || true; echo "已停止"; exit 0' EXIT INT TERM
 
 echo "═══════════════════════════════════════════════════"
 echo "  radar_fast_livo2 ONLY_LIO"
@@ -22,7 +22,7 @@ echo "════════════════════════�
 echo ""
 
 # 清理
-pkill -9 -f host_sdk_sample 2>/dev/null; pkill -9 -f radar_fast_livo2_node 2>/dev/null; pkill -9 -f static_tf 2>/dev/null
+pkill -9 -f host_sdk_sample 2>/dev/null || true; pkill -9 -f radar_fast_livo2_node 2>/dev/null || true; pkill -9 -f static_tf 2>/dev/null || true
 sleep 1
 
 # 启动
