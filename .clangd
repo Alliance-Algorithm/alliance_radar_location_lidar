@@ -1,12 +1,5 @@
 CompileFlags:
   Compiler: clang++
-  Add:
-    - "-isystem"
-    - "/usr/lib/gcc/x86_64-pc-linux-gnu/15.3.0/include"
-    - "-isystem"
-    - "/usr/include"
-    - "-isystem"
-    - "/usr/local/include"
   Remove:
     - "-march=*"
     - "-mfpu=*"
