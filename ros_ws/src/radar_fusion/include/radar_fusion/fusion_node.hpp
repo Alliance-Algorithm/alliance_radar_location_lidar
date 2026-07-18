@@ -46,17 +46,16 @@ public:
     explicit FusionNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions { });
 
 private:
-    void on_lidar_pose(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg);
-    void on_camera_detection(const radar_interfaces::msg::CameraDetectionPose::SharedPtr msg);
+    void on_lidar_pose(geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg);
+    void on_camera_detection(radar_interfaces::msg::CameraDetectionPose::SharedPtr msg);
 
-    void on_cluster(const sensor_msgs::msg::PointCloud2::SharedPtr msg);
+    void on_cluster(sensor_msgs::msg::PointCloud2::SharedPtr msg);
 
     void publish_tracks(const std::vector<KalmanTracker>& tracks, const rclcpp::Time& stamp);
     void publish_fused_tracks(const std::vector<KalmanTracker>& tracks, const rclcpp::Time& stamp);
-    void publish_lidar_location(
-        const std::vector<KalmanTracker>& tracks, const rclcpp::Time& stamp);
+    void publish_lidar_location(const std::vector<KalmanTracker>& tracks);
     void publish_localization_pose(const geometry_msgs::msg::PoseWithCovarianceStamped& pose);
-    void publish_status(const rclcpp::Time& stamp);
+    void publish_status(const rclcpp::Time& stamp) const;
     void update_fusion_mode(int64_t reference_stamp_ns);
 
     void process_measurements(const std::vector<Eigen::Vector2d>& measurements, int64_t now_ns,
