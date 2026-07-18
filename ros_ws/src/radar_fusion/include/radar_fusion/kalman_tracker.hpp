@@ -51,7 +51,7 @@ public:
 
     [[nodiscard]] auto distance_squared_to(const Eigen::Vector2d& measurement) const -> double;
 
-    [[nodiscard]] auto state() const -> const KalmanState& { return state_; }
+    auto state() const -> const KalmanState& { return state_; }
 
     void set_color(int color) { state_.color = color; }
     void set_number(int number) { state_.number = number; }
