@@ -42,8 +42,6 @@ FusionNode::FusionNode(const rclcpp::NodeOptions& options)
     this->declare_parameter("max_misses_before_delete", 2);
     this->declare_parameter("max_tracks", 20);
     this->declare_parameter("enable_camera_fusion", false);
-    this->declare_parameter("arena_offset_x", 0.0);
-    this->declare_parameter("arena_offset_y", 0.0);
     this->declare_parameter("map_to_rm_offset_x", 14.0);
     this->declare_parameter("map_to_rm_offset_y", 7.5);
 
@@ -53,8 +51,6 @@ FusionNode::FusionNode(const rclcpp::NodeOptions& options)
     cfg_.max_misses_before_delete = this->get_parameter("max_misses_before_delete").as_int();
     cfg_.max_tracks               = this->get_parameter("max_tracks").as_int();
     cfg_.enable_camera_fusion     = this->get_parameter("enable_camera_fusion").as_bool();
-    cfg_.arena_offset_x           = this->get_parameter("arena_offset_x").as_double();
-    cfg_.arena_offset_y           = this->get_parameter("arena_offset_y").as_double();
     cfg_.map_to_rm_offset_x       = this->get_parameter("map_to_rm_offset_x").as_double();
     cfg_.map_to_rm_offset_y       = this->get_parameter("map_to_rm_offset_y").as_double();
     tracks_.reserve(static_cast<std::size_t>(cfg_.max_tracks));
@@ -85,9 +81,9 @@ FusionNode::FusionNode(const rclcpp::NodeOptions& options)
         this->create_publisher<diagnostic_msgs::msg::DiagnosticStatus>("/localization/status", 10);
     update_fusion_mode(this->now().nanoseconds());
 
-    RCLCPP_INFO(get_logger(), "radar_fusion ready. gate=%.1fm timeout=%.1fs camera=%s arena_offset=(%.1f,%.1f)m",
-        cfg_.gate_distance, cfg_.track_timeout_sec,
-        cfg_.enable_camera_fusion ? "on" : "off",
+    RCLCPP_INFO(get_logger(),
+        "radar_fusion ready. gate=%.1fm timeout=%.1fs camera=%s arena_offset=(%.1f,%.1f)m",
+        cfg_.gate_distance, cfg_.track_timeout_sec, cfg_.enable_camera_fusion ? "on" : "off",
         cfg_.arena_offset_x, cfg_.arena_offset_y);
 }
 
@@ -351,7 +347,7 @@ void FusionNode::publish_fused_tracks(
 
 void FusionNode::publish_lidar_location(
     const std::vector<KalmanTracker>& tracks, const rclcpp::Time& stamp) {
-    auto msg = radar_interfaces::msg::LidarLocation{};
+    auto msg       = radar_interfaces::msg::LidarLocation { };
     auto to_uint16 = [](double coord_m, double offset_m) -> uint16_t {
         double mm = (coord_m + offset_m) * 1000.0;
         if (mm < 0.0) return 0;
@@ -363,14 +359,17 @@ void FusionNode::publish_lidar_location(
     const double oy = cfg_.map_to_rm_offset_y;
 
     // 地图中心原点 → RM红方角原点 + 米→mm → uint16
-    struct Slot { uint16_t& x; uint16_t& y; };
+    struct Slot {
+        uint16_t& x;
+        uint16_t& y;
+    };
     Slot slots[] = {
-        { msg.opponent_hero_x,       msg.opponent_hero_y },
-        { msg.opponent_engineer_x,   msg.opponent_engineer_y },
+        { msg.opponent_hero_x, msg.opponent_hero_y },
+        { msg.opponent_engineer_x, msg.opponent_engineer_y },
         { msg.opponent_infantry_3_x, msg.opponent_infantry_3_y },
         { msg.opponent_infantry_4_x, msg.opponent_infantry_4_y },
-        { msg.opponent_aerial_x,     msg.opponent_aerial_y },
-        { msg.opponent_sentry_x,     msg.opponent_sentry_y },
+        { msg.opponent_aerial_x, msg.opponent_aerial_y },
+        { msg.opponent_sentry_x, msg.opponent_sentry_y },
     };
     constexpr int kNumSlots = sizeof(slots) / sizeof(slots[0]);
 

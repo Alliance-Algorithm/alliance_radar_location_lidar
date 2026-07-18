@@ -26,8 +26,6 @@ struct FusionConfig {
     int max_tracks               = 20;
     bool enable_camera_fusion    = false;
     double camera_timeout_sec    = 1.5;
-    double arena_offset_x        = 0.0;  // m, map→radar-egui 坐标偏移
-    double arena_offset_y        = 0.0;
     double map_to_rm_offset_x    = 14.0; // m, 地图中心→RM红方角原点 X (半场长 28/2)
     double map_to_rm_offset_y    = 7.5;  // m, 地图中心→RM红方角原点 Y (半场宽 15/2)
 };
@@ -55,7 +53,8 @@ private:
 
     void publish_tracks(const std::vector<KalmanTracker>& tracks, const rclcpp::Time& stamp);
     void publish_fused_tracks(const std::vector<KalmanTracker>& tracks, const rclcpp::Time& stamp);
-    void publish_lidar_location(const std::vector<KalmanTracker>& tracks, const rclcpp::Time& stamp);
+    void publish_lidar_location(
+        const std::vector<KalmanTracker>& tracks, const rclcpp::Time& stamp);
     void publish_localization_pose(const geometry_msgs::msg::PoseWithCovarianceStamped& pose);
     void publish_status(const rclcpp::Time& stamp);
     void update_fusion_mode(int64_t reference_stamp_ns);
