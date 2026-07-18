@@ -1,6 +1,7 @@
 #pragma once
 
 #include "radar_interfaces/msg/camera_detection_pose.hpp"
+#include "radar_interfaces/msg/lidar_location.hpp"
 #include <chrono>
 #include <cstdint>
 #include <diagnostic_msgs/msg/diagnostic_status.hpp>
@@ -18,13 +19,17 @@
 namespace radar::fusion {
 
 struct FusionConfig {
-    double gate_distance         = 1.0; // 数据关联门限（米）
-    double track_timeout_sec     = 1.5; // 轨迹超时删除
-    int min_hits_to_confirm      = 3;   // 确认轨迹所需命中次数
+    double gate_distance         = 1.0;
+    double track_timeout_sec     = 1.5;
+    int min_hits_to_confirm      = 3;
     int max_misses_before_delete = 2;
-    int max_tracks               = 20; // 最大轨迹数
+    int max_tracks               = 20;
     bool enable_camera_fusion    = false;
-    double camera_timeout_sec    = 1.5; // 相机检测数据超时判定为 DEGRADED
+    double camera_timeout_sec    = 1.5;
+    double arena_offset_x        = 0.0;  // m, map→radar-egui 坐标偏移
+    double arena_offset_y        = 0.0;
+    double map_to_rm_offset_x    = 14.0; // m, 地图中心→RM红方角原点 X (半场长 28/2)
+    double map_to_rm_offset_y    = 7.5;  // m, 地图中心→RM红方角原点 Y (半场宽 15/2)
 };
 
 enum class FusionMode {
@@ -50,6 +55,7 @@ private:
 
     void publish_tracks(const std::vector<KalmanTracker>& tracks, const rclcpp::Time& stamp);
     void publish_fused_tracks(const std::vector<KalmanTracker>& tracks, const rclcpp::Time& stamp);
+    void publish_lidar_location(const std::vector<KalmanTracker>& tracks, const rclcpp::Time& stamp);
     void publish_localization_pose(const geometry_msgs::msg::PoseWithCovarianceStamped& pose);
     void publish_status(const rclcpp::Time& stamp);
     void update_fusion_mode(int64_t reference_stamp_ns);
@@ -70,6 +76,7 @@ private:
         sub_camera_detection_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_tracks_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_fused_tracks_;
+    rclcpp::Publisher<radar_interfaces::msg::LidarLocation>::SharedPtr pub_lidar_location_;
     rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pub_pose_;
     rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticStatus>::SharedPtr pub_status_;
 };

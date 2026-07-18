@@ -40,6 +40,10 @@ def _make_radar_node(context: LaunchContext):
     scan_topic = "/odin1/cloud_raw" if sensor_val == "odin" else "/livox/lidar"
     hardware_id = "odin1" if sensor_val == "odin" else "livox_mid70"
 
+    side_val = LaunchConfiguration("side").perform(context)
+    bringup_dir = get_package_share_directory("radar_bringup")
+    init_pose_yaml = os.path.join(bringup_dir, "config", "lidar", f"{side_val}_initial_pose.yaml")
+
     return [
         Node(
             package="radar_lidar",
@@ -48,6 +52,7 @@ def _make_radar_node(context: LaunchContext):
             output="screen",
             parameters=[
                 radar_params,
+                init_pose_yaml,
                 {"map_path": map_path},
                 {"scan_topic": scan_topic},
                 {"hardware_id": hardware_id},
@@ -75,6 +80,11 @@ def generate_launch_description():
             get_package_share_directory("radar_lidar"), "config", "runtime.yaml"
         ),
         description="radar_lidar runtime parameter YAML",
+    )
+    side_arg = DeclareLaunchArgument(
+        "side",
+        default_value="red",
+        description="场地侧: red | blue（决定雷达初始位姿）",
     )
 
     odin_node = Node(
@@ -108,6 +118,7 @@ def generate_launch_description():
         sensor_arg,
         map_path_arg,
         radar_params_arg,
+        side_arg,
         static_tf_launch,
         odin_node,
         radar_node,
