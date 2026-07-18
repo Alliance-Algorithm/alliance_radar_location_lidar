@@ -126,7 +126,7 @@ void FusionNode::on_camera_detection(
 
     publish_tracks(tracks_, stamp);
     publish_fused_tracks(tracks_, stamp);
-    publish_lidar_location(tracks_, stamp);
+    publish_lidar_location(tracks_);
     publish_status(stamp);
 }
 
@@ -212,7 +212,7 @@ void FusionNode::on_cluster(const sensor_msgs::msg::PointCloud2::SharedPtr msg) 
 
     publish_tracks(tracks_, stamp);
     publish_fused_tracks(tracks_, stamp);
-    publish_lidar_location(tracks_, stamp);
+    publish_lidar_location(tracks_);
     publish_status(stamp);
 }
 
@@ -345,41 +345,27 @@ void FusionNode::publish_fused_tracks(
     pub_fused_tracks_->publish(fused_markers);
 }
 
-void FusionNode::publish_lidar_location(
-    const std::vector<KalmanTracker>& tracks, const rclcpp::Time& stamp) {
-    auto msg       = radar_interfaces::msg::LidarLocation { };
-    auto to_uint16 = [](double coord_m, double offset_m) -> uint16_t {
-        double mm = (coord_m + offset_m) * 1000.0;
-        if (mm < 0.0) return 0;
-        if (mm > 65535.0) return 65535;
-        return static_cast<uint16_t>(mm);
-    };
+void FusionNode::publish_lidar_location(const std::vector<KalmanTracker>& tracks) {
+    auto msg = radar_interfaces::msg::LidarLocation{};
 
-    const double ox = cfg_.map_to_rm_offset_x;
-    const double oy = cfg_.map_to_rm_offset_y;
-
-    // 地图中心原点 → RM红方角原点 + 米→mm → uint16
-    struct Slot {
-        uint16_t& x;
-        uint16_t& y;
+    uint16_t* const slots_x[] = {
+        &msg.opponent_hero_x,       &msg.opponent_engineer_x,
+        &msg.opponent_infantry_3_x, &msg.opponent_infantry_4_x,
+        &msg.opponent_aerial_x,     &msg.opponent_sentry_x,
     };
-    Slot slots[] = {
-        { msg.opponent_hero_x, msg.opponent_hero_y },
-        { msg.opponent_engineer_x, msg.opponent_engineer_y },
-        { msg.opponent_infantry_3_x, msg.opponent_infantry_3_y },
-        { msg.opponent_infantry_4_x, msg.opponent_infantry_4_y },
-        { msg.opponent_aerial_x, msg.opponent_aerial_y },
-        { msg.opponent_sentry_x, msg.opponent_sentry_y },
+    uint16_t* const slots_y[] = {
+        &msg.opponent_hero_y,       &msg.opponent_engineer_y,
+        &msg.opponent_infantry_3_y, &msg.opponent_infantry_4_y,
+        &msg.opponent_aerial_y,     &msg.opponent_sentry_y,
     };
-    constexpr int kNumSlots = sizeof(slots) / sizeof(slots[0]);
 
     int slot_idx = 0;
     for (const auto& track : tracks) {
         const auto& s = track.state();
         if (!s.is_confirmed()) continue;
-        if (slot_idx >= kNumSlots) break;
-        slots[slot_idx].x = to_uint16(s.x(0), ox);
-        slots[slot_idx].y = to_uint16(s.x(1), oy);
+        if (slot_idx >= 6) break;
+        *slots_x[slot_idx] = static_cast<uint16_t>((s.x(0) + cfg_.map_to_rm_offset_x) * 1000.0);
+        *slots_y[slot_idx] = static_cast<uint16_t>((s.x(1) + cfg_.map_to_rm_offset_y) * 1000.0);
         slot_idx++;
     }
 
@@ -392,7 +378,7 @@ void FusionNode::publish_localization_pose(
     pub_pose_->publish(pose);
 }
 
-void FusionNode::publish_status(const rclcpp::Time& stamp) {
+void FusionNode::publish_status(const rclcpp::Time& stamp) const {
     auto status    = diagnostic_msgs::msg::DiagnosticStatus();
     status.level   = (fusion_mode_ == FusionMode::DEGRADED)
         ? diagnostic_msgs::msg::DiagnosticStatus::WARN
