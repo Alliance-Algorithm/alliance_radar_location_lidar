@@ -34,9 +34,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     usbutils net-tools iputils-ping \
     ripgrep htop fzf \
     libusb-1.0-0-dev \
+    libssl-dev \
+    libboost-dev \
+    libsqlite3-dev \
     libeigen3-dev \
     libopencv-dev \
-    libpcl-dev \
+    libpcl-all-dev \
     libgoogle-glog-dev \
     libgflags-dev \
     libatlas-base-dev \
@@ -51,6 +54,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-$ROS_DISTRO-ament-cmake \
     libyaml-cpp-dev \
     libzmq3-dev \
+    cppzmq-dev \
     libassimp-dev \
     libomp-dev \
     libglm-dev \
