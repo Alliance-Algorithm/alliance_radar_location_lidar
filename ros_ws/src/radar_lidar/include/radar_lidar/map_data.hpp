@@ -22,10 +22,10 @@ public:
     static auto load(const std::string& pcd_path, double voxel_leaf_size = 0.1)
         -> std::expected<std::shared_ptr<MapData>, std::string>;
 
-    [[nodiscard]] auto sgicp_cloud() const -> const SGicpCloud& { return *sgicp_cloud_; }
-    [[nodiscard]] auto sgicp_tree() const -> const SGicpTree& { return *sgicp_tree_; }
-    [[nodiscard]] auto pcl_cloud() const -> const PclCloud& { return *pcl_cloud_; }
-    [[nodiscard]] auto pcl_tree() const -> const PclTree& { return *pcl_tree_; }
+    auto sgicp_cloud() const -> const SGicpCloud& { return *sgicp_cloud_; }
+    auto sgicp_tree() const -> const SGicpTree& { return *sgicp_tree_; }
+    auto pcl_cloud() const -> const PclCloud& { return *pcl_cloud_; }
+    auto pcl_tree() const -> const PclTree& { return *pcl_tree_; }
     [[nodiscard]] auto size() const -> size_t { return sgicp_cloud_->size(); }
 
 private:

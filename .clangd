@@ -1,15 +1,11 @@
 CompileFlags:
-  CompilationDatabase: ros_ws/build/
+  Compiler: clang++
   Remove:
-    - -march=native
-    - -fopenmp
-    - -flto*
-    - -fno-fat-lto-objects
-  Add:
-    - -std=gnu++23
-    - -I/usr/lib/gcc/x86_64-linux-gnu/14/include
-    - -I/usr/include/eigen3
+    - "-march=*"
+    - "-mfpu=*"
 Diagnostics:
   UnusedIncludes: None
-  ClangTidy:
-    Remove: [modernize-use-trailing-return-type]
+  Suppress:
+    - pp_file_not_found
+    - drv_unknown_argument
+    - sem_redef_builtin
