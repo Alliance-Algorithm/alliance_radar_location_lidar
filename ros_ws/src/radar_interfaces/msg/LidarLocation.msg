@@ -1,5 +1,7 @@
 # LidarLocation — mirrors radar_bridge zmq_data_format.hpp
-# PUB direction: /lidar/pose → radar_bridge → ZMQ → radar-egui
+# PUB direction: /lidar/location → radar_bridge → ZMQ → radar-egui
+
+uint16 CMD_ID=0x2001
 
 uint16 cmd_id
 

@@ -22,7 +22,7 @@ public:
     [[nodiscard]] auto all_points() const -> types::PointCloud;
 
     /// @brief 当前累积帧数
-    [[nodiscard]] auto size() const -> size_t { return frames_.size(); }
+    auto size() const -> size_t { return frames_.size(); }
 
     /// @brief 清空
     void clear() { frames_.clear(); }

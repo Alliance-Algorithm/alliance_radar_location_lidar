@@ -42,6 +42,8 @@ FusionNode::FusionNode(const rclcpp::NodeOptions& options)
     this->declare_parameter("max_misses_before_delete", 2);
     this->declare_parameter("max_tracks", 20);
     this->declare_parameter("enable_camera_fusion", false);
+    this->declare_parameter("map_to_rm_offset_x", 14.0);
+    this->declare_parameter("map_to_rm_offset_y", 7.5);
 
     cfg_.gate_distance            = this->get_parameter("gate_distance").as_double();
     cfg_.track_timeout_sec        = this->get_parameter("track_timeout_sec").as_double();
@@ -49,6 +51,8 @@ FusionNode::FusionNode(const rclcpp::NodeOptions& options)
     cfg_.max_misses_before_delete = this->get_parameter("max_misses_before_delete").as_int();
     cfg_.max_tracks               = this->get_parameter("max_tracks").as_int();
     cfg_.enable_camera_fusion     = this->get_parameter("enable_camera_fusion").as_bool();
+    cfg_.map_to_rm_offset_x       = this->get_parameter("map_to_rm_offset_x").as_double();
+    cfg_.map_to_rm_offset_y       = this->get_parameter("map_to_rm_offset_y").as_double();
     tracks_.reserve(static_cast<std::size_t>(cfg_.max_tracks));
 
     sub_lidar_pose_ = this->create_subscription<PoseCov>(
@@ -70,13 +74,17 @@ FusionNode::FusionNode(const rclcpp::NodeOptions& options)
         this->create_publisher<visualization_msgs::msg::MarkerArray>("/fusion/tracks", 10);
     pub_fused_tracks_ =
         this->create_publisher<visualization_msgs::msg::MarkerArray>("/fusion/fused_tracks", 10);
+    pub_lidar_location_ =
+        this->create_publisher<radar_interfaces::msg::LidarLocation>("/lidar/location", 10);
     pub_pose_ = this->create_publisher<PoseCov>("/localization/pose", 10);
     pub_status_ =
         this->create_publisher<diagnostic_msgs::msg::DiagnosticStatus>("/localization/status", 10);
     update_fusion_mode(this->now().nanoseconds());
 
-    RCLCPP_INFO(get_logger(), "radar_fusion ready. gate=%.1fm timeout=%.1fs", cfg_.gate_distance,
-        cfg_.track_timeout_sec);
+    RCLCPP_INFO(get_logger(),
+        "radar_fusion ready. gate=%.1fm timeout=%.1fs camera=%s arena_offset=(%.1f,%.1f)m",
+        cfg_.gate_distance, cfg_.track_timeout_sec, cfg_.enable_camera_fusion ? "on" : "off",
+        cfg_.arena_offset_x, cfg_.arena_offset_y);
 }
 
 void FusionNode::on_lidar_pose(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg) {
@@ -118,6 +126,7 @@ void FusionNode::on_camera_detection(
 
     publish_tracks(tracks_, stamp);
     publish_fused_tracks(tracks_, stamp);
+    publish_lidar_location(tracks_);
     publish_status(stamp);
 }
 
@@ -203,6 +212,7 @@ void FusionNode::on_cluster(const sensor_msgs::msg::PointCloud2::SharedPtr msg) 
 
     publish_tracks(tracks_, stamp);
     publish_fused_tracks(tracks_, stamp);
+    publish_lidar_location(tracks_);
     publish_status(stamp);
 }
 
@@ -335,12 +345,40 @@ void FusionNode::publish_fused_tracks(
     pub_fused_tracks_->publish(fused_markers);
 }
 
+void FusionNode::publish_lidar_location(const std::vector<KalmanTracker>& tracks) {
+    auto msg = radar_interfaces::msg::LidarLocation{};
+
+    uint16_t* const slots_x[] = {
+        &msg.opponent_hero_x,       &msg.opponent_engineer_x,
+        &msg.opponent_infantry_3_x, &msg.opponent_infantry_4_x,
+        &msg.opponent_aerial_x,     &msg.opponent_sentry_x,
+    };
+    uint16_t* const slots_y[] = {
+        &msg.opponent_hero_y,       &msg.opponent_engineer_y,
+        &msg.opponent_infantry_3_y, &msg.opponent_infantry_4_y,
+        &msg.opponent_aerial_y,     &msg.opponent_sentry_y,
+    };
+
+    int slot_idx = 0;
+    for (const auto& track : tracks) {
+        const auto& s = track.state();
+        if (!s.is_confirmed()) continue;
+        if (slot_idx >= 6) break;
+        *slots_x[slot_idx] = static_cast<uint16_t>((s.x(0) + cfg_.map_to_rm_offset_x) * 1000.0);
+        *slots_y[slot_idx] = static_cast<uint16_t>((s.x(1) + cfg_.map_to_rm_offset_y) * 1000.0);
+        slot_idx++;
+    }
+
+    msg.cmd_id = radar_interfaces::msg::LidarLocation::CMD_ID;
+    pub_lidar_location_->publish(msg);
+}
+
 void FusionNode::publish_localization_pose(
     const geometry_msgs::msg::PoseWithCovarianceStamped& pose) {
     pub_pose_->publish(pose);
 }
 
-void FusionNode::publish_status(const rclcpp::Time& stamp) {
+void FusionNode::publish_status(const rclcpp::Time& stamp) const {
     auto status    = diagnostic_msgs::msg::DiagnosticStatus();
     status.level   = (fusion_mode_ == FusionMode::DEGRADED)
         ? diagnostic_msgs::msg::DiagnosticStatus::WARN
