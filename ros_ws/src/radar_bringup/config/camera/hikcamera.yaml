@@ -13,8 +13,9 @@ hikcamera_ros_driver_node:
     # 帧率（CS200-10UC USB3 稳定 20fps）
     framerate: 20.0
 
-    # 分辨率由 SDK 默认: 1920×1080
-    # 全分辨率 5472×3648 可用但 USB3 带宽受限且处理开销大
+    # 原生分辨率 5472×3648
+    width: 5472
+    height: 3648
 
     # 相机控制
     timeout_ms: 2000
