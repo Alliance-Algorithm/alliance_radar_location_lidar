@@ -1,0 +1,428 @@
+#!/bin/bash
+# odin-lio-validate - 交互式 LIO 算法验证（静止漂移 + 闭环误差）
+#
+# 用法:
+#   odin-lio-validate              # 完整流程（静止10s + 闭环测试）
+#   odin-lio-validate --static-only  # 只跑静止漂移测试
+#   odin-lio-validate --loop-only    # 只跑闭环测试（需要 LIO 已在运行）
+#
+# 输出:
+#   - 静止10s位移漂移（mm）
+#   - 闭环误差（mm）+ 漂移率（%路径长度）
+#   - 实时进度条 + 有效特征数监控（< 100 报警）
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+: "${RADAR_WS:=/workspace}"
+
+STATIC_ONLY=0
+LOOP_ONLY=0
+LOG_DIR="/tmp/lio_validate_$(date +%Y%m%d_%H%M%S)"
+LAUNCH_PID=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --static-only) STATIC_ONLY=1; shift ;;
+        --loop-only)   LOOP_ONLY=1;  shift ;;
+        *) echo "未知参数: $1" >&2; exit 1 ;;
+    esac
+done
+
+mkdir -p "$LOG_DIR"
+LAUNCH_LOG="$LOG_DIR/launch.log"
+
+echo "═══════════════════════════════════════════════════"
+echo "  radar_fast_livo2 LIO 算法验证"
+echo "  日志目录: $LOG_DIR"
+echo "═══════════════════════════════════════════════════"
+echo ""
+
+set +u
+source /opt/ros/jazzy/setup.bash
+source "${RADAR_WS}/ros_ws/install/setup.bash"
+set -u
+
+# ── 进度条工具 ──────────────────────────────────────────────────
+# 单行刷新进度条：draw_bar <当前> <总数> <宽度> <后缀文本>
+# 用 \r 回到行首覆盖重画，不产生多行滚动输出。
+draw_bar() {
+    local current=$1 total=$2 width=$3 suffix=$4
+    local filled=$(( current * width / total ))
+    (( filled > width )) && filled=$width
+    (( filled < 0 )) && filled=0
+    local empty=$(( width - filled ))
+    local filled_str="" empty_str=""
+    # printf 格式串无参数仍会执行一次输出，count=0 时必须整段跳过，
+    # 不能靠 seq 1 0 产生空列表来间接规避（那样 printf 仍会打一个字符）。
+    (( filled > 0 )) && filled_str=$(printf '█%.0s' $(seq 1 "$filled"))
+    (( empty > 0 ))  && empty_str=$(printf '░%.0s' $(seq 1 "$empty"))
+    local pct=$(( current * 100 / total ))
+    (( pct > 100 )) && pct=100
+    printf "\r  [%s%s] %3d%%  %s\033[K" "$filled_str" "$empty_str" "$pct" "$suffix"
+}
+
+# 无固定总量场景用的旋转指示符（闭环走圈阶段：时长开放式）
+SPIN_CHARS='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+draw_spinner() {
+    local tick=$1 suffix=$2
+    local idx=$(( tick % ${#SPIN_CHARS} ))
+    printf "\r  %s  %s\033[K" "${SPIN_CHARS:$idx:1}" "$suffix"
+}
+
+# ── 工具函数 ────────────────────────────────────────────────
+
+# 读取当前 odom 位置（xyz 三行，单位 m）。
+# WARN: ros2 topic echo --once 每次调用都要新建 DDS 参与者去发现已有
+# publisher，discovery 耗时不稳定（实测偶发 >3s），单次 timeout 3s 会
+# 误判"无数据"。这里重试 5 次（累计最多 ~15s）再判定真的失败。
+get_position() {
+    for _ in 1 2 3 4 5; do
+        local result
+        result=$(timeout 3 ros2 topic echo /fast_livo2/odom --once 2>/dev/null \
+            | grep -A3 "position:" | grep -E "x:|y:|z:" | awk '{print $2}')
+        if [ "$(echo "$result" | wc -l)" -ge 3 ]; then
+            echo "$result"
+            return 0
+        fi
+        sleep 0.5
+    done
+    return 1
+}
+
+# 读取最近帧的有效特征数
+get_effective_features() {
+    grep -oP "pts: \d+/\d+/\K\d+" "$LAUNCH_LOG" 2>/dev/null | tail -1
+}
+
+# 读取最近帧号
+get_frame() {
+    grep -oP "frame \K\d+" "$LAUNCH_LOG" 2>/dev/null | tail -1
+}
+
+# 计算两点距离 (mm)，输入6个数字：x0 y0 z0 x1 y1 z1
+calc_dist_mm() {
+    python3 -c "
+import math, sys
+nums = list(map(float, sys.argv[1:]))
+d = math.sqrt((nums[3]-nums[0])**2 + (nums[4]-nums[1])**2 + (nums[5]-nums[2])**2)
+print(f'{d*1000:.1f}')
+" "$@"
+}
+
+# 实时监控有效特征数（后台运行，检测到连续5帧<100报警，独立打印在新行避免打断进度条）
+monitor_features() {
+    local warn_count=0
+    while sleep 1; do
+        local eff
+        eff=$(get_effective_features)
+        if [[ -n "$eff" && "$eff" -lt 100 ]]; then
+            warn_count=$((warn_count+1))
+            if [[ $warn_count -ge 5 ]]; then
+                printf "\n  ⚠ 警告: 连续5帧有效特征 < 100 (当前=${eff})，状态估计可能发散\n"
+                warn_count=0
+            fi
+        else
+            warn_count=0
+        fi
+    done
+}
+
+# ── 等待首帧建图，内置重试（Odin1 驱动有时"已连接"但数据管道没真正启动）─────
+# 原因：快速反复 stop/start 后，host_sdk_sample 在 "Device ready and streams
+# activated" 之后仍可能不发布任何 cloud_raw/imu 数据（固件流水线没实际激活）。
+# 单纯等 60s 的策略在这种情况下必然超时；改为每 20s 检查一次数据是否流动，
+# 若没有则自动 kill + 加长冷却（10s）再重启，最多重试 MAX_TRIES 次。
+do_launch_with_retry() {
+    local MAX_TRIES=3
+    local attempt=0
+    while [[ $attempt -lt $MAX_TRIES ]]; do
+        attempt=$((attempt+1))
+
+        if [[ $attempt -gt 1 ]]; then
+            echo "  ↻ 第 ${attempt} 次尝试（驱动已启动但无数据，重启中...）"
+            # FIXME: pkill 曾只匹配 host_sdk_sample/radar_fast_livo2_node/
+            # ros2 launch 三个进程名，从没清理过 launch 文件里一并起的
+            # static_transform_publisher（3 个：radar_base→lidar_link、
+            # radar_base→camera_link、camera_link→camera_optical_frame）。
+            # 这三个子进程被 kill 主进程（ros2 launch）时不一定跟着退出
+            # （launch 只是父进程，子进程有独立生命周期），日积月累在这台
+            # 设备上堆到 84 个僵尸进程（`ros2 node list` 里同名节点刷屏），
+            # 污染 DDS discovery graph，是 `ros2 topic echo` 偶发超时/
+            # get_position 读取失败的真正原因——不是 discovery 缓存问题，
+            # 是真实进程泄漏。必须显式清理。
+            pkill -15 -f host_sdk_sample 2>/dev/null || true
+            pkill -15 -f radar_fast_livo2_node 2>/dev/null || true
+            pkill -15 -f static_transform_publisher 2>/dev/null || true
+            pkill -15 -f "ros2 launch" 2>/dev/null || true
+            [[ -n "${LAUNCH_PID:-}" ]] && kill "$LAUNCH_PID" 2>/dev/null || true
+            sleep 4
+            pkill -9 -f host_sdk_sample 2>/dev/null || true
+            pkill -9 -f radar_fast_livo2_node 2>/dev/null || true
+            pkill -9 -f static_transform_publisher 2>/dev/null || true
+            pkill -9 -f "ros2 launch" 2>/dev/null || true
+            sleep 10   # 长冷却让 USB 设备复位
+            echo "  ↳ 冷却完成，重新拉起..."
+        fi
+
+        stdbuf -oL -eL ros2 launch radar_bringup odin_fast_livo2_mapping.launch.py \
+            >> "$LAUNCH_LOG" 2>&1 &
+        LAUNCH_PID=$!
+
+        # 阶段1：等驱动层 "Device ready and streams activated"（最多 30s）
+        local t=0
+        while ! grep -q "streams activated" "$LAUNCH_LOG" 2>/dev/null; do
+            sleep 1; t=$((t+1))
+            draw_bar "$t" 30 30 "等驱动连接... (${t}s/30s)"
+            if [[ $t -ge 30 ]]; then
+                printf "\n  ✗ 驱动连接超时\n"; break
+            fi
+        done
+
+        # 阶段2：驱动已连接，等 cloud_raw 真正流动（最多 20s 检测）
+        if grep -q "streams activated" "$LAUNCH_LOG" 2>/dev/null; then
+            t=0
+            while [[ $t -lt 20 ]]; do
+                sleep 1; t=$((t+1))
+                draw_bar "$t" 20 30 "等数据流启动... (${t}s/20s)"
+                if grep -q "First frame:" "$LAUNCH_LOG" 2>/dev/null; then
+                    printf "\n"
+                    grep "First frame:" "$LAUNCH_LOG" | tail -1 | sed 's/.*\]: /  /'
+                    return 0
+                fi
+            done
+            printf "\n  ✗ 驱动已连接但无数据（固件流水线未启动）\n"
+        fi
+    done
+    echo "  ✗ ${MAX_TRIES} 次尝试均失败，放弃"
+    return 1
+}
+
+# ── 1. 启动 LIO（--loop-only 时跳过） ─────────────────────────────
+
+if [[ $LOOP_ONLY -eq 0 ]]; then
+    echo "[1/4] 清理残留进程 ..."
+    # WARN: 必须包含 static_transform_publisher——见 do_launch_with_retry
+    # 里的 FIXME，这三个 launch 子进程不会随主进程退出自动清理，实测在这台
+    # 设备上堆积到 84 个僵尸进程并污染 DDS discovery graph。
+    pkill -15 -f host_sdk_sample 2>/dev/null || true
+    pkill -15 -f radar_fast_livo2_node 2>/dev/null || true
+    pkill -15 -f static_transform_publisher 2>/dev/null || true
+    pkill -15 -f "ros2 launch" 2>/dev/null || true
+    for _ in 1 2 3 4 5 6; do
+        pgrep -f "host_sdk_sample|radar_fast_livo2_node|static_transform_publisher" >/dev/null 2>&1 || break
+        sleep 0.5
+    done
+    pkill -9 -f host_sdk_sample 2>/dev/null || true
+    pkill -9 -f radar_fast_livo2_node 2>/dev/null || true
+    pkill -9 -f static_transform_publisher 2>/dev/null || true
+    pkill -9 -f "ros2 launch" 2>/dev/null || true
+    sleep 5
+    ros2 daemon stop >/dev/null 2>&1 || true
+    sleep 1
+    ros2 daemon start >/dev/null 2>&1 || true
+    sleep 2
+
+    echo "[2/4] 启动 LIO ..."
+    LAUNCH_PID=""
+    trap "kill \${MONITOR_PID:-} 2>/dev/null; [[ -n \${LAUNCH_PID:-} ]] && kill \"\$LAUNCH_PID\" 2>/dev/null; pkill -9 -f host_sdk_sample 2>/dev/null || true; pkill -9 -f radar_fast_livo2_node 2>/dev/null || true; pkill -9 -f static_transform_publisher 2>/dev/null || true" EXIT INT TERM
+
+    echo ""
+    echo "  ► 请将设备放在起始点，保持静止"
+    do_launch_with_retry || { echo "  ✗ LIO 未能初始化（检查设备连接）"; exit 1; }
+    echo ""
+
+    echo "  再等 5s 让初始地图充分建立..."
+    for i in 1 2 3 4 5; do
+        draw_bar "$i" 5 30 "地图建立中 (${i}s/5s)"
+        sleep 1
+    done
+    printf "\n\n"
+else
+    LAUNCH_LOG=$(ls -t /tmp/lio_validate_*/launch.log /tmp/lio_fresh.log /tmp/lio_static_test/launch.log 2>/dev/null | head -1)
+    echo "[--loop-only] 使用已有日志: $LAUNCH_LOG"
+    trap "kill \${MONITOR_PID:-} 2>/dev/null" EXIT INT TERM
+fi
+
+# 启动后台特征监控
+monitor_features &
+MONITOR_PID=$!
+
+# ── 2. 静止漂移测试（1秒刷新一次进度条） ────────────────────────────
+
+if [[ $LOOP_ONLY -eq 0 ]]; then
+    echo "════════════════════════"
+    echo "  静止漂移测试 (10s)"
+    echo "════════════════════════"
+    echo "  ► 设备保持完全静止，不要触碰"
+    echo ""
+
+    P0=($(get_position))
+    if [[ ${#P0[@]} -lt 3 ]]; then
+        echo "  ✗ 无法读取位置（LIO 是否正常运行？）"
+        exit 1
+    fi
+    echo "  起始位置: x=${P0[0]}  y=${P0[1]}  z=${P0[2]}"
+    echo ""
+
+    STATIC_START=$(date +%s)
+    ELAPSED=0
+    while [[ $ELAPSED -lt 10 ]]; do
+        sleep 1
+        ELAPSED=$(( $(date +%s) - STATIC_START ))
+        PT=($(get_position))
+        D=$(calc_dist_mm "${P0[@]}" "${PT[@]}" 2>/dev/null || echo "N/A")
+        EFF=$(get_effective_features)
+        draw_bar "$ELAPSED" 10 30 "漂移: ${D}mm | 特征: ${EFF:-?} | ${ELAPSED}s/10s"
+    done
+    printf "\n"
+
+    P1=($(get_position))
+    STATIC_DRIFT=$(calc_dist_mm "${P0[@]}" "${P1[@]}" 2>/dev/null || echo "N/A")
+    echo ""
+    echo "  ─────────────────────────────────"
+    echo "  静止10s 漂移: ${STATIC_DRIFT} mm"
+    if python3 -c "exit(0 if float('${STATIC_DRIFT}') < 10 else 1)" 2>/dev/null; then
+        echo "  ✓ 静止漂移 < 10mm  良好"
+    elif python3 -c "exit(0 if float('${STATIC_DRIFT}') < 30 else 1)" 2>/dev/null; then
+        echo "  ⚠ 静止漂移 10-30mm  可接受"
+    else
+        echo "  ✗ 静止漂移 > 30mm  异常，检查 IMU 噪声参数"
+    fi
+    echo "  ─────────────────────────────────"
+    echo ""
+fi
+
+if [[ $STATIC_ONLY -eq 1 ]]; then
+    echo "（--static-only，跳过闭环测试）"
+    exit 0
+fi
+
+# ── 3. 闭环误差测试（旋转指示符，时长开放式） ───────────────────────────
+
+echo "════════════════════════"
+echo "  闭环误差测试"
+echo "════════════════════════"
+echo ""
+echo "  测试方法:"
+echo "  1. 在当前位置做好标记（地面贴纸/脚印）"
+echo "  2. 按 Enter 记录起始位姿"
+echo "  3. 慢速绕走一圈（约20-30秒/圈）回到标记点"
+echo "  4. 按 Enter 记录终点位姿"
+echo "  5. 脚本自动计算闭环误差"
+echo ""
+echo "  提示: 走之前先在原地慢转10秒让地图充分建立"
+echo ""
+read -r -p "  ► 准备好了，按 Enter 记录起始位姿..."
+
+START=($(get_position))
+if [[ ${#START[@]} -lt 3 ]]; then
+    echo "  ✗ 无法读取起始位置"
+    exit 1
+fi
+START_FRAME=$(get_frame)
+echo "  起始: x=${START[0]}  y=${START[1]}  z=${START[2]}  (frame ${START_FRAME})"
+echo ""
+echo "  ► 开始走圈！走完回到起点后按 Enter..."
+echo ""
+
+# 后台记录路径长度（通过连续odom差值积分）+ 单行旋转进度显示
+ODOM_LOG="$LOG_DIR/odom_track.txt"
+{
+    PREV=($(get_position))
+    TOTAL_DIST=0
+    START_TS=$(date +%s)
+    echo "${PREV[@]}" > "$ODOM_LOG"
+    tick=0
+    while true; do
+        sleep 0.5
+        CURR=($(get_position))
+        if [[ ${#CURR[@]} -ge 3 ]]; then
+            D=$(python3 -c "
+import math,sys
+a,b=list(map(float,sys.argv[1:4])),list(map(float,sys.argv[4:7]))
+print(math.sqrt(sum((x-y)**2 for x,y in zip(a,b))))
+" "${PREV[@]}" "${CURR[@]}" 2>/dev/null || echo 0)
+            TOTAL_DIST=$(python3 -c "print(${TOTAL_DIST}+${D})" 2>/dev/null || echo "$TOTAL_DIST")
+            PREV=("${CURR[@]}")
+        fi
+        echo "$TOTAL_DIST" > "$LOG_DIR/path_length.tmp"
+
+        ELAPSED=$(( $(date +%s) - START_TS ))
+        EFF=$(get_effective_features)
+        DIST_MM=$(python3 -c "print(f'{float(\"${TOTAL_DIST}\")*1000:.0f}')" 2>/dev/null || echo "0")
+        draw_spinner "$tick" "已走 ${DIST_MM}mm | 特征: ${EFF:-?} | 用时 ${ELAPSED}s"
+        tick=$((tick+1))
+    done
+} &
+PATH_PID=$!
+trap "kill $MONITOR_PID $PATH_PID 2>/dev/null; [[ -n '$LAUNCH_PID' ]] && kill '$LAUNCH_PID' 2>/dev/null; pkill -9 -f host_sdk_sample 2>/dev/null || true; pkill -9 -f radar_fast_livo2_node 2>/dev/null || true; pkill -9 -f static_transform_publisher 2>/dev/null || true" EXIT INT TERM
+
+read -r -p ""
+
+kill $PATH_PID 2>/dev/null
+printf "\n"
+END=($(get_position))
+if [[ ${#END[@]} -lt 3 ]]; then
+    echo "  ✗ 无法读取终点位置（LIO 是否宕了？）"
+    exit 1
+fi
+END_FRAME=$(get_frame)
+PATH_LEN=$(cat "$LOG_DIR/path_length.tmp" 2>/dev/null || echo "0")
+
+LOOP_ERR=$(calc_dist_mm "${START[@]}" "${END[@]}" 2>/dev/null || echo "N/A")
+PATH_LEN_MM=$(python3 -c "print(f'{float(\"${PATH_LEN}\")*1000:.0f}')" 2>/dev/null || echo "N/A")
+DRIFT_RATE=$(python3 -c "
+p,e=float('${PATH_LEN}'),float('${LOOP_ERR}')/1000
+print(f'{e/p*100:.2f}' if p>0.1 else 'N/A')
+" 2>/dev/null || echo "N/A")
+
+echo ""
+echo "  ─────────────────────────────────────────────"
+echo "  终点: x=${END[0]}  y=${END[1]}  z=${END[2]}  (frame ${END_FRAME})"
+echo "  ─────────────────────────────────────────────"
+echo "  路径总长:   ${PATH_LEN_MM} mm"
+echo "  闭环误差:   ${LOOP_ERR} mm"
+echo "  漂移率:     ${DRIFT_RATE} %"
+echo "  ─────────────────────────────────────────────"
+
+if python3 -c "exit(0 if float('${DRIFT_RATE}') < 1.0 else 1)" 2>/dev/null; then
+    echo "  ✓ 漂移率 < 1%  优秀"
+elif python3 -c "exit(0 if float('${DRIFT_RATE}') < 3.0 else 1)" 2>/dev/null; then
+    echo "  ✓ 漂移率 1-3%  良好"
+elif python3 -c "exit(0 if float('${DRIFT_RATE}') < 5.0 else 1)" 2>/dev/null; then
+    echo "  ⚠ 漂移率 3-5%  可接受"
+else
+    echo "  ✗ 漂移率 > 5%  需调参（extrinsic / IMU 噪声参数）"
+fi
+echo ""
+
+# ── 4. 自动保存累积地图 ──────────────────────────────────────────────
+# WARN: 脚本退出时 EXIT trap 用 pkill -9 强杀 radar_fast_livo2_node，
+# SIGKILL 不会走析构函数，pcd_accumulated_ 里攒的整段建图数据会直接跟
+# 进程一起消失，之前吃过这个亏（一次 40m 走圈、0.05% 漂移率的良好数据
+# 就因为这个丢了）。这里在 trap 生效之前主动触发一次保存，只要节点还
+# 活着（没有 --loop-only 之外的其它异常退出路径）就不会再丢数据。
+if pgrep -f radar_fast_livo2_node >/dev/null 2>&1; then
+    echo "── 保存累积地图 ──"
+    # YAML 里 pcd_save_en 默认 false（防 OOM），保存前临时开启，
+    # 等 5s 让节点攒几帧点云再触发保存。
+    timeout 3 ros2 param set /radar_fast_livo2_node pcd_save_en true 2>/dev/null || true
+    echo "  等待点云累积 (5s)..."
+    sleep 5
+    "${SCRIPT_DIR}/odin-map-save" || echo "  ⚠ 地图保存失败，继续报告结果"
+    echo ""
+fi
+
+# ── 5. 综合报告 ──────────────────────────────────────────────────────
+
+echo "═══════════════════════════════════════════════════"
+echo "  综合报告"
+echo "═══════════════════════════════════════════════════"
+[[ $LOOP_ONLY -eq 0 ]] && echo "  静止10s漂移:  ${STATIC_DRIFT} mm  (< 10mm 为良好)"
+echo "  闭环误差:     ${LOOP_ERR} mm"
+echo "  路径长度:     ${PATH_LEN_MM} mm"
+echo "  漂移率:       ${DRIFT_RATE} %  (< 3% 为良好)"
+echo "  帧范围:       ${START_FRAME} → ${END_FRAME}"
+echo ""
+echo "  完整日志: $LOG_DIR/"
+echo "═══════════════════════════════════════════════════"

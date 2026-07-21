@@ -1,14 +1,26 @@
 #!/bin/bash
-# calibrate-camera - run direct_visual_lidar_calibration camera-map registration
+# calibrate-camera - run direct_visual_lidar_calibration LiDAR-camera extrinsic calibration
 #
-# Usage:
-#   calibrate-camera <image.jpg> --camera_model <model> \
-#       --camera_intrinsics fx,fy,cx,cy --camera_distortion_coeffs k1,k2,p1,p2,k3 \
-#       [--map <map.pcd>] [--out <dst_dir>] [--initial_guess <initial_guess.yaml>]
+# Two modes:
 #
-# Pipeline: preprocess_map -> inject initial guess -> calibrate
-# Result:   <dst_dir>/calib.json, results.T_lidar_camera == t_map_camera
-#           (camera-map registration treats the map frame as the "lidar" frame)
+#   Map mode (default, needs pre-built PCD map):
+#     calibrate-camera <image.jpg> --camera_model <model> \
+#         --camera_intrinsics fx,fy,cx,cy --camera_distortion_coeffs k1,k2,p1,p2,k3 \
+#         [--map <map.pcd>] [--out <dst_dir>] [--initial_guess <initial_guess.yaml>]
+#
+#   Direct mode (--direct, no map needed — uses rosbag with LiDAR + camera):
+#     calibrate-camera --direct <bag_dir> \
+#         --camera_model <model> \
+#         --camera_intrinsics fx,fy,cx,cy --camera_distortion_coeffs k1,k2,p1,p2,k3 \
+#         [--points_topic /odin1/cloud_raw] [--image_topic /camera/image_raw] \
+#         [--out <dst_dir>] [--initial_guess <initial_guess.yaml>]
+#
+# Pipeline:
+#   Map mode:    preprocess_map  -> inject initial guess -> calibrate
+#   Direct mode: preprocess_ros2 -> inject initial guess -> calibrate
+#
+# Result:   <dst_dir>/calib.json, results.T_lidar_camera
+#           (treats the reference frame as the "lidar" frame)
 #
 # The initial guess is a rough extrinsic estimate (radar-station mounting geometry,
 # see config/initial_guess.yaml); calibrate refines it via NID-based direct registration.
@@ -21,13 +33,22 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 DEFAULT_MAP_PCD="${RADAR_WS}/model/generated/map_zup.pcd"
 DEFAULT_INITIAL_GUESS="${RADAR_WS}/ros_ws/src/radar_calibration/config/initial_guess.yaml"
 
+# ── Mode flags ──────────────────────────────────────────────────────
+DIRECT_MODE=0
+
+# ── Inputs ──────────────────────────────────────────────────────────
 IMAGE_PATH=""
+BAG_PATH=""
 MAP_PCD="$DEFAULT_MAP_PCD"
 DST_PATH=""
 CAMERA_MODEL=""
 CAMERA_INTRINSICS=""
 CAMERA_DISTORTION=""
 INITIAL_GUESS="$DEFAULT_INITIAL_GUESS"
+POINTS_TOPIC="/odin1/cloud_raw"
+IMAGE_TOPIC="/camera/image_raw"
+
+# ── Helpers ─────────────────────────────────────────────────────────
 
 resolve_path() {
     local input="$1"
@@ -38,47 +59,97 @@ resolve_path() {
     fi
 }
 
+usage() {
+    cat >&2 <<'EOF'
+Usage:
+  Map mode:
+    calibrate-camera <image.jpg> --camera_model <model> \
+        --camera_intrinsics fx,fy,cx,cy --camera_distortion_coeffs k1,k2,p1,p2,k3
+
+  Direct mode:
+    calibrate-camera --direct <bag_dir> \
+        --camera_model <model> \
+        --camera_intrinsics fx,fy,cx,cy --camera_distortion_coeffs k1,k2,p1,p2,k3
+
+Options:
+  --map <path>              PCD map (map mode only, default: model/generated/map_zup.pcd)
+  --direct                  Enable direct mode (rosbag input, no map needed)
+  --points_topic <topic>    LiDAR topic in bag (direct mode, default: /odin1/cloud_raw)
+  --image_topic <topic>     Camera topic in bag (direct mode, default: /camera/image_raw)
+  --out <dir>               Output directory (default: calibration_data/)
+  --initial_guess <yaml>    Rough extrinsic guess (default: config/initial_guess.yaml)
+EOF
+    exit 1
+}
+
+# ── Parse args ──────────────────────────────────────────────────────
+
 while [[ $# -gt 0 ]]; do
     case $1 in
+        --direct)                    DIRECT_MODE=1; shift ;;
         --map)                       MAP_PCD="$2"; shift 2 ;;
         --out)                       DST_PATH="$2"; shift 2 ;;
         --initial_guess)             INITIAL_GUESS="$2"; shift 2 ;;
         --camera_model)              CAMERA_MODEL="$2"; shift 2 ;;
         --camera_intrinsics)         CAMERA_INTRINSICS="$2"; shift 2 ;;
         --camera_distortion_coeffs)  CAMERA_DISTORTION="$2"; shift 2 ;;
+        --points_topic)              POINTS_TOPIC="$2"; shift 2 ;;
+        --image_topic)               IMAGE_TOPIC="$2"; shift 2 ;;
+        -h|--help)                   usage ;;
         -*)
-            echo "> ERROR: Unknown option: $1" >&2; exit 2 ;;
+            echo "> ERROR: Unknown option: $1" >&2; usage ;;
         *)
-            if [[ -z "$IMAGE_PATH" ]]; then
-                IMAGE_PATH="$1"
+            if [[ "$DIRECT_MODE" -eq 1 ]]; then
+                if [[ -z "$BAG_PATH" ]]; then
+                    BAG_PATH="$1"
+                else
+                    echo "> ERROR: Unexpected argument: $1" >&2; usage
+                fi
             else
-                echo "> ERROR: Unexpected argument: $1" >&2; exit 2
+                if [[ -z "$IMAGE_PATH" ]]; then
+                    IMAGE_PATH="$1"
+                else
+                    echo "> ERROR: Unexpected argument: $1" >&2; usage
+                fi
             fi
             shift ;;
     esac
 done
 
-if [[ -z "$IMAGE_PATH" || -z "$CAMERA_MODEL" || -z "$CAMERA_INTRINSICS" || -z "$CAMERA_DISTORTION" ]]; then
-    echo "Usage: calibrate-camera <image.jpg> --camera_model <model> \\" >&2
-    echo "    --camera_intrinsics fx,fy,cx,cy --camera_distortion_coeffs k1,k2,p1,p2,k3 \\" >&2
-    echo "    [--map <map.pcd>] [--out <dst_dir>] [--initial_guess <initial_guess.yaml>]" >&2
-    exit 1
+# ── Validate ────────────────────────────────────────────────────────
+
+if [[ "$DIRECT_MODE" -eq 1 ]]; then
+    if [[ -z "$BAG_PATH" ]]; then
+        echo "> ERROR: --direct mode requires a rosbag directory" >&2; usage
+    fi
+else
+    if [[ -z "$IMAGE_PATH" ]]; then
+        echo "> ERROR: Map mode requires an image file" >&2; usage
+    fi
 fi
 
-IMAGE_PATH="$(resolve_path "$IMAGE_PATH")"
-MAP_PCD="$(resolve_path "$MAP_PCD")"
+if [[ -z "$CAMERA_MODEL" || -z "$CAMERA_INTRINSICS" || -z "$CAMERA_DISTORTION" ]]; then
+    echo "> ERROR: --camera_model, --camera_intrinsics, and --camera_distortion_coeffs are required" >&2
+    usage
+fi
+
+# ── Resolve paths ───────────────────────────────────────────────────
+
 INITIAL_GUESS="$(resolve_path "$INITIAL_GUESS")"
 if [[ -z "$DST_PATH" ]]; then
     DST_PATH="${RADAR_WS}/ros_ws/src/radar_calibration/calibration_data"
 fi
 DST_PATH="$(resolve_path "$DST_PATH")"
 
-if [[ ! -f "$IMAGE_PATH" ]]; then
-    echo "> ERROR: Image not found: $IMAGE_PATH" >&2; exit 1
+if [[ "$DIRECT_MODE" -eq 1 ]]; then
+    BAG_PATH="$(resolve_path "$BAG_PATH")"
+else
+    IMAGE_PATH="$(resolve_path "$IMAGE_PATH")"
+    MAP_PCD="$(resolve_path "$MAP_PCD")"
 fi
-if [[ ! -f "$MAP_PCD" ]]; then
-    echo "> ERROR: Map PCD not found: $MAP_PCD" >&2; exit 1
-fi
+
+# ── Existence checks ────────────────────────────────────────────────
+
 if [[ ! -f "$INITIAL_GUESS" ]]; then
     echo "> ERROR: Initial guess YAML not found: $INITIAL_GUESS" >&2; exit 1
 fi
@@ -87,6 +158,21 @@ if [[ ! -f "${RADAR_WS}/ros_ws/install/setup.bash" ]]; then
     exit 1
 fi
 
+if [[ "$DIRECT_MODE" -eq 1 ]]; then
+    if [[ ! -d "$BAG_PATH" ]]; then
+        echo "> ERROR: Bag directory not found: $BAG_PATH" >&2; exit 1
+    fi
+else
+    if [[ ! -f "$IMAGE_PATH" ]]; then
+        echo "> ERROR: Image not found: $IMAGE_PATH" >&2; exit 1
+    fi
+    if [[ ! -f "$MAP_PCD" ]]; then
+        echo "> ERROR: Map PCD not found: $MAP_PCD" >&2; exit 1
+    fi
+fi
+
+# ── Source ROS ──────────────────────────────────────────────────────
+
 set +u
 source /opt/ros/jazzy/setup.bash
 source "${RADAR_WS}/ros_ws/install/setup.bash"
@@ -94,19 +180,39 @@ set -u
 
 mkdir -p "$DST_PATH"
 
-echo "[calibrate-camera] map:           $MAP_PCD"
-echo "[calibrate-camera] image:         $IMAGE_PATH"
-echo "[calibrate-camera] initial guess: $INITIAL_GUESS"
-echo "[calibrate-camera] out:           $DST_PATH"
+# ── Run ─────────────────────────────────────────────────────────────
 
-echo "[calibrate-camera] 1/3 preprocess_map ..."
-ros2 run direct_visual_lidar_calibration preprocess_map \
-    --map_path "$MAP_PCD" \
-    --image_path "$IMAGE_PATH" \
-    --dst_path "$DST_PATH" \
-    --camera_model "$CAMERA_MODEL" \
-    --camera_intrinsics "$CAMERA_INTRINSICS" \
-    --camera_distortion_coeffs "$CAMERA_DISTORTION"
+if [[ "$DIRECT_MODE" -eq 1 ]]; then
+    echo "[calibrate-camera] mode:  direct (rosbag)"
+    echo "[calibrate-camera] bag:   $BAG_PATH"
+    echo "[calibrate-camera] out:   $DST_PATH"
+    echo ""
+
+    echo "[calibrate-camera] 1/3 preprocess_ros2 ..."
+    ros2 run direct_visual_lidar_calibration preprocess_ros2 \
+        "$BAG_PATH" "$DST_PATH" \
+        --auto_topic \
+        --points_topic "$POINTS_TOPIC" \
+        --image_topic "$IMAGE_TOPIC" \
+        --camera_model "$CAMERA_MODEL" \
+        --camera_intrinsics "$CAMERA_INTRINSICS" \
+        --camera_distortion_coeffs "$CAMERA_DISTORTION"
+else
+    echo "[calibrate-camera] mode:  map"
+    echo "[calibrate-camera] map:   $MAP_PCD"
+    echo "[calibrate-camera] image: $IMAGE_PATH"
+    echo "[calibrate-camera] out:   $DST_PATH"
+    echo ""
+
+    echo "[calibrate-camera] 1/3 preprocess_map ..."
+    ros2 run direct_visual_lidar_calibration preprocess_map \
+        --map_path "$MAP_PCD" \
+        --image_path "$IMAGE_PATH" \
+        --dst_path "$DST_PATH" \
+        --camera_model "$CAMERA_MODEL" \
+        --camera_intrinsics "$CAMERA_INTRINSICS" \
+        --camera_distortion_coeffs "$CAMERA_DISTORTION"
+fi
 
 echo "[calibrate-camera] 2/3 inject initial guess ..."
 ros2 run radar_calibration radar_calibration_node inject-initial-guess \
@@ -116,3 +222,7 @@ echo "[calibrate-camera] 3/3 calibrate ..."
 ros2 run direct_visual_lidar_calibration calibrate "$DST_PATH" --background --auto_quit
 
 echo "[calibrate-camera] done: $DST_PATH/calib.json"
+echo ""
+echo "  Extract result for radar_camera:"
+echo "  ros2 run radar_calibration radar_calibration_node extract-result \\"
+echo "      $DST_PATH/calib.json ros_ws/src/radar_camera/config/extrinsic.yaml"

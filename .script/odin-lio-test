@@ -1,0 +1,183 @@
+#!/bin/bash
+# odin-lio-test - 一键验证 radar_fast_livo2 ONLY_LIO 硬件闭环
+#
+# 用法:
+#   odin-lio-test              # 启动 driver+node，跑 60 秒后报告状态并停止
+#   odin-lio-test --duration 30
+#   odin-lio-test --keep-running   # 跑起来后不自动停止，方便手动继续观察/Foxglove
+#
+# 覆盖范围:
+#   1. 清理残留进程 + 重启 ROS2 daemon（避免 DDS discovery 缓存脏数据，
+#      这是实测中遇到的真实坑：旧进程没死透会导致 node 名称冲突、
+#      topic hz 拿不到数据、订阅计数异常）
+#   2. 启动 odin_fast_livo2_mapping.launch.py（driver + radar_fast_livo2_node）
+#   3. 验证 /odin1/cloud_raw 和 /odin1/imu 是否有数据流（用 topic hz 实测，
+#      不能只看 topic list——topic 注册了不代表有数据）
+#   4. 抓取 radar_fast_livo2_node 日志，判断 IMU 初始化和帧处理是否推进
+#   5. 输出结论 + 日志路径，供进一步排查
+
+set -uo pipefail
+
+: "${RADAR_WS:=/workspace}"
+DURATION=60
+KEEP_RUNNING=0
+LOG_DIR="/tmp/odin_lio_test_$(date +%Y%m%d_%H%M%S)"
+FINAL_EXIT=0
+LAUNCH_PID=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --duration) DURATION="$2"; shift 2 ;;
+        --keep-running) KEEP_RUNNING=1; shift ;;
+        *) echo "未知参数: $1" >&2; exit 1 ;;
+    esac
+done
+
+mkdir -p "$LOG_DIR"
+LAUNCH_LOG="$LOG_DIR/launch.log"
+
+echo "═══════════════════════════════════════════════════"
+echo "  radar_fast_livo2 ONLY_LIO 硬件验证"
+echo "  日志目录: $LOG_DIR"
+echo "═══════════════════════════════════════════════════"
+echo ""
+
+# Cleanup on any exit path
+cleanup_lio_test() {
+    [[ -n "${LAUNCH_PID:-}" ]] && kill "$LAUNCH_PID" 2>/dev/null || true
+    pkill -9 -f host_sdk_sample 2>/dev/null || true
+    pkill -9 -f radar_fast_livo2_node 2>/dev/null || true
+    pkill -9 -f static_tf 2>/dev/null || true
+    exit "${FINAL_EXIT:-0}"
+}
+trap cleanup_lio_test EXIT INT TERM
+
+# ── 0. 前置检查 ──
+if [ ! -f /opt/ros/jazzy/setup.bash ]; then
+    echo "✗ ERROR: ROS2 Jazzy not found" >&2; exit 1
+fi
+if [ ! -f "${RADAR_WS}/ros_ws/install/setup.bash" ]; then
+    echo "✗ ERROR: Workspace not built. Run build-all or build-radar first." >&2; exit 1
+fi
+
+set +u
+source /opt/ros/jazzy/setup.bash
+source "${RADAR_WS}/ros_ws/install/setup.bash"
+set -u
+
+# ── 1. 清理残留进程 + 重启 daemon ──
+echo "[1/5] 清理残留进程与 DDS discovery 缓存 ..."
+pkill -9 -f host_sdk_sample 2>/dev/null || true
+pkill -9 -f radar_fast_livo2_node 2>/dev/null || true
+pkill -9 -f static_tf 2>/dev/null || true
+pkill -9 -f "ros2 launch" 2>/dev/null || true
+sleep 2
+ros2 daemon stop >/dev/null 2>&1
+sleep 1
+ros2 daemon start >/dev/null 2>&1
+sleep 2
+
+STALE_NODES="$(timeout 5 ros2 node list 2>/dev/null || true)"
+if [ -n "$STALE_NODES" ]; then
+    echo "  ⚠ 警告: daemon 重启后仍检测到残留节点，可能是僵尸进程未清理干净:"
+    echo "$STALE_NODES" | sed 's/^/    /'
+else
+    echo "  ✓ 进程与节点列表已清空"
+fi
+echo ""
+
+# ── 2. 启动 driver + radar_fast_livo2_node ──
+# stdbuf -oL -eL: 强制行缓冲。ros2 launch 输出重定向到文件（非 TTY）时
+# 默认走全缓冲，会导致日志长时间不落盘（实测中多次遇到：进程活着但
+# 日志文件几分钟没有新内容），行缓冲后每行立即 flush。
+echo "[2/5] 启动 odin_fast_livo2_mapping.launch.py ..."
+export LD_PRELOAD=$(gcc -print-file-name=libasan.so)
+stdbuf -oL -eL ros2 launch radar_bringup odin_fast_livo2_mapping.launch.py > "$LAUNCH_LOG" 2>&1 &
+LAUNCH_PID=$!
+# Odin1 驱动实测启动耗时（SDK 初始化 + 设备握手）常超过 8s，
+# 过早检查 topic hz 会误报"无数据"（进程健在，只是还没吐数据）。
+sleep 20
+
+if ! kill -0 "$LAUNCH_PID" 2>/dev/null; then
+    echo "  ✗ launch 进程已退出，查看日志: $LAUNCH_LOG"
+    tail -30 "$LAUNCH_LOG"
+    exit 1
+fi
+
+NODE_LIST="$(timeout 5 ros2 node list 2>/dev/null || true)"
+DUP_CHECK="$(echo "$NODE_LIST" | sort | uniq -d)"
+if [ -n "$DUP_CHECK" ]; then
+    echo "  ✗ 检测到重复节点名（旧进程未清理干净）:"
+    echo "$DUP_CHECK" | sed 's/^/    /'
+    echo "  终止本次测试，请重新运行本脚本"
+    kill "$LAUNCH_PID" 2>/dev/null
+    exit 1
+fi
+echo "  ✓ 节点已启动: $(echo "$NODE_LIST" | tr '\n' ' ')"
+echo ""
+
+# ── 3. 验证 topic 数据流（实测频率，不只看 topic list）──
+echo "[3/5] 验证传感器数据流 ..."
+IMU_HZ="$(timeout 5 ros2 topic hz /odin1/imu 2>/dev/null | grep "average rate" | tail -1)"
+CLOUD_HZ="$(timeout 5 ros2 topic hz /odin1/cloud_raw 2>/dev/null | grep "average rate" | tail -1)"
+
+if [ -n "$IMU_HZ" ]; then
+    echo "  ✓ /odin1/imu: $IMU_HZ (预期约 400Hz)"
+else
+    echo "  ✗ /odin1/imu: 无数据（检查 driver 配置 sendimu 是否为 1）"
+fi
+
+if [ -n "$CLOUD_HZ" ]; then
+    echo "  ✓ /odin1/cloud_raw: $CLOUD_HZ"
+else
+    echo "  ✗ /odin1/cloud_raw: 无数据"
+fi
+echo ""
+
+# ── 4. 观察 radar_fast_livo2_node 处理进度 ──
+echo "[4/5] 观察 LIO 处理进度（等待 ${DURATION}s）..."
+echo "  提示: IMU 静止初始化期间请保持设备静止"
+sleep "$DURATION"
+
+echo ""
+echo "  radar_fast_livo2_node 关键日志:"
+grep -iE "radar_fast_livo2_node.*(imu init|first frame|LIO|frame [0-9]|warn|error)" "$LAUNCH_LOG" | tail -20 | sed 's/^/    /'
+
+# grep -c 在零匹配时退出码为1，"|| echo 0" 会导致输出变成两行("0"+"0")
+# 传给 [ -gt 0 ] 报 "integer expression expected"。用 grep -c ... ; true
+# 保留 grep 自己打印的计数（零匹配时就是"0"，不会追加第二行）。
+FRAME_COUNT="$(grep -c "radar_fast_livo2_node.*\[ LIO \]" "$LAUNCH_LOG" 2>/dev/null; true)"
+FIRST_FRAME="$(grep -c "First frame: built voxel map" "$LAUNCH_LOG" 2>/dev/null; true)"
+FRAME_COUNT="${FRAME_COUNT:-0}"
+FIRST_FRAME="${FIRST_FRAME:-0}"
+echo ""
+
+# ── 5. 结论 ──
+echo "[5/5] 结论"
+echo "═══════════════════════════════════════════════════"
+if [ "$FIRST_FRAME" -gt 0 ] && [ "$FRAME_COUNT" -gt 0 ]; then
+    echo "  ✓ LIO 主循环已运行：首帧建图成功，且已处理 $FRAME_COUNT 帧"
+    echo "  下一步: 用 Foxglove 订阅 /fast_livo2/cloud_world + /fast_livo2/path"
+    echo "          目视检查轨迹是否发散、地图是否可辨认场景结构"
+    FINAL_EXIT=0
+elif [ "$FIRST_FRAME" -gt 0 ]; then
+    echo "  ⚠ 仅完成首帧建图，未见后续帧处理日志——检查 ESIKF 是否卡住"
+    FINAL_EXIT=2
+else
+    echo "  ✗ 未见任何 LIO 处理日志。常见原因:"
+    echo "    - IMU 静止初始化未完成（默认需要 init_imu_num=20 帧，设备是否静止？）"
+    echo "    - 预处理后点云为空（confidence_threshold 过滤过严，或点云字段解析错误）"
+    echo "    - 检查完整日志: $LAUNCH_LOG"
+    FINAL_EXIT=1
+fi
+echo "═══════════════════════════════════════════════════"
+
+if [ "$KEEP_RUNNING" -eq 1 ]; then
+    echo ""
+    echo "  --keep-running 已指定，进程继续运行 (PID: $LAUNCH_PID)"
+    echo "  日志: tail -f $LAUNCH_LOG"
+    echo "  停止: 再次运行本脚本（新实例会自动清理旧进程）"
+else
+    echo ""
+    echo "  测试进程将自动停止。完整日志: $LAUNCH_LOG"
+fi

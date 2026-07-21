@@ -1,49 +1,19 @@
 # radar-lidar Todo
 
-更新时间：2026-07-10
+更新时间：2026-07-15
 
-## TF Authority 设计定稿（2026-07-06）
+## TF Authority
 
-面向 Foxglove / RViz 的统一 frame 可视化需求，系统内坐标关系职责拆分如下：
-
-- [x] **`radar_bringup` 只负责 static tf**：已知且固定的刚体安装关系 / 外参，
-      如 `radar_base -> lidar_link`、`radar_base -> camera_link`、
-      `camera_link -> camera_optical_frame`。`radar_bringup` 维持“纯 YAML + launch”
-      边界，不承担运行时状态。
-- [x] **`LidarPipeline` 当前阶段负责临时 dynamic tf**：在系统尚未拥有真正融合后的
-      ego pose 前，由 LiDAR 主位姿来源发布 `map -> radar_base`（或过渡期
-      `map -> lidar_link`）。
-- [x] **`FusionNode` 最终接管唯一系统级 dynamic tf authority**：当
-      `/localization/pose` 不再是 LiDAR pose passthrough，而是多源融合后的系统
-      最终位姿时，由 `FusionNode` 统一发布 `map -> radar_base`。
-- [x] **目标观测/轨迹不进 tf**：`/lidar/dynamic`、`/lidar/cluster`、`/fusion/tracks`
-      以及未来 `/camera/detection` 继续走 topic；tf 只表达 frame 之间的刚体关系。
-- [x] **配置归属定稿**：
-      - 相机标定前粗略初值 → `radar_calibration/config/initial_guess.yaml`
-      - 相机正式外参 → `radar_camera/config/extrinsic.yaml`
-      - LiDAR / Odin 启动先验 → `radar_bringup/config/lidar/*.yaml`
-      - LiDAR 离线配准调试参数 → `radar_lidar/config/offline_registration.yaml`
-      - GICP / Odin1 重定位得到的 `t_map_lidar` / `map -> radar_base` → 运行时动态结果，
-        不落成 calibration 风格 YAML
-
-后续实施待办：
-- [x] 在 architecture 文档基础上补一版具体 frame 名字与 `frame_id` 约束清单
-      （`map` / `radar_base` / `lidar_link` / `camera_link` / `camera_optical_frame`）
-- [x] 在 architecture 文档中补最终 bringup 启动图与阶段划分（离线一次性准备 /
-      每场次启动前配置 / 主进程运行时），并明确拒绝“先 GICP、写外参 YAML、再启动主进程”
-      作为主流程
-- [x] `radar_bringup` launch 中加入 static tf 发布器（已落 `static_tf.launch.py` + `extrinsics.yaml`）
-- [x] `LidarPipeline` 增加 dynamic tf broadcaster（当前阶段 authority，当前发布 `map -> radar_base`）
-- [ ] `FusionNode` 从 pose relay 演进为真正多源 pose fusion 后，满足以下门槛再接管 dynamic tf：
-      1) 至少接入两类观测源；2) `/localization/pose` 不再是 LiDAR passthrough；
-      3) 具备稳定性判断（covariance / converged / source-health）；
-      4) 切换后 `radar_lidar` 停止发布系统最终 dynamic tf
-- [x] 明确 `/fusion/tracks`（radar-only）与 `/fusion/fused_tracks`（final fused）双轨迹契约，并补充 dynamic tf authority handoff 条件
+全静态 TF，由 `radar_bringup` 负责。无运行时动态 TF。
+定位/检测结果走 topic，不进 tf。
 
 ## Odin1 内置重定位集成（2026-07-05 完成）
 
-架构决策：Odin1 内置重定位为主位姿源，`radar_lidar` 自研 GICP 保留作为重定位
-未收敛时的回退。当前比赛运行时参数统一收敛到 `runtime.yaml`，重定位模式由 bringup launch 覆盖 `use_odin_relocalization_tf`。
+架构决策：Odin1 内置重定位为主位姿源。
+~~`radar_lidar` 自研 GICP 保留作为重定位未收敛时的回退。~~
+⚠️ **2026-07-14 提案已推翻**：GICP 已移至 `radar_calibration` 作为一次性 Action，
+不再作为运行时回退。Odin1 重定位方案需配合新架构重新评估。
+当前比赛运行时参数统一收敛到 `runtime.yaml`，重定位模式由 bringup launch 覆盖 `use_odin_relocalization_tf`。
 
 - [x] `LidarPipeline` 新增 `use_odin_relocalization_tf` 参数（默认 `false`，
       `get_parameter_or` 读取，未声明时不报错）：启用后每帧优先查
@@ -68,38 +38,65 @@
 - [ ] 真实 Odin1 硬件重定位收敛验证（当前只验证了 TF 回退路径的代码逻辑，
       未接入真实设备）
 
+## GICP 配准移至 radar_calibration Action（2026-07-14 决议）
+
+**提案文档**：`docs/2026-07-14-gicp-registration-action.md`
+
+**背景**：雷达底座固定，GICP scan-to-map 配准收敛后位姿不再变化，本质是一次性
+外参标定。当前在 `radar_lidar_node` 中作为持续节点运行，浪费 CPU。
+
+**方案**：将 GICP 配准封装为 `radar_calibration` 包中的 Action Server，配准结果
+写入 `extrinsics.yaml`。`radar_lidar` 精简为纯感知（动态提取 + 聚类）。
+
+### 已决议
+
+- [x] Q1: bringup 驱动 Action，成功后才启动感知节点
+- [x] Q2: launch 统一放 `radar_bringup/launch/`
+- [x] Q3: 移除 `use_lock_strategy`
+- [x] Q4: 配准后地图变换为参考 PCD，`DynamicCloudStage` 不再需原始地图
+- [x] Q5: 超时回退使用 `extrinsics.yaml` 的 `last_known_pose`
+
+### 待办
+
+- [ ] 实现 `GicpRegistration` Action Server（radar_calibration）
+- [ ] 移除 `radar_lidar` 中的 GICP `process()` 和锁定逻辑
+- [ ] 简化 `radar_lidar` pipeline（删除 TF broadcaster、pose pub、diag pub）
+- [ ] `extrinsics.yaml` 新增 `map_to_radar_base` + `last_known_pose`
+- [ ] 新增 `full_system.launch.py` 编排（Action → 成功后启动感知）
+- [ ] 新增 `gicp_registration.launch.py`
+- [ ] 移除 `small_gicp`、`tf2` 依赖
+
+---
+
 ## 当前重点：Fusion 模块 T3
 
 目标：让 `radar_fusion` 支持纯雷达模式与雷达 + 相机模式，并输出统一的融合结果。
 
-- [ ] T3.1 定义相机检测消息接口
-  - 创建 `radar_interfaces/msg/CameraDetection.msg`
-  - 字段：`header`, `target_id`, `position` (`Point`), `size` (`Vector3`), `type`（`robot` / `dart` / `aerial`）
-- [ ] T3.2 添加相机订阅到 `FusionNode`
-  - 订阅 `/camera/detection` 话题
-  - 接收相机检测结果
-- [ ] T3.3 实现相机→地图坐标投影
-  - 使用相机内参 + 外参将 2D 检测投影到 3D 地图坐标
-  - 如果上游已经输出 3D 检测，则直接订阅 3D 结果
-- [ ] T3.4 扩展数据关联
-  - 支持雷达轨迹 ↔ 相机测量关联
-  - 门限匹配 + 距离度量
-- [ ] T3.5 实现融合逻辑
-  - 雷达 + 相机测量加权融合
-  - 更新卡尔曼状态
-- [ ] T3.6 添加融合输出接口
+- [x] T3.1 定义相机检测消息接口
+  - 创建 `radar_interfaces/msg/CameraDetectionPose.msg`
+  - 字段：6 兵种（hero/engine/infantry3/infantry4/sentry/drone）各带 position + confidence
+- [x] T3.2 添加相机订阅到 `FusionNode`
+  - 订阅 `/camera/detection` 话题（`radar_interfaces::msg::CameraDetectionPose`）
+  - 接收相机检测结果，6 槽位遍历，confidence > 0 有效
+- [x] T3.3 相机→地图坐标投影
+  - 相机节点侧已通过外参 `t_map_camera` 将检测投影到 map 系，fusion 直接消费 3D 结果
+- [x] T3.4 扩展数据关联
+  - `process_measurements` 已支持对 camera 观测进行门限匹配（复用 radar 关联逻辑）
+- [x] T3.5 实现融合逻辑
+  - camera 观测带有 `confidence`，可接入卡尔曼更新权重
+- [x] T3.6 添加融合输出接口
   - 发布 `/fusion/fused_tracks`
   - 保留 `/fusion/tracks` 兼容纯雷达模式
 - [ ] T3.7 添加测试
   - 单元测试：纯雷达模式
-  - 单元测试：雷达 + 相机融合模式
+  - 单元测试：雷达 + 相机融合模式（需改为 CameraDetectionPose）
 
 ## 完成判定
 
-- `radar_interfaces/msg/CameraDetection.msg` 已生成并可在 `FusionNode` 中引用
-- `/fusion/tracks` 保持纯雷达兼容
-- `/fusion/fused_tracks` 在相机数据存在时输出融合结果
-- 对应单元测试通过
+- [x] `radar_interfaces/msg/CameraDetectionPose.msg` 已生成并可在 `FusionNode` 中引用
+- [x] `/fusion/tracks` 保持纯雷达兼容
+- [x] `/fusion/fused_tracks` 在相机数据存在时输出融合结果
+- [ ] 对应单元测试更新（`test_fusion_node.cpp` 改为使用 `CameraDetectionPose` 构建消息）
 
 ---
 
@@ -218,15 +215,16 @@ PR #33 提交后 CodeRabbit review 修复（2026-07-05）：
 - [x] README：补 `extract-result` 完整 `ros2 run` 命令示例
 
 待完成（未来）：
-- [ ] `radar_camera` 包目前是空壳（`int main(){return 0;}`），尚未接入
-      `extract-result` 产出的外参 YAML；需实现 `CameraConfig` / `camera_model`
-      （去畸变+投影）/ `detector` / `camera_node`（见架构文档 radar_camera 节）
+- [x] `radar_camera` 包通信框架完成：ConfigsLoader + ImageCallback + PublishCallback，
+      CameraDetectionPose 发布到 /camera/detection，FusionNode 消费
+- [x] `radar_camera` 推理管线：YOLO ONNX 模型加载 + 预处理 + 后处理 + 外参投影
 - [ ] `config/initial_guess.yaml` 当前是占位全零，需实测/估算 RoboMaster
       雷达站相机相对地图系的安装几何（平移 + RPY）后填入
 - [ ] `camera_lidar_calibration.cpp` 解析 `T_lidar_camera` 时对 JSON 数组
       类型缺少前置校验（CodeRabbit 提出，非阻塞，留待后续加固）
-- [ ] `localization.cpp` 的 `has_initial_pose` 与 `use_lock_strategy` 耦合，
-      语义上应可独立生效（CodeRabbit 提出，需与阶段②行为设计一并评估）
+- [x] ~~`localization.cpp` 的 `has_initial_pose` 与 `use_lock_strategy` 耦合，
+       语义上应可独立生效（CodeRabbit 提出，需与阶段②行为设计一并评估）~~
+      ✅ **2026-07-14 已决议**：`use_lock_strategy` 随 GICP 移至 Action 后一并移除
 
 ## 2. 包间通讯节点梳理（写进 docs）
 

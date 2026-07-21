@@ -1,5 +1,4 @@
 #!/bin/bash
-# format-radar - Format all C++ files in radar packages
 set -euo pipefail
 
 : "${RADAR_WS:=/workspace}"
@@ -7,11 +6,18 @@ set -euo pipefail
 SRC_BASE="${RADAR_WS}/ros_ws/src"
 
 echo "Formatting radar packages..."
-for pkg in radar_lidar radar_camera radar_fusion radar_bridge radar_calibration radar_bringup; do
+for pkg in radar_lidar radar_camera radar_fusion radar_bridge radar_calibration radar_bringup radar_fast_livo2 radar_interfaces; do
     PKG_DIR="${SRC_BASE}/${pkg}"
     if [ -d "${PKG_DIR}" ]; then
-        echo "  ${pkg}..."
-        find "${PKG_DIR}" -type f \( -name '*.cpp' -o -name '*.hpp' \) -print0 | xargs -0 -r clang-format -i
+        count=$(find "${PKG_DIR}" -type f \( -name '*.cpp' -o -name '*.hpp' \) | wc -l)
+        if [ "$count" -gt 0 ]; then
+            echo "  ${pkg} (${count} files)..."
+            find "${PKG_DIR}" -type f \( -name '*.cpp' -o -name '*.hpp' \) -exec clang-format -i {} +
+        else
+            echo "  ${pkg} - no source files"
+        fi
+    else
+        echo "  ${pkg} - directory not found"
     fi
 done
 echo "[OK] Formatted all .cpp and .hpp files."

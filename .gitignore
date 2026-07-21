@@ -1,6 +1,7 @@
 /ros_ws/build
 /ros_ws/install
 /ros_ws/log
+/ros_ws/MvSdkLog
 compile_commands.json
 
 # Build artifacts (root level)
@@ -29,3 +30,15 @@ tools/jinan_to_scan/build/
 
 # Learnlog (local only)
 learnlog.md
+
+# Bag recordings / offline data (never commit binary data)
+/map_recording_*/
+**/__pycache__/
+
+# Odin driver runtime logs — only ignore log output, not the symlink to submodule source
+# (driver source is a submodule: lidar_ros_driver/odin_ros_driver)
+# Logs are written to ros_ws/src/odin_ros_driver/log/ at runtime (relative to CWD of host_sdk_sample)
+/ros_ws/src/odin_ros_driver/log/
+
+# Script backups
+*.bak

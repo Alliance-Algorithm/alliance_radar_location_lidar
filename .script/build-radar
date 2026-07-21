@@ -66,14 +66,15 @@ COLON_ARGS=(
         direct_visual_lidar_calibration
     --packages-select
         small_gicp
-        radar_common
         hikcamera
         hikcamera_ros_driver
         odin_ros_driver
         radar_lidar
         radar_camera
+        radar_interfaces
         radar_fusion
         radar_bridge
+        radar_fast_livo2
         radar_bringup
         radar_calibration
     --symlink-install

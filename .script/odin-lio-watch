@@ -1,0 +1,41 @@
+#!/bin/bash
+# odin-lio-watch - 启动 LIO 并实时打印日志，Ctrl+C 停止
+set -eo pipefail
+
+: "${RADAR_WS:=/workspace}"
+LOG_DIR="/tmp/odin_lio_$(date +%Y%m%d_%H%M%S)"
+mkdir -p "$LOG_DIR"
+LAUNCH_LOG="$LOG_DIR/launch.log"
+
+set +u
+source /opt/ros/jazzy/setup.bash
+source "${RADAR_WS}/ros_ws/install/setup.bash"
+set -u
+
+trap 'echo ""; echo "停止中..."; [[ -n "${TAIL_PID:-}" ]] && kill "$TAIL_PID" 2>/dev/null; pkill -f host_sdk_sample 2>/dev/null || true; pkill -f radar_fast_livo2 2>/dev/null || true; pkill -f static_tf 2>/dev/null || true; echo "已停止"; exit 0' EXIT INT TERM
+
+echo "═══════════════════════════════════════════════════"
+echo "  radar_fast_livo2 ONLY_LIO"
+echo "  日志: $LAUNCH_LOG"
+echo "  Ctrl+C 停止"
+echo "═══════════════════════════════════════════════════"
+echo ""
+
+# 清理
+pkill -9 -f host_sdk_sample 2>/dev/null || true; pkill -9 -f radar_fast_livo2_node 2>/dev/null || true; pkill -9 -f static_tf 2>/dev/null || true
+sleep 1
+
+# 启动
+stdbuf -oL -eL ros2 launch radar_bringup odin_fast_livo2_mapping.launch.py > "$LAUNCH_LOG" 2>&1 &
+LAUNCH_PID=$!
+
+# 等驱动就绪
+sleep 6
+
+# 实时 tail
+tail -f "$LAUNCH_LOG" &
+TAIL_PID=$!
+
+# 等 launch 进程结束
+wait $LAUNCH_PID 2>/dev/null
+kill $TAIL_PID 2>/dev/null
