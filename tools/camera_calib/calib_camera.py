@@ -78,8 +78,7 @@ def do_calibrate(args):
             continue
         h, w = img.shape[:2]
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        found, corners = cv2.findChessboardCornersSB(gray, (args.cols, args.rows),
-            cv2.CALIB_CB_NORMALIZE_IMAGE)
+        found, corners = cv2.findChessboardCornersSB(gray, (args.cols, args.rows))
         if not found:
             found, corners = cv2.findChessboardCorners(gray, (args.cols, args.rows), None)
         if found:
