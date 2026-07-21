@@ -49,7 +49,8 @@ class ManualCalib(Node):
                 cv2.drawChessboardCorners(display, self.chess_size, corners, found)
             cv2.putText(display, f"Saved: {self.saved}", (10, 30),
                 cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0) if found else (0, 0, 255), 2)
-            cv2.imshow("calib — SPACE:save  Q:quit", display)
+            display_small = cv2.resize(display, (960, 540))
+            cv2.imshow("calib — SPACE:save  Q:quit", display_small)
             key = cv2.waitKey(20) & 0xFF
             if key == ord(' '):
                 self.saved += 1
