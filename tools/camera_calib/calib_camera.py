@@ -1,19 +1,34 @@
 #!/usr/bin/env python3
-"""相机内参标定脚本 — 实时显示图像，手动选图，OpenCV 标定。
+"""相机内参标定脚本 — 终端交互采集图像，OpenCV 标定。
 
 用法:
-    python3 calib_camera.py --image-dir /tmp/calib
-    pip3 install opencv-python opencv-contrib-python
+    # 终端1: 相机
+    ros2 launch radar_bringup hikcamera.launch.py
+    # 终端2: 看图
+    ros2 run rqt_image_view rqt_image_view /camera/image_raw
+    # 终端3: 标定采集
+    python3 calib_camera.py --cols 11 --rows 8 --square-size 15.0
 
-操作: 空格=保存当前帧  q=退出并标定
+操作: Enter=保存当前帧  q=退出并标定
 """
-import sys, time, argparse, json
+import sys, time, argparse, json, select, termios, tty
 from pathlib import Path
 import cv2, numpy as np
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
+
+def _get_key(timeout: float = 0.05) -> str:
+    """非阻塞读取终端单字符."""
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        r, _, _ = select.select([sys.stdin], [], [], timeout)
+        return sys.stdin.read(1) if r else ''
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
 class ManualCalib(Node):
     def __init__(self, output_dir: Path, chess_cols: int, chess_rows: int, square_mm: float):
@@ -26,40 +41,42 @@ class ManualCalib(Node):
         self.frame = None
         self.saved = 0
         self.sub = self.create_subscription(Image, "/camera/image_raw", self._on_image, 10)
-        self.get_logger().info("空格=保存  q=退出并标定")
+        self.get_logger().info("终端交互模式: Enter=保存  q=退出标定  (用 rqt_image_view 看图)")
 
     def _on_image(self, msg: Image):
         self.frame = self.bridge.imgmsg_to_cv2(msg, "bgr8")
 
     def run(self):
-        cv2.namedWindow("calib — SPACE:save  Q:quit", cv2.WINDOW_NORMAL)
-        cv2.resizeWindow("calib — SPACE:save  Q:quit", 960, 540)
         snapshots = []
+        last_status = ""
         while rclpy.ok():
             rclpy.spin_once(self, timeout_sec=0.05)
             if self.frame is None:
                 continue
-            display = self.frame.copy()
             gray = cv2.cvtColor(self.frame, cv2.COLOR_BGR2GRAY)
             found, corners = cv2.findChessboardCornersSB(gray, self.chess_size,
                 cv2.CALIB_CB_NORMALIZE_IMAGE | cv2.CALIB_CB_EXHAUSTIVE)
             if not found:
                 found, corners = cv2.findChessboardCorners(gray, self.chess_size, None)
-            if found:
-                cv2.drawChessboardCorners(display, self.chess_size, corners, found)
-            cv2.putText(display, f"Saved: {self.saved}", (10, 30),
-                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0) if found else (0, 0, 255), 2)
-            cv2.imshow("calib — SPACE:save  Q:quit", display)
-            key = cv2.waitKey(20) & 0xFF
-            if key == ord(' '):
+
+            status = f"\r  棋盘格: {'✓ 检测到' if found else '✗ 未检测'} | 已保存: {self.saved} | Enter=保存  q=退出 "
+            if status != last_status:
+                sys.stdout.write(status)
+                sys.stdout.flush()
+                last_status = status
+
+            key = _get_key(0.02)
+            if key in ('\r', '\n', ' '):
                 self.saved += 1
                 path = self.output_dir / f"calib_{self.saved:04d}.png"
                 cv2.imwrite(str(path), self.frame)
                 snapshots.append(path)
-                print(f"  ✓ [{self.saved}] {path}  {'(棋盘格已检测)' if found else '(未检测到棋盘格!)'}")
-            elif key == ord('q'):
+                print(f"\n  ✓ [{self.saved}] {path}  {'(棋盘格已检测)' if found else '(未检测到棋盘格!)'}")
+                last_status = ""
+            elif key in ('q', 'Q', '\x1b'):
+                print()
                 break
-        cv2.destroyAllWindows()
+        print(f"\n共采集 {self.saved} 张图像")
         return snapshots
 
 
