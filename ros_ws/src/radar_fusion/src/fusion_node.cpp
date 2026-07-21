@@ -346,17 +346,23 @@ void FusionNode::publish_fused_tracks(
 }
 
 void FusionNode::publish_lidar_location(const std::vector<KalmanTracker>& tracks) {
-    auto msg = radar_interfaces::msg::LidarLocation{};
+    auto msg = radar_interfaces::msg::LidarLocation { };
 
     uint16_t* const slots_x[] = {
-        &msg.opponent_hero_x,       &msg.opponent_engineer_x,
-        &msg.opponent_infantry_3_x, &msg.opponent_infantry_4_x,
-        &msg.opponent_aerial_x,     &msg.opponent_sentry_x,
+        &msg.opponent_hero_x,
+        &msg.opponent_engineer_x,
+        &msg.opponent_infantry_3_x,
+        &msg.opponent_infantry_4_x,
+        &msg.opponent_aerial_x,
+        &msg.opponent_sentry_x,
     };
     uint16_t* const slots_y[] = {
-        &msg.opponent_hero_y,       &msg.opponent_engineer_y,
-        &msg.opponent_infantry_3_y, &msg.opponent_infantry_4_y,
-        &msg.opponent_aerial_y,     &msg.opponent_sentry_y,
+        &msg.opponent_hero_y,
+        &msg.opponent_engineer_y,
+        &msg.opponent_infantry_3_y,
+        &msg.opponent_infantry_4_y,
+        &msg.opponent_aerial_y,
+        &msg.opponent_sentry_y,
     };
 
     int slot_idx = 0;
