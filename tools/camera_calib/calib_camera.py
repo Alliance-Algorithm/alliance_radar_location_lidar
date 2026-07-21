@@ -114,7 +114,10 @@ def main():
     finally:
         cv2.destroyAllWindows()
         node.destroy_node()
-        rclpy.shutdown()
+        try:
+            rclpy.shutdown()
+        except Exception:
+            pass
 
     if len(imgs) < 10:
         print(f"图片不足 ({len(imgs)} < 10), 跳过标定")
