@@ -46,12 +46,8 @@ RadarCameraNode::RadarCameraNode()
 
 auto RadarCameraNode::ImageCallback(sensor_msgs::msg::Image::SharedPtr msg) -> void {
     try {
-        auto cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
-        if (!cv_ptr) {
-            RCLCPP_WARN(get_logger(), "cv_bridge conversion failed");
-            return;
-        }
-        ImageData = cv_ptr->image;
+        auto cv_ptr = cv_bridge::toCvShare(msg, sensor_msgs::image_encodings::BGR8);
+        ImageData   = cv_ptr->image;
     } catch (const std::exception& e) {
         RCLCPP_WARN(get_logger(), "cv_bridge failed: %s", e.what());
         return;
@@ -143,7 +139,6 @@ auto ConfigsLoader(rclcpp::Node& node, camera_config::CameraConfig& camera,
         node.get_parameter("translation", camera.translation);
         node.get_parameter("pub_topic_name", camera.pub_topic_name);
         node.get_parameter("sub_topic_name", camera.sub_topic_name);
-
         node.get_parameter("model_path", inference.model_path);
         node.get_parameter("device_name", inference.device_name);
         node.get_parameter("conf_threshold", inference.conf_threshold);
