@@ -25,7 +25,7 @@ class ManualCalib(Node):
         self.square_mm = square_mm
         self.frame = None
         self.saved = 0
-        self.sub = self.create_subscription(Image, "/hikcamera_image", self._on_image, 10)
+        self.sub = self.create_subscription(Image, "/camera/image_raw", self._on_image, 10)
         self.get_logger().info("空格=保存  q=退出并标定")
 
     def _on_image(self, msg: Image):
@@ -77,13 +77,14 @@ def calibrate_from_images(paths, cols, rows, square_mm):
             cv2.CALIB_CB_NORMALIZE_IMAGE | cv2.CALIB_CB_EXHAUSTIVE)
         if not found:
             found, corners = cv2.findChessboardCorners(gray, (cols, rows), None)
+            if found:
+                corners = cv2.cornerSubPix(gray, corners, (5,5), (-1,-1),
+                    (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001))
         if not found:
             print(f"  ✗ {p.name} 无法检测棋盘格, 跳过")
             continue
-        sub = cv2.cornerSubPix(gray, corners, (5,5), (-1,-1),
-            (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001))
         objpoints.append(objp)
-        imgpoints.append(sub)
+        imgpoints.append(corners)
         good_paths.append(p)
         print(f"  ✓ {p.name}")
     if len(objpoints) < 10:
@@ -91,12 +92,12 @@ def calibrate_from_images(paths, cols, rows, square_mm):
         return {}
     ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, (w, h), None, None)
     return {"image_width": w, "image_height": h,
-            "camera_matrix": mtx.tolist(), "dist_coeffs": dist.tolist()[0],
+            "camera_matrix": mtx.flatten().tolist(), "dist_coeffs": dist.tolist()[0],
             "rms_reprojection_error": float(ret), "num_samples": len(objpoints)}
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--image-dir", default="/tmp/calib")
+    p.add_argument("--image-dir", default="./calib_data")
     p.add_argument("--cols", type=int, default=11)
     p.add_argument("--rows", type=int, default=8)
     p.add_argument("--square-size", type=float, default=15.0)
@@ -125,7 +126,7 @@ def main():
         out = d / "camera_calib.json"
         out.write_text(json.dumps(r, indent=2))
         print(f"\n标定完成 → {out}")
-        mtx = np.array(r["camera_matrix"])
+        mtx = np.array(r["camera_matrix"]).reshape(3, 3)
         print(f"  内参: fx={mtx[0,0]:.1f} fy={mtx[1,1]:.1f} cx={mtx[0,2]:.1f} cy={mtx[1,2]:.1f}")
         print(f"  畸变: {[round(v,6) for v in r['dist_coeffs']]}")
         print(f"  RMS: {r['rms_reprojection_error']:.4f}  样本: {r['num_samples']}")
