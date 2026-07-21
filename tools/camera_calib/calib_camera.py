@@ -114,9 +114,15 @@ def main():
     else:
         rclpy.init()
         node = ManualCalib(d, args.cols, args.rows, args.square_size)
-        imgs = node.run()
-        node.destroy_node()
-        rclpy.shutdown()
+        try:
+            imgs = node.run()
+        except KeyboardInterrupt:
+            print("\n中断 — 已保存的图片保留在磁盘")
+            imgs = sorted(d.glob("calib_*.png"))
+        finally:
+            cv2.destroyAllWindows()
+            node.destroy_node()
+            rclpy.shutdown()
         if len(imgs) < 10:
             print(f"图片不足 ({len(imgs)} < 10), 跳过标定")
             sys.exit(0)
