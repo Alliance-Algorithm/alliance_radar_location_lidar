@@ -1,21 +1,21 @@
 hikcamera_ros_driver_node:
   ros__parameters:
-    # 白平衡
+    # 白平衡（单次自动）
     white_balance_blue: 512
     white_balance_red: 512
     white_balance_green: 512
     auto_white_balance: 1
 
-    # 曝光与增益
+    # 曝光与增益（室内低噪）
     exposure_us: 20000.0
     gain: 0.0
 
-    # 帧率
-    framerate: 60.0
+    # 帧率（CS200-10UC USB3 稳定 20fps）
+    framerate: 20.0
 
-    # 图像调节
-    brightness: 128
-    sharpness: 3
+    # 原生分辨率 5472×3648
+    width: 5472
+    height: 3648
 
     # 相机控制
     timeout_ms: 2000
@@ -25,7 +25,7 @@ hikcamera_ros_driver_node:
     fixed_framerate: true
 
     # 图像话题
-    image_topic: "/hikcamera_image"
+    image_topic: "/camera/image_raw"
 
     # 共享内存名
     shm_name: "/hikcamera_shm"

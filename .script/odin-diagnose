@@ -1,0 +1,113 @@
+#!/bin/bash
+# odin-diagnose - 检测 Odin1 设备是否在线，排查连接问题
+#
+# 用法:
+#   odin-diagnose
+#
+# 设备不在线时常见原因排查顺序:
+#   1. USB 物理连接 (线材/接口)
+#   2. udev 规则权限 (/etc/udev/rules.d/99-odin.rules)
+#   3. USB3.0 协商失败 (降级为 USB2.0 或完全不识别)
+#   4. 其他进程占用设备 (LIBUSB_ERROR_BUSY)
+
+set -uo pipefail
+
+VID="2207"
+PID_HINT="0019"  # 官方文档记录的 PID，udev 规则可能未按 PID 过滤
+
+echo "═══════════════════════════════════════════════════"
+echo "  Odin1 硬件连接诊断"
+echo "═══════════════════════════════════════════════════"
+echo ""
+
+# ── 1. USB 设备检测 ──
+echo "[1/5] USB 设备扫描 (VID=$VID) ..."
+USB_LINE="$(lsusb | grep -i "$VID" || true)"
+if [ -n "$USB_LINE" ]; then
+    echo "  ✓ 检测到设备: $USB_LINE"
+    DEVICE_FOUND=1
+else
+    echo "  ✗ 未检测到 VID=$VID 的设备"
+    echo "  当前所有 USB 设备:"
+    lsusb | sed 's/^/    /'
+    DEVICE_FOUND=0
+fi
+echo ""
+
+# ── 2. udev 规则检查 ──
+echo "[2/5] udev 规则检查 ..."
+UDEV_RULE="/etc/udev/rules.d/99-odin.rules"
+if [ -f "$UDEV_RULE" ]; then
+    echo "  ✓ 规则文件存在: $UDEV_RULE"
+    echo "    内容: $(cat "$UDEV_RULE")"
+    if ! grep -q "$VID" "$UDEV_RULE"; then
+        echo "  ⚠ 警告: 规则内容不含 VID=$VID，可能配置有误"
+    fi
+else
+    echo "  ✗ 规则文件不存在: $UDEV_RULE"
+    echo "    创建方法:"
+    echo "    echo 'SUBSYSTEM==\"usb\", ATTR{idVendor}==\"$VID\", MODE=\"0660\"' | sudo tee $UDEV_RULE"
+    echo "    sudo udevadm control --reload-rules && sudo udevadm trigger"
+fi
+echo ""
+
+# ── 3. 设备权限检查（仅当设备在线时有意义）──
+echo "[3/5] USB 设备节点权限 ..."
+if [ "$DEVICE_FOUND" -eq 1 ]; then
+    BUS_DEV="$(lsusb | grep -i "$VID" | sed -E 's/Bus ([0-9]+) Device ([0-9]+).*/\1 \2/' | head -1)"
+    BUS="$(echo "$BUS_DEV" | awk '{print $1}')"
+    DEV="$(echo "$BUS_DEV" | awk '{print $2}')"
+    DEV_PATH="/dev/bus/usb/${BUS}/${DEV}"
+    if [ -e "$DEV_PATH" ]; then
+        ls -la "$DEV_PATH"
+        PERMS="$(stat -c '%a' "$DEV_PATH")"
+        if [ "$PERMS" != "666" ]; then
+            echo "  ⚠ 警告: 权限为 $PERMS，非预期的 666（udev 规则可能未生效，尝试重新插拔设备）"
+        else
+            echo "  ✓ 权限正常 (666)"
+        fi
+    else
+        echo "  ✗ 设备节点 $DEV_PATH 不存在"
+    fi
+else
+    echo "  (跳过：设备未检测到)"
+fi
+echo ""
+
+# ── 4. 占用检测 ──
+echo "[4/5] 进程占用检测 ..."
+HOLDING_PROC="$(pgrep -f host_sdk_sample || true)"
+if [ -n "$HOLDING_PROC" ]; then
+    echo "  ⚠ 检测到 host_sdk_sample 已在运行 (PID: $HOLDING_PROC)"
+    echo "    如需重新连接，先执行: killall host_sdk_sample"
+else
+    echo "  ✓ 无 host_sdk_sample 进程占用"
+fi
+echo ""
+
+# ── 5. dmesg 内核日志（可能需要权限）──
+echo "[5/5] 内核日志 (dmesg, 最近 USB 相关) ..."
+if dmesg 2>/dev/null | tail -n 200 | grep -iE "usb|$VID" > /tmp/odin_dmesg.txt 2>/dev/null; then
+    if [ -s /tmp/odin_dmesg.txt ]; then
+        echo "  最近相关内核日志 (完整见 /tmp/odin_dmesg.txt):"
+        tail -n 10 /tmp/odin_dmesg.txt | sed 's/^/    /'
+    else
+        echo "  (无相关日志)"
+    fi
+else
+    echo "  ✗ 无法读取 dmesg（需要 sudo，或容器内不可访问主机内核日志）"
+    echo "    容器内请在宿主机执行: dmesg | grep -iE 'usb|$VID'"
+fi
+echo ""
+
+echo "═══════════════════════════════════════════════════"
+if [ "$DEVICE_FOUND" -eq 1 ]; then
+    echo "  结论: 设备已连接，可以尝试启动驱动 (.script/odin)"
+    exit 0
+else
+    echo "  结论: 设备未检测到。请检查:"
+    echo "    - USB 线材/接口是否松动，换一个 USB 口试试"
+    echo "    - 设备是否已上电（Odin1 指示灯状态）"
+    echo "    - 如果是容器环境，确认 docker run 时已加 --privileged -v /dev:/dev"
+    exit 1
+fi
