@@ -78,12 +78,16 @@ def do_calibrate(args):
             continue
         h, w = img.shape[:2]
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        found, corners = cv2.findChessboardCornersSB(gray, (args.cols, args.rows))
+        scale = 2000.0 / w if w > 2000 else 1.0
+        gray_small = cv2.resize(gray, (0, 0), fx=scale, fy=scale) if scale != 1.0 else gray
+        found, corners = cv2.findChessboardCornersSB(gray_small, (args.cols, args.rows))
         if not found:
-            found, corners = cv2.findChessboardCorners(gray, (args.cols, args.rows), None)
+            found, corners = cv2.findChessboardCorners(gray_small, (args.cols, args.rows), None)
+        if found and scale != 1.0:
+            corners = (corners / scale).astype(np.float32)
         if found:
-            corners = cv2.cornerSubPix(gray, corners, (5, 5), (-1, -1),
-                (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001))
+            corners = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1),
+                (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 50, 0.0001))
         status = "v" if found else "x"
         print(f"  [{i+1}/{len(imgs)}] {status} {p.name}", flush=True)
         if found:
