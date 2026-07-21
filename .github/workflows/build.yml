@@ -20,15 +20,7 @@ jobs:
       - name: Init submodules
         run: |
           git config --global --add safe.directory /__w/alliance_radar_location_lidar/alliance_radar_location_lidar
-          git submodule update --init \
-            ros_ws/third-party/small_gicp \
-            ros_ws/third-party/hikcamera_sdk \
-            ros_ws/third-party/hikcamera_ros_driver \
-            ros_ws/third-party/direct_visual_lidar_calibration \
-            ros_ws/src/radar_fast_livo2 \
-            ros_ws/third-party/direct_visual_lidar_calibration/thirdparty/json \
-            ros_ws/third-party/direct_visual_lidar_calibration/thirdparty/nanoflann \
-            ros_ws/third-party/direct_visual_lidar_calibration/thirdparty/Sophus
+          git submodule update --init --recursive --jobs 4
 
       - name: Install system deps
         run: |
