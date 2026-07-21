@@ -1,77 +1,45 @@
 #!/usr/bin/env python3
-"""相机内参标定脚本 — cv2 实时显示，手动选帧，内存标定。
+"""相机内参标定脚本 — SHM 直读，cv2 实时显示，内存标定。
 
 用法:
-    ros2 launch radar_bringup hikcamera.launch.py  # 终端1: 相机
+    ros2 launch radar_bringup hikcamera.launch.py  # 终端1: 启动相机
     python3 calib_camera.py --cols 11 --rows 8 --square-size 15.0  # 终端2: 标定
 
 操作: 空格=保存当前帧  q=退出并标定  Ctrl+C=中断
 """
-import sys, argparse, json
+import sys, os, argparse, json, struct, mmap
 import cv2, numpy as np
-import rclpy
-from rclpy.node import Node
-from sensor_msgs.msg import Image
-from cv_bridge import CvBridge
+
+SHM_PATH  = "/dev/shm/hikcamera_shm"
+WIDTH     = 5472
+HEIGHT    = 3648
+CHANNELS  = 3
+SLOT_SIZE = 60000000
+HEADER    = 128
+OFF_WRITE_IDX = 80
 
 
-class ManualCalib(Node):
-    def __init__(self, chess_cols: int, chess_rows: int, square_mm: float):
-        super().__init__("manual_calib")
-        self.bridge = CvBridge()
-        self.chess_size = (chess_cols, chess_rows)
-        self.square_mm = square_mm
-        self.frame = None
-        self.saved = 0
-        self.sub = self.create_subscription(Image, "/camera/image_raw", self._on_image, 10)
-
-    def _on_image(self, msg: Image):
-        self.frame = self.bridge.imgmsg_to_cv2(msg, "bgr8")
-
-    def run(self) -> list:
-        title = "calib — SPACE:save  Q:quit"
-        cv2.namedWindow(title, cv2.WINDOW_NORMAL | cv2.WINDOW_GUI_EXPANDED)
-        cv2.resizeWindow(title, 960, 540)
-        cv2.startWindowThread()
-        snapshots, last_key = [], -1
-        while rclpy.ok():
-            rclpy.spin_once(self, timeout_sec=0.1)
-            if self.frame is None:
-                if cv2.getWindowProperty(title, cv2.WND_PROP_VISIBLE) < 1:
-                    break
-                continue
-            display = self.frame.copy()
-            gray = cv2.cvtColor(self.frame, cv2.COLOR_BGR2GRAY)
-            found, corners = cv2.findChessboardCornersSB(gray, self.chess_size,
-                cv2.CALIB_CB_NORMALIZE_IMAGE | cv2.CALIB_CB_EXHAUSTIVE)
-            if not found:
-                found, corners = cv2.findChessboardCorners(gray, self.chess_size, None)
-            if found:
-                cv2.drawChessboardCorners(display, self.chess_size, corners, found)
-            cv2.putText(display, f"Saved: {self.saved}", (10, 30),
-                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0) if found else (0, 0, 255), 2)
-            cv2.imshow(title, cv2.resize(display, (960, 540)))
-            key = cv2.waitKey(1) & 0xFF
-            if key == 255:
-                key = last_key
-            else:
-                last_key = key
-            if key == ord(' '):
-                self.saved += 1
-                snapshots.append(self.frame.copy())
-                print(f"  ✓ [{self.saved}]  {'(棋盘格已检测)' if found else '(未检测到棋盘格!)'}")
-            elif key == ord('q'):
-                break
-        cv2.destroyAllWindows()
-        return snapshots
+def read_frame() -> np.ndarray | None:
+    """从 SHM 读取最新帧，返回 BGR8 numpy 数组."""
+    try:
+        fd = os.open(SHM_PATH, os.O_RDONLY)
+        write_idx = struct.unpack_from('<I',
+            os.pread(fd, 4, OFF_WRITE_IDX))[0]
+        slot = write_idx % 4
+        offset = HEADER + slot * SLOT_SIZE
+        data = os.pread(fd, WIDTH * HEIGHT * CHANNELS, offset)
+        os.close(fd)
+        return np.frombuffer(data, dtype=np.uint8).reshape(HEIGHT, WIDTH, CHANNELS)
+    except Exception:
+        return None
 
 
 def calibrate(images: list, cols: int, rows: int, square_mm: float) -> dict:
     objp = np.zeros((cols * rows, 3), np.float32)
     objp[:, :2] = np.mgrid[0:cols, 0:rows].T.reshape(-1, 2) * square_mm
     objpoints, imgpoints = [], []
+    h, w = images[0].shape[:2]
     for i, img in enumerate(images):
-        h, w = img.shape[:2]
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         found, corners = cv2.findChessboardCornersSB(gray, (cols, rows),
             cv2.CALIB_CB_NORMALIZE_IMAGE | cv2.CALIB_CB_EXHAUSTIVE)
@@ -104,26 +72,55 @@ def main():
     p.add_argument("--square-size", type=float, default=15.0, help="棋盘格方格边长 (mm)")
     args = p.parse_args()
 
-    rclpy.init()
-    node = ManualCalib(args.cols, args.rows, args.square_size)
+    title = "calib — SPACE:save  Q:quit"
+    cv2.namedWindow(title, cv2.WINDOW_NORMAL | cv2.WINDOW_GUI_EXPANDED)
+    cv2.resizeWindow(title, 960, 540)
+    cv2.startWindowThread()
+
+    snapshots, saved, last_key = [], 0, -1
+    print("空格=保存  q=退出标定  Ctrl+C=中断\n")
     try:
-        imgs = node.run()
+        while True:
+            frame = read_frame()
+            if frame is None:
+                if cv2.getWindowProperty(title, cv2.WND_PROP_VISIBLE) < 1:
+                    break
+                cv2.waitKey(20)
+                continue
+
+            display = frame.copy()
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            found, corners = cv2.findChessboardCornersSB(gray, (args.cols, args.rows),
+                cv2.CALIB_CB_NORMALIZE_IMAGE | cv2.CALIB_CB_EXHAUSTIVE)
+            if not found:
+                found, corners = cv2.findChessboardCorners(gray, (args.cols, args.rows), None)
+            if found:
+                cv2.drawChessboardCorners(display, (args.cols, args.rows), corners, found)
+            cv2.putText(display, f"Saved: {saved}", (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0) if found else (0, 0, 255), 2)
+            cv2.imshow(title, cv2.resize(display, (960, 540)))
+
+            key = cv2.waitKey(1) & 0xFF
+            if key == 255:
+                key = last_key
+            else:
+                last_key = key
+            if key == ord(' '):
+                saved += 1
+                snapshots.append(frame.copy())
+                print(f"  ✓ [{saved}]  {'(棋盘格已检测)' if found else '(未检测到棋盘格!)'}")
+            elif key == ord('q'):
+                break
     except KeyboardInterrupt:
         print("\n中断")
-        imgs = []
     finally:
         cv2.destroyAllWindows()
-        node.destroy_node()
-        try:
-            rclpy.shutdown()
-        except Exception:
-            pass
 
-    if len(imgs) < 10:
-        print(f"图片不足 ({len(imgs)} < 10), 跳过标定")
+    if len(snapshots) < 10:
+        print(f"图片不足 ({len(snapshots)} < 10), 跳过标定")
         sys.exit(0)
 
-    r = calibrate(imgs, args.cols, args.rows, args.square_size)
+    r = calibrate(snapshots, args.cols, args.rows, args.square_size)
     if r:
         out = "camera_calib.json"
         with open(out, "w") as f:
