@@ -25,13 +25,14 @@ Alliance Radar 采用 **ROS2 component + 独立驱动进程 + YAML bringup** 的
 
 ```text
 packages/
-├── radar_interfaces   ← ZMQ 桥接消息定义（自定义 ROS2 msg）
-├── radar_lidar        ← LiDAR 预处理 + 配准定位
-├── radar_fusion       ← 系统统一位姿出口 + 多目标跟踪
-├── radar_camera       ← 视觉观测生成
-├── radar_calibration  ← 离线相机-雷达标定 + 模型预处理
-├── radar_bridge       ← ROS2 ↔ ZMQ 桥接 + VideoBridge（SHM → JPEG → ZMQ）
-└── radar_bringup      ← launch / yaml / remap / compose
+├── radar_interfaces      ← ZMQ 桥接消息定义（自定义 ROS2 msg）
+├── radar_lidar           ← LiDAR 预处理 + 配准定位
+├── radar_fusion          ← 系统统一位姿出口 + 多目标跟踪（含 RM 坐标变换）
+├── radar_camera          ← 视觉观测生成（ONNX 检测 + PnP 位姿估计）
+├── radar_calibration     ← 离线相机-雷达标定 + 模型预处理
+├── radar_fast_livo2      ← FAST-LIVO2 LIO/VIO 里程计（git submodule）
+├── radar_bridge          ← ROS2 ↔ ZMQ 桥接 + VideoBridge（SHM → JPEG → ZMQ）
+└── radar_bringup         ← launch / yaml / remap / compose
 ```
 
 ## Package Boundaries
@@ -80,16 +81,21 @@ ROS 组件，与 `radar_lidar` 同容器零拷贝。
 
 ### radar_camera
 
-补充观测源，独立于 LiDAR 主链路。订阅相机图像与内参，完成去畸变、目标检测 / 视觉定位，
-输出视觉观测供 `radar_fusion` 融合。只产出观测，不做融合，不进入 LiDAR 主链路容器。
+补充观测源，独立于 LiDAR 主链路。订阅相机图像与内参，完成去畸变、ONNX 模型目标检测
+（YOLO，12 类：hero/engineer/infantry/sentry/drone × 红蓝）、PnP 位姿估计，
+输出 `CameraDetectionPose` 观测供 `radar_fusion` 融合。
+只产出观测，不做融合，不进入 LiDAR 主链路容器。
+
+适配相机：HikRobot MV-CS200-10UC（20MP，原生 5472×3648，USB3，20fps）。
+SDK 封装见 `third-party/hikcamera_sdk/`（含 SHM 进程间共享内存环形缓冲区）。
 
 | 文件 | 职责 |
 |---|---|
 | `include/radar_camera/types.hpp` | `radar::camera::Detection` / `CameraFrame` 数据类型 |
-| `include/radar_camera/config.hpp` | `radar::camera::CameraConfig`——内参/外参路径、检测阈值、topic 名 |
+| `include/radar_camera/config.hpp` | `radar::camera::CameraConfig`——内参/外参路径、检测阈值、topic 名、`enemy_color` |
 | `include/radar_camera/camera_model.hpp` | 去畸变 + 2D→3D 投影（纯函数，无 ROS） |
 | `include/radar_camera/detector.hpp` | 目标检测接口 `detect(image) -> std::vector<Detection>` |
-| `src/camera_node.{hpp,cpp}` | ROS 薄封装：订阅图像 → detector + camera_model → 发布观测 |
+| `src/radar_camera_node.cpp` | ROS 节点：ConfigsLoader → ModelInference（ONNX）→ 投影 → CameraDetectionPose |
 | `src/runtime.cpp` | `main()` → spin |
 
 依赖 `radar_calibration` 输出的相机内参/外参 YAML。独立进程或独立 container。
@@ -191,12 +197,15 @@ TF 职责（最终架构）：
 config/
 ├── common/          ← 公共参数 (topic, frame, QoS, 滤波, 地图路径)
 ├── lidar/
-│   └── runtime.yaml ← 比赛运行时唯一算法参数入口（launch 覆盖 sensor 差异）
+│   ├── runtime.yaml           ← 比赛运行时唯一算法参数入口（launch 覆盖 sensor 差异）
+│   ├── red_initial_pose.yaml  ← 红方雷达初始位姿（x=-14, y=0, z=4, yaw=0）
+│   └── blue_initial_pose.yaml ← 蓝方雷达初始位姿（x=+14, y=0, z=4, yaw=π）
 └── system/
     └── *.yaml       ← 组件组合配置
 
 launch/
-├── localization.launch.py       ← 单雷达定位入口 (sensor:=odin|mid70)
+├── competition.launch.py        ← 比赛全流程（相机 → LiDAR → fusion → bridge, side:=red|blue）
+├── localization.launch.py       ← 单雷达定位入口 (sensor:=odin|mid70, side:=red|blue)
 ├── localization_gui.launch.py   ← + bridge + GUI 入口
 └── full_system.launch.py        ← 完整系统入口
 ```
@@ -467,9 +476,11 @@ runtime/
 ├── radar_algorithm_container                           component container
 │   ├── radar_lidar   (component)
 │   └── radar_fusion  (component)                       intra-process 零拷贝
+├── radar_fast_livo2                                     独立进程, LIO/VIO 里程计（可选）
 ├── radar_bridge                                         独立进程, /lidar/location ↔ ZMQ ↔ radar-egui
 ├── radar-egui                                           非 ROS 进程, ZMQ 接收位置 + 图像
 └── radar_camera                                         独立视觉观测进程
+```
 ```
 
 ## Assumptions & Defaults
