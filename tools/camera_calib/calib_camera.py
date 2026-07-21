@@ -32,12 +32,16 @@ class ManualCalib(Node):
         self.frame = self.bridge.imgmsg_to_cv2(msg, "bgr8")
 
     def run(self):
-        cv2.namedWindow("calib — SPACE:save  Q:quit", cv2.WINDOW_NORMAL)
+        cv2.namedWindow("calib — SPACE:save  Q:quit", cv2.WINDOW_NORMAL | cv2.WINDOW_GUI_EXPANDED)
         cv2.resizeWindow("calib — SPACE:save  Q:quit", 960, 540)
+        cv2.startWindowThread()
         snapshots = []
+        last_key = -1
         while rclpy.ok():
-            rclpy.spin_once(self, timeout_sec=0.05)
+            rclpy.spin_once(self, timeout_sec=0.1)
             if self.frame is None:
+                if cv2.getWindowProperty("calib — SPACE:save  Q:quit", cv2.WND_PROP_VISIBLE) < 1:
+                    break
                 continue
             display = self.frame.copy()
             gray = cv2.cvtColor(self.frame, cv2.COLOR_BGR2GRAY)
@@ -51,7 +55,11 @@ class ManualCalib(Node):
                 cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0) if found else (0, 0, 255), 2)
             display_small = cv2.resize(display, (960, 540))
             cv2.imshow("calib — SPACE:save  Q:quit", display_small)
-            key = cv2.waitKey(20) & 0xFF
+            key = cv2.waitKey(1) & 0xFF
+            if key == 255:
+                key = last_key
+            else:
+                last_key = key
             if key == ord(' '):
                 self.saved += 1
                 path = self.output_dir / f"calib_{self.saved:04d}.png"
