@@ -7,5 +7,3 @@ radar_bridge_node:
     shm_name: "/hikcamera_shm"
     video_pub_address: "tcp://*:5557"
     image_topic: "/hikcamera_image"
-    video_width: 4096
-    video_height: 3000
