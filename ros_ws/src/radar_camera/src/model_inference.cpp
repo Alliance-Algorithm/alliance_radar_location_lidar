@@ -3,14 +3,70 @@
 
 namespace radar_camera::model_inference {
 
+auto filter_detections(const std::vector<float>& raw_output, int num_detections, int stride,
+    int src_width, int src_height, const inference_config::InferenceConfig& config)
+    -> std::expected<std::vector<detection::Detection>, std::string> {
+    constexpr int kMinStride = 6;
+    if (num_detections < 0 || stride < kMinStride) {
+        return std::unexpected("Output stride too small: expected >= 6");
+    }
+    if (src_width <= 0 || src_height <= 0) {
+        return std::unexpected("Invalid source image size");
+    }
+    if (config.model_input_width <= 0 || config.model_input_height <= 0) {
+        return std::unexpected("Invalid model input size");
+    }
+    const auto need = static_cast<size_t>(num_detections) * static_cast<size_t>(stride);
+    if (raw_output.size() < need) {
+        return std::unexpected("raw_output shorter than num_detections * stride");
+    }
+
+    const float scale_x =
+        static_cast<float>(src_width) / static_cast<float>(config.model_input_width);
+    const float scale_y =
+        static_cast<float>(src_height) / static_cast<float>(config.model_input_height);
+
+    std::vector<detection::Detection> out;
+    out.reserve(static_cast<size_t>(num_detections));
+
+    for (int i = 0; i < num_detections; ++i) {
+        const float* ptr = &raw_output[static_cast<size_t>(i) * static_cast<size_t>(stride)];
+
+        const float x1   = ptr[0];
+        const float y1   = ptr[1];
+        const float x2   = ptr[2];
+        const float y2   = ptr[3];
+        const float conf = ptr[4];
+        const int cls    = static_cast<int>(ptr[5]);
+
+        if (conf < config.conf_threshold) continue;
+
+        const float box_w = (x2 - x1) * scale_x;
+        const float box_h = (y2 - y1) * scale_y;
+        if (box_w < 1.0f || box_h < 1.0f) continue;
+
+        const float ratio = std::max(box_w, box_h) / std::min(box_w, box_h);
+        if (ratio < config.min_length_width_rate || ratio > config.max_length_width_rate) continue;
+
+        out.push_back(detection::Detection {
+            .center     = cv::Point2d((x1 + x2) * 0.5f * scale_x, (y1 + y2) * 0.5f * scale_y),
+            .id         = cls,
+            .confidence = conf });
+    }
+    return out;
+}
+
 auto ModelInference::infer_preprocess(const cv::Mat& image, size_t width, size_t height)
     -> std::expected<std::reference_wrapper<const ov::Tensor>, std::string> {
     try {
+        if (image.empty()) {
+            return std::unexpected("infer_preprocess failed: empty image");
+        }
         cv::Mat blob = cv::dnn::blobFromImage(image, 1.0 / 255.0,
             cv::Size(static_cast<int>(width), static_cast<int>(height)), cv::Scalar(), true, false);
 
         ov::Shape expected_shape { 1, 3, height, width };
-        if (input_tensor_.get_shape() != expected_shape) {
+        if (!input_tensor_ || input_tensor_.get_shape() != expected_shape) {
             input_tensor_ = ov::Tensor(ov::element::f32, expected_shape);
         }
 
@@ -52,6 +108,7 @@ auto ModelInference::infer_runtime_wait()
         infer_request_.wait();
 
         auto output_tensor = infer_request_.get_output_tensor();
+        last_output_shape_ = output_tensor.get_shape();
         auto* output_data  = output_tensor.data<float>();
         auto output_size   = output_tensor.get_size();
         raw_buffer_.assign(output_data, output_data + output_size);
@@ -65,12 +122,17 @@ auto ModelInference::infer_postprocess(
     const std::vector<float>& raw_output, int src_width, int src_height)
     -> std::expected<std::reference_wrapper<const std::vector<detection::Detection>>, std::string> {
     try {
-        auto output_tensor = infer_request_.get_output_tensor();
-        auto shape         = output_tensor.get_shape();
+        auto shape = last_output_shape_;
+        if (shape.empty()) {
+            try {
+                shape = infer_request_.get_output_tensor().get_shape();
+            } catch (const std::exception&) {
+                return std::unexpected("No output shape available; run wait() first");
+            }
+        }
 
-        int num_detections;
-        int stride;
-
+        int num_detections = 0;
+        int stride         = 0;
         if (shape.size() == 3) {
             num_detections = static_cast<int>(shape[1]);
             stride         = static_cast<int>(shape[2]);
@@ -81,44 +143,12 @@ auto ModelInference::infer_postprocess(
             return std::unexpected("Unsupported output shape");
         }
 
-        constexpr int kMinStride = 6;
-        if (stride < kMinStride) {
-            return std::unexpected("Output stride too small: expected >= 6");
+        auto dets =
+            filter_detections(raw_output, num_detections, stride, src_width, src_height, config_);
+        if (!dets) {
+            return std::unexpected(dets.error());
         }
-
-        float scale_x =
-            static_cast<float>(src_width) / static_cast<float>(config_.model_input_width);
-        float scale_y =
-            static_cast<float>(src_height) / static_cast<float>(config_.model_input_height);
-
-        postprocess_buffer_.clear();
-
-        for (int i = 0; i < num_detections; ++i) {
-            const float* ptr = &raw_output[i * stride];
-
-            float x1   = ptr[0];
-            float y1   = ptr[1];
-            float x2   = ptr[2];
-            float y2   = ptr[3];
-            float conf = ptr[4];
-            int cls    = static_cast<int>(ptr[5]);
-
-            if (conf < config_.conf_threshold) continue;
-
-            float box_w = (x2 - x1) * scale_x;
-            float box_h = (y2 - y1) * scale_y;
-            if (box_w < 1.0f || box_h < 1.0f) continue;
-
-            float ratio = std::max(box_w, box_h) / std::min(box_w, box_h);
-            if (ratio < config_.min_length_width_rate || ratio > config_.max_length_width_rate)
-                continue;
-
-            postprocess_buffer_.push_back(detection::Detection {
-                .center     = cv::Point2d((x1 + x2) * 0.5f * scale_x, (y1 + y2) * 0.5f * scale_y),
-                .id         = cls,
-                .confidence = conf });
-        }
-
+        postprocess_buffer_ = std::move(*dets);
         return std::ref(postprocess_buffer_);
     } catch (const std::exception& e) {
         return std::unexpected(std::string("Filter failed: ") + e.what());
