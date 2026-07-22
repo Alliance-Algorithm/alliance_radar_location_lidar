@@ -34,10 +34,12 @@ auto VideoBridge::video_thread() -> std::expected<void, std::string> {
         while (video_thread_running_) {
             auto frame_result = reader_.wait_next(kWaitTimeout);
             if (!frame_result.has_value()) {
-                if (frame_result.error() == "Timeout waiting for next frame") {
+                if (frame_result.error().code
+                    == hikcamera::FrameReadErrorCode::Timeout) {
                     continue;  // normal: no new frame, bounded by running_ flag
                 }
-                std::cerr << "[VideoBridge] reader error: " << frame_result.error() << "\n";
+                std::cerr << "[VideoBridge] reader error: "
+                          << frame_result.error().message << "\n";
                 continue;
             }
             auto& frame = frame_result.value();
