@@ -9,12 +9,15 @@ namespace {
 
 auto make_config() -> radar_camera::inference_config::InferenceConfig {
     radar_camera::inference_config::InferenceConfig cfg;
-    cfg.model_input_width       = 1280;
-    cfg.model_input_height      = 1280;
-    cfg.conf_threshold          = 0.6f;
-    cfg.min_length_width_rate   = 0.8f;
-    cfg.max_length_width_rate   = 1.5f;
-    cfg.device_name             = "CPU";
+    cfg.model_input_width             = 1280;
+    cfg.model_input_height            = 1280;
+    cfg.conf_threshold                = 0.6f;
+    cfg.min_length_width_rate         = 0.5f;
+    cfg.max_length_width_rate         = 3.0f;
+    cfg.drone_min_length_width_rate   = 2.0f;
+    cfg.drone_max_length_width_rate   = 10.0f;
+    cfg.drone_class_ids               = { 5, 11 };
+    cfg.device_name                   = "CPU";
     return cfg;
 }
 
@@ -63,13 +66,41 @@ TEST(FilterDetectionsTest, KeepsValidBox) {
     EXPECT_NEAR(dets->front().center.y, 150.0, 1e-3);
 }
 
-TEST(FilterDetectionsTest, DropsBadAspectRatio) {
+TEST(FilterDetectionsTest, DropsNonDroneWhenAspectTooExtreme) {
     auto cfg = make_config();
-    // 100x10 after scale -> ratio 10 > 1.5
+    // 100x10 -> ratio 10 > max 3.0 for non-drone (cls=1 engineer-red)
     auto row  = make_row(0.f, 0.f, 100.f, 10.f, 0.95f, 1.f);
     auto dets = radar_camera::model_inference::filter_detections(row, 1, 6, 1280, 1280, cfg);
     ASSERT_TRUE(dets.has_value()) << dets.error();
     EXPECT_TRUE(dets->empty());
+}
+
+TEST(FilterDetectionsTest, KeepsNonDroneWithLooserAspect) {
+    auto cfg = make_config();
+    // 100x40 -> ratio 2.5, within [0.5, 3.0] for non-drone
+    auto row  = make_row(0.f, 0.f, 100.f, 40.f, 0.95f, 0.f);
+    auto dets = radar_camera::model_inference::filter_detections(row, 1, 6, 1280, 1280, cfg);
+    ASSERT_TRUE(dets.has_value()) << dets.error();
+    ASSERT_EQ(dets->size(), 1u);
+}
+
+TEST(FilterDetectionsTest, DropsDroneWhenAspectBelowTwo) {
+    auto cfg = make_config();
+    // 100x80 -> ratio 1.25 < drone min 2.0 (cls=5 drone-red)
+    auto row  = make_row(0.f, 0.f, 100.f, 80.f, 0.95f, 5.f);
+    auto dets = radar_camera::model_inference::filter_detections(row, 1, 6, 1280, 1280, cfg);
+    ASSERT_TRUE(dets.has_value()) << dets.error();
+    EXPECT_TRUE(dets->empty());
+}
+
+TEST(FilterDetectionsTest, KeepsDroneWhenAspectAtLeastTwo) {
+    auto cfg = make_config();
+    // 100x40 -> ratio 2.5 >= 2.0 for drone (cls=11 drone-blue)
+    auto row  = make_row(0.f, 0.f, 100.f, 40.f, 0.95f, 11.f);
+    auto dets = radar_camera::model_inference::filter_detections(row, 1, 6, 1280, 1280, cfg);
+    ASSERT_TRUE(dets.has_value()) << dets.error();
+    ASSERT_EQ(dets->size(), 1u);
+    EXPECT_EQ(dets->front().id, 11);
 }
 
 TEST(FilterDetectionsTest, DropsTinyBox) {
@@ -84,7 +115,7 @@ TEST(FilterDetectionsTest, DropsTinyBox) {
 TEST(FilterDetectionsTest, ScalesCenterToSourceImage) {
     auto cfg = make_config();
     // model space box centered at (640, 640); source 640x480 => scale 0.5, 0.375
-    auto row  = make_row(540.f, 540.f, 740.f, 740.f, 0.95f, 5.f);
+    auto row  = make_row(540.f, 540.f, 740.f, 740.f, 0.95f, 2.f);
     auto dets = radar_camera::model_inference::filter_detections(row, 1, 6, 640, 480, cfg);
     ASSERT_TRUE(dets.has_value()) << dets.error();
     ASSERT_EQ(dets->size(), 1u);
