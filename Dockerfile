@@ -183,6 +183,20 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
 RUN curl -fsSL https://opencode.ai/install | bash \
     && mv /root/.opencode/bin/opencode /usr/local/bin/opencode 2>/dev/null || true
 
+# OpenVINO via Intel apt (CXX11 ABI=1). Avoid pip manylinux wheels (ABI=0 breaks OpenCV/rclcpp).
+ARG OPENVINO_APT_VERSION=2025.4.1
+RUN wget -q https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB \
+        -O /tmp/intel-openvino.pub \
+    && gpg --dearmor < /tmp/intel-openvino.pub > /usr/share/keyrings/oneapi-archive-keyring.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/oneapi-archive-keyring.gpg] https://apt.repos.intel.com/openvino ubuntu24 main" \
+        > /etc/apt/sources.list.d/intel-openvino.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends "openvino-${OPENVINO_APT_VERSION}" \
+    && python3 -c "from openvino.utils import get_cmake_path; import openvino as ov; \
+print('OpenVINO', ov.__version__, 'cmake=', get_cmake_path())" \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/*
+
 # User setup
 RUN chsh -s /bin/zsh ubuntu 2>/dev/null || true \
     && echo "ubuntu ALL=(ALL:ALL) NOPASSWD:ALL" >> /etc/sudoers
