@@ -1,25 +1,29 @@
 radar_camera_node:
   ros__parameters:
     enemy_color: "blue"
+    # Class ids must match best_fixed_names export (red 0-5, blue 6-11)
     hero_red: 0
-    engineer_red: 2
-    infantry3_red: 4
-    infantry4_red: 6
-    sentry_red: 8
-    drone_red: 10
-    hero_blue: 1
-    engineer_blue: 3
-    infantry3_blue: 5
-    infantry4_blue: 7
-    sentry_blue: 9
+    engineer_red: 1
+    infantry3_red: 2
+    infantry4_red: 3
+    sentry_red: 4
+    drone_red: 5
+    hero_blue: 6
+    engineer_blue: 7
+    infantry3_blue: 8
+    infantry4_blue: 9
+    sentry_blue: 10
     drone_blue: 11
     model_path: "/workspace/ros_ws/src/radar_camera/config/camera_inference_model.onnx"
     device_name: "CPU"
     model_input_width: 1280
     model_input_height: 1280
     conf_threshold: 0.6
-    min_length_width_rate: 0.8
-    max_length_width_rate: 1.5
+    min_length_width_rate: 0.5
+    max_length_width_rate: 3.0
+    drone_min_length_width_rate: 2.0
+    drone_max_length_width_rate: 10.0
+    drone_class_ids: [5, 11]
     use_openvino: true
     num_classes: 12
     mesh_path: "/workspace/ros_ws/src/radar_camera/model"
