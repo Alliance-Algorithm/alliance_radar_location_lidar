@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <opencv2/core/types.hpp>
 #include <string>
 #include <vector>
@@ -42,9 +43,12 @@ struct InferenceConfig {
     int model_input_height      = 1280;
     int num_classes             = 12;
     float conf_threshold        = 0.6f;
-    float min_length_width_rate = 0.8f;
-    float max_length_width_rate = 1.5f;
-    bool use_openvino           = true;
+    float min_length_width_rate = 0.5f;
+    float max_length_width_rate = 3.0f;
+    float drone_min_length_width_rate = 2.0f;
+    float drone_max_length_width_rate = 10.0f;
+    std::vector<std::int64_t> drone_class_ids { 5, 11 };
+    bool use_openvino = true;
 };
 
 } // namespace radar_camera::inference_config

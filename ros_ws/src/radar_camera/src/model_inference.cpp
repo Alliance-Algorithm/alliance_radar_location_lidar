@@ -1,4 +1,5 @@
 #include "radar_camera/model_inference.hpp"
+#include <algorithm>
 #include <cmath>
 
 namespace radar_camera::model_inference {
@@ -46,7 +47,14 @@ auto filter_detections(const std::vector<float>& raw_output, int num_detections,
         if (box_w < 1.0f || box_h < 1.0f) continue;
 
         const float ratio = std::max(box_w, box_h) / std::min(box_w, box_h);
-        if (ratio < config.min_length_width_rate || ratio > config.max_length_width_rate) continue;
+        const bool is_drone = std::find(config.drone_class_ids.begin(), config.drone_class_ids.end(),
+                                    static_cast<std::int64_t>(cls))
+            != config.drone_class_ids.end();
+        const float min_rate =
+            is_drone ? config.drone_min_length_width_rate : config.min_length_width_rate;
+        const float max_rate =
+            is_drone ? config.drone_max_length_width_rate : config.max_length_width_rate;
+        if (ratio < min_rate || ratio > max_rate) continue;
 
         out.push_back(detection::Detection {
             .center     = cv::Point2d((x1 + x2) * 0.5f * scale_x, (y1 + y2) * 0.5f * scale_y),

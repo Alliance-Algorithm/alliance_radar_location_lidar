@@ -149,6 +149,9 @@ auto ConfigsLoader(rclcpp::Node& node, camera_config::CameraConfig& camera,
         node.get_parameter("conf_threshold", inference.conf_threshold);
         node.get_parameter("min_length_width_rate", inference.min_length_width_rate);
         node.get_parameter("max_length_width_rate", inference.max_length_width_rate);
+        node.get_parameter("drone_min_length_width_rate", inference.drone_min_length_width_rate);
+        node.get_parameter("drone_max_length_width_rate", inference.drone_max_length_width_rate);
+        node.get_parameter("drone_class_ids", inference.drone_class_ids);
         node.get_parameter("use_openvino", inference.use_openvino);
         node.get_parameter("num_classes", inference.num_classes);
         node.get_parameter("model_input_width", inference.model_input_width);
