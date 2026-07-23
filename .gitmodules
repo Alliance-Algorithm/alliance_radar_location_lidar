@@ -19,7 +19,7 @@
 	url = https://github.com/HarryPotter1tech/direct_visual_lidar_calibration.git
 [submodule "ros_ws/third-party/hikcamera_ros_driver"]
 	path = ros_ws/third-party/hikcamera_ros_driver
-	url = https://github.com/yukikaze223344/hicamera_ros_driver.git
+	url = https://github.com/HarryPotter1tech/hicamera_ros_driver.git
 [submodule "ros_ws/src/radar_fast_livo2"]
 	path = ros_ws/src/radar_fast_livo2
 	url = https://github.com/yukikaze223344/radar_fast_livo2.git
