@@ -1,6 +1,51 @@
 # radar-lidar Todo
 
-更新时间：2026-07-21
+更新时间：2026-07-23
+
+## 相机驱动 + 推理节点调试（2026-07-23）
+
+### hikcamera_sdk — config tuning (committed)
+- [x] `AcquisitionMode`: Continuous before `StartGrabbing`
+- [x] `SetImageNodeNum`: 2 → 4（20MP 帧防 DMA 分配失败）
+- [x] DIAG 诊断日志（设备信息、分辨率读回、PixelFormat）
+- [x] 默认分辨率 5472×3648
+
+### hikcamera_sdk — perf (committed)
+- [x] `SHMRead` 加 `dst_w/dst_h`，mutex 内 `cv::resize` 替代 60MB `.clone()`
+- [x] 写端输出 `RGB8` 替代 `BGR8`（推流端 `cvtColor RGB2BGR`）
+- [x] 读端始终指向最新帧（`read_index = write_index`）
+
+### hikcamera_ros_driver (committed)
+- [x] `ERROR+break` → `WARN+sleep+continue` 重试机制
+- [x] loop FPS 日志（待 `#ifdef CAMERA_TIMING` 包裹）
+
+### radar_camera — 清理 ROS sub (workspace, uncommitted)
+- [x] 删 ROS subscription + cv_bridge + sensor_msgs
+- [x] 改独立线程：`SHMRead → blobFromImage → TIMING`
+- [x] `declare_parameter` 默认值
+- [x] class ID 修正（red 0–5, blue 6–11）
+- [ ] 提交到仓库
+
+### radar_bridge — cvtColor (workspace, uncommitted)
+- [x] SHM RGB→BGR 后 JPEG encode
+- [ ] 提交到仓库
+
+### 测试结果
+- [x] USB 扩展坞 → `MV_E_NODATA`，直连解决
+- [x] 采集帧率稳定：**~50ms (20fps)**
+- [x] SHMCopy（resize 5472→1280）：**~2ms**
+- [x] blobFromImage 归一化（/255 + swapRB + float + memcpy）：**~5ms**
+- [x] 预处理总计 **~7ms**，留给推理 **~43ms**
+
+### Pending
+- [ ] `#ifdef CAMERA_TIMING` 包裹采集 TIMING
+- [ ] `.onnx` 模型就位后取消 `infer_thread` FIXME 注释
+- [ ] 完整推理管线（OpenVINO CPU）帧率验证
+- [ ] `proj_init_camera` / `proj_init_map` 恢复（需标定数据）
+- [ ] 长时间运行稳定性测试
+- [ ] `/dev/shm` 残留文件清理策略
+
+---
 
 ## 比赛全流程启动 + 红蓝方配置（2026-07-20 完成）
 
