@@ -7,7 +7,8 @@ auto ModelInference::infer_preprocess(const cv::Mat& image, size_t width, size_t
     -> std::expected<std::reference_wrapper<const ov::Tensor>, std::string> {
     try {
         cv::Mat blob = cv::dnn::blobFromImage(image, 1.0 / 255.0,
-            cv::Size(static_cast<int>(width), static_cast<int>(height)), cv::Scalar(), false, false);
+            cv::Size(static_cast<int>(width), static_cast<int>(height)), cv::Scalar(), false,
+            false);
 
         // FIXME(TEMP): uncomment after model file is available
         // ov::Shape expected_shape { 1, 3, height, width };

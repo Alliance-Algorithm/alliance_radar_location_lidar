@@ -26,8 +26,9 @@ RadarCameraNode::RadarCameraNode()
 
     // auto cam_ret = projector_.proj_init_camera(camera_config_);
     // if (!cam_ret) {
-    //     RCLCPP_ERROR(get_logger(), "Projector camera model init failed: %s", cam_ret.error().c_str());
-    //     throw std::runtime_error("Projector camera model init failed: " + cam_ret.error());
+    //     RCLCPP_ERROR(get_logger(), "Projector camera model init failed: %s",
+    //     cam_ret.error().c_str()); throw std::runtime_error("Projector camera model init failed: "
+    //     + cam_ret.error());
     // }
     // RCLCPP_INFO(get_logger(), "Camera init succeeded");
 
@@ -55,9 +56,7 @@ RadarCameraNode::RadarCameraNode()
     RCLCPP_INFO(get_logger(), "infer_thread started");
 }
 
-RadarCameraNode::~RadarCameraNode() {
-    infer_thread_stop();
-}
+RadarCameraNode::~RadarCameraNode() { infer_thread_stop(); }
 
 auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
     infer_running_ = true;
@@ -67,9 +66,9 @@ auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
 
             cv::Mat frame;
             std::chrono::steady_clock::time_point ts;
-            auto ret = hikcamera::SHMRead(
-                shm_fd_, frame, ts, camera_config_.width, camera_config_.height,
-                inference_config_.model_input_width, inference_config_.model_input_height);
+            auto ret =
+                hikcamera::SHMRead(shm_fd_, frame, ts, camera_config_.width, camera_config_.height,
+                    inference_config_.model_input_width, inference_config_.model_input_height);
             if (!ret.has_value()) {
                 RCLCPP_WARN(get_logger(), "SHMRead failed: %s", ret.error().c_str());
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -84,21 +83,23 @@ auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
                 cv::Scalar(), false, false);
 
             auto pre_us = std::chrono::duration_cast<std::chrono::microseconds>(
-                std::chrono::steady_clock::now() - t0).count();
+                std::chrono::steady_clock::now() - t0)
+                              .count();
 
             // ============================================================
             // FIXME: uncomment when model file is available
             // ============================================================
             // auto tensor = model_inference_->infer_preprocess(
-            //     frame, inference_config_.model_input_width, inference_config_.model_input_height);
+            //     frame, inference_config_.model_input_width,
+            //     inference_config_.model_input_height);
             // if (!tensor) {
             //     RCLCPP_WARN(get_logger(), "Infer preprocess failed: %s", tensor.error().c_str());
             //     continue;
             // }
             // auto async_ret = model_inference_->infer_runtime_async(tensor->get());
             // if (!async_ret) {
-            //     RCLCPP_WARN(get_logger(), "Inference async failed: %s", async_ret.error().c_str());
-            //     continue;
+            //     RCLCPP_WARN(get_logger(), "Inference async failed: %s",
+            //     async_ret.error().c_str()); continue;
             // }
             // auto raw = model_inference_->infer_runtime_wait();
             // if (!raw) {
@@ -127,7 +128,8 @@ auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
             // ============================================================
 
             auto total_us = std::chrono::duration_cast<std::chrono::microseconds>(
-                std::chrono::steady_clock::now() - t_loop).count();
+                std::chrono::steady_clock::now() - t_loop)
+                                .count();
             RCLCPP_INFO(get_logger(), "TIMING: pre=%ldus total=%ldus (%.1ffps) frame=%dx%d",
                 (long)pre_us, (long)total_us, 1e6 / total_us, frame.cols, frame.rows);
         }
@@ -186,10 +188,10 @@ auto ConfigsLoader(rclcpp::Node& node, camera_config::CameraConfig& camera,
         node.declare_parameter("infantry4_blue", 9);
         node.declare_parameter("sentry_blue", 10);
         node.declare_parameter("drone_blue", 11);
-        node.declare_parameter("camera_matrix", std::vector<double>{1,0,0,0,1,0,0,0,1});
-        node.declare_parameter("distortion_coefficients", std::vector<double>{0,0,0,0,0});
-        node.declare_parameter("rotation", std::vector<double>{0,0,0});
-        node.declare_parameter("translation", std::vector<double>{0,0,0});
+        node.declare_parameter("camera_matrix", std::vector<double> { 1, 0, 0, 0, 1, 0, 0, 0, 1 });
+        node.declare_parameter("distortion_coefficients", std::vector<double> { 0, 0, 0, 0, 0 });
+        node.declare_parameter("rotation", std::vector<double> { 0, 0, 0 });
+        node.declare_parameter("translation", std::vector<double> { 0, 0, 0 });
         node.declare_parameter("pub_topic_name", std::string("/radar_camera/robot_pose"));
         node.declare_parameter("shm_name", std::string("/hikcamera_shm"));
         node.declare_parameter("width", 5472);

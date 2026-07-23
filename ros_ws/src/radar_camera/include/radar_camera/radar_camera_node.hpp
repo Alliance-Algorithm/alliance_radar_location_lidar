@@ -36,7 +36,7 @@ private:
     rclcpp::Publisher<radar_interfaces::msg::CameraDetectionPose>::SharedPtr pose_publisher_;
 
     int shm_fd_ = -1;
-    std::atomic<bool> infer_running_{false};
+    std::atomic<bool> infer_running_ { false };
     std::thread infer_thread_;
 
     camera_config::CameraConfig camera_config_;
