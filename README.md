@@ -94,12 +94,10 @@ docker exec -it RADAR zsh
 |------|------|
 | `build-all [Release\|Debug]` | 编译所有包（third-party + 全部 radar 包，含 `direct_visual_lidar_calibration`） |
 | `build-radar [Release\|Debug]` | 快速编译 radar 包 + 雷达驱动（跳过 `direct_visual_lidar_calibration`） |
-| `calibrate-camera <image.jpg> ...` | 相机-雷达外参自动标定（需先 `build-all`），见下方「相机外参标定」 |
+| `calibrate-camera <image.jpg> --camera_model ... --camera_intrinsics ... --camera_distortion_coeffs ...` | 相机-雷达外参自动标定（需先 `build-all`），见下方「相机外参标定」 |
 | `offline-test <scan.pcd> --map <map.pcd>` | 启动离线配准可视化节点，发布 `/offline/*` 话题给 Foxglove |
 | `run-radar` | 运行标定定位节点 |
 | `format-radar` | 格式化 C++ 源文件 |
-| `odin-map-export` | 触发 FAST-LIVO2 保存地图 → 后处理导出干净 PCD |
-| `competition` | 比赛全流程启动（alias: `ros2 launch radar_bringup competition.launch.py`） |
 | `banner` | 显示 ALLIANCE RADAR ASCII art |
 
 ### clangd 配置
@@ -140,28 +138,6 @@ Foxglove 里主要查看这些话题：
 
 ---
 
-## 比赛全流程启动
-
-一键启动完整系统链路：相机 → 雷达配准 → 传感器融合 → ZMQ 桥接。
-
-```bash
-ros2 launch radar_bringup competition.launch.py side:=red
-ros2 launch radar_bringup competition.launch.py side:=blue map_path:=/path/to/map.pcd
-```
-
-参数：
-
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `side` | `red` | 场地侧：`red` \| `blue`（决定雷达初始位姿） |
-| `map_path` | `/workspace/model/generated/map.pcd` | 地图 PCD 路径 |
-| `sensor` | `odin` | 雷达型号：`odin` \| `mid70` |
-
-红蓝方初始位姿预置在 `ros_ws/src/radar_bringup/config/lidar/{red,blue}_initial_pose.yaml`，
-按场地安装几何填写（红方 x=-14m，蓝方 x=+14m，z=4m，yaw 相差 180°）。
-
----
-
 ## 相机外参标定
 
 一次性离线标定，用已有场地地图点云 + 一张相机图像自动算出相机外参
@@ -187,22 +163,6 @@ ros2 run radar_calibration radar_calibration_node extract-result \
   ros_ws/src/radar_calibration/calibration_data/calib.json \
   ros_ws/src/radar_camera/config/extrinsic.yaml
 ```
-
-## 相机内参标定
-
-相机内参标定通过 SHM 直读采图 + 离线标定，无需 DDS 传输。
-
-```bash
-# 采图（空格保存，q 退出）
-python3 tools/camera_calib/calib_camera.py capture [-d ./calib]
-
-# 标定
-python3 tools/camera_calib/calib_camera.py calibrate \
-  [-d ./calib] --cols 11 --rows 8 --square-size 15.0
-```
-
-脚本直接从 HikCamera 共享内存（`/dev/shm/hikcamera_shm`）读取帧，跳过 ROS 序列化，
-支持原生 5472×3648 分辨率采集。
 
 ---
 
@@ -234,7 +194,7 @@ ros2 launch livox_ros_driver2 rviz_MID360_launch.py
 
 > **注意**：官方 `build.sh` 不支持 `jazzy` 参数，需使用 `humble`。构建前需先复制 ROS2 配置文件。
 
-### 3. Odin1 / Odin2 — 留形科技
+### 3. Odin — 留形科技
 
 > **注意**：Odin 驱动为 git submodule，需先初始化。初始化后参考子模块内 README 进行构建。
 
@@ -267,25 +227,6 @@ ros2 launch radar_bringup odin_relocalization_localization.launch.py \
 
 ---
 
-## FAST-LIVO2 激光-惯性-视觉里程计
-
-`radar_fast_livo2` 是 [FAST-LIVO2](https://github.com/hku-mars/FAST-LIVO2) 的 ROS2 Jazzy 移植，
-适配全局快门固态激光雷达 + 高频 IMU + 卷帘快门相机。支持 LIO（LiDAR-IMU）与
-VIO（视觉直接法）两种模式。
-
-真实硬件验证结果（40m 走圈）：
-
-```
-静止 10s 漂移:    2.3 mm
-闭环误差:         19.4 mm
-路径长度:         40754 mm
-漂移率:           0.05% (< 1%)
-```
-
-详细文档见 `ros_ws/src/radar_fast_livo2/README.md`。
-
----
-
 ## 目录结构
 
 ```text
@@ -307,24 +248,14 @@ RADAR-LOCATION-LIDAR/
 ├── ros_ws/                 # ROS2 工作空间
 │   ├── src/
 │   │   ├── radar_lidar/       # LiDAR 配准定位
-│   │   ├── radar_camera/      # 视觉位姿观测（ONNX 检测 + PnP 位姿估计）
-│   │   ├── radar_fusion/      # 多传感器融合定位（含 RM 坐标变换）
+│   │   ├── radar_camera/      # 视觉位姿观测
+│   │   ├── radar_fusion/      # 多传感器融合定位
 │   │   ├── radar_bridge/      # ROS2 ↔ ZMQ 桥接 + SHM 视频推流
 │   │   ├── radar_calibration/ # 相机-雷达标定+定位
-│   │   ├── radar_fast_livo2/  # FAST-LIVO2 LIO/VIO 里程计（git submodule）
-│   │   ├── radar_interfaces/  # 自定义 ROS2 消息定义
 │   │   └── radar_bringup/     # Launch / YAML / 组件编排
 │   └── third-party/        # small_gicp, hikcamera_sdk（含 SHM）, direct_visual_lidar_calibration
 ├── lidar_ros_driver/       # LiDAR 驱动（git submodules）
 │   └── * Livox 驱动使用 fork 版本以支持 Mid-70（上游 SDK2 暂未提供），维护者 @Yukikaze2233
-├── tools/                  # 离线预处理工具
-│   ├── camera_calib/         # 相机内参标定（SHM 直读采图）
-│   ├── pcd_postprocess/      # 建图点云后处理（voxel 降采样 + 离群点剔除）
-│   ├── model_to_map/         # FBX 场地模型 → PCD 点云地图
-│   ├── bag_to_pcd/           # ros2 bag → PCD 导出
-│   ├── make_synth_scan/      # 合成 Odin scan 用于验证离线配准
-│   └── logger/               # header-only 日志工具
-├── docs/                   # 架构文档 / 命名规范 / SLAM 学习资料
-├── learnlog.md             # 开发教训记录
+├── docs/                   # SLAM 学习资料
 └── README.md
 ```
