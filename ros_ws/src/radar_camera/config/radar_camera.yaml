@@ -2,16 +2,16 @@ radar_camera_node:
   ros__parameters:
     enemy_color: "blue"
     hero_red: 0
-    engineer_red: 2
-    infantry3_red: 4
-    infantry4_red: 6
-    sentry_red: 8
-    drone_red: 10
-    hero_blue: 1
-    engineer_blue: 3
-    infantry3_blue: 5
-    infantry4_blue: 7
-    sentry_blue: 9
+    engineer_red: 1
+    infantry3_red: 2
+    infantry4_red: 3
+    sentry_red: 4
+    drone_red: 5
+    hero_blue: 6
+    engineer_blue: 7
+    infantry3_blue: 8
+    infantry4_blue: 9
+    sentry_blue: 10
     drone_blue: 11
     model_path: "/workspace/ros_ws/src/radar_camera/config/camera_inference_model.onnx"
     device_name: "CPU"
@@ -28,4 +28,6 @@ radar_camera_node:
     rotation: [0.0, 0.0, 0.0]
     translation: [0.0, 0.0, 0.0]
     pub_topic_name: "/radar_camera/robot_pose"
-    sub_topic_name: "/camera/image_raw"
+    shm_name: "/hikcamera_shm"
+    width: 5472
+    height: 3648

@@ -7,14 +7,14 @@ auto ModelInference::infer_preprocess(const cv::Mat& image, size_t width, size_t
     -> std::expected<std::reference_wrapper<const ov::Tensor>, std::string> {
     try {
         cv::Mat blob = cv::dnn::blobFromImage(image, 1.0 / 255.0,
-            cv::Size(static_cast<int>(width), static_cast<int>(height)), cv::Scalar(), true, false);
+            cv::Size(static_cast<int>(width), static_cast<int>(height)), cv::Scalar(), false, false);
 
-        ov::Shape expected_shape { 1, 3, height, width };
-        if (input_tensor_.get_shape() != expected_shape) {
-            input_tensor_ = ov::Tensor(ov::element::f32, expected_shape);
-        }
-
-        std::memcpy(input_tensor_.data<float>(), blob.data, blob.total() * sizeof(float));
+        // FIXME(TEMP): uncomment after model file is available
+        // ov::Shape expected_shape { 1, 3, height, width };
+        // if (input_tensor_.get_shape() != expected_shape) {
+        //     input_tensor_ = ov::Tensor(ov::element::f32, expected_shape);
+        // }
+        // std::memcpy(input_tensor_.data<float>(), blob.data, blob.total() * sizeof(float));
 
         return std::ref(input_tensor_);
     } catch (const std::exception& e) {
