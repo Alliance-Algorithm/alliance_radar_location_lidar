@@ -6,6 +6,7 @@
 #include <unistd.h>
 
 #include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>
 
 namespace radar_bridge::videostream_bridge {
 
@@ -40,6 +41,8 @@ auto VideoBridge::video_thread() -> std::expected<void, std::string> {
             std::chrono::steady_clock::time_point ts;
             auto ret = hikcamera::SHMRead(shm_fd_, mat, ts, width_, height_);
             if (!ret.has_value()) continue;
+
+            cv::cvtColor(mat, mat, cv::COLOR_RGB2BGR);
 
             std::vector<uchar> jpeg;
             cv::imencode(".jpg", mat, jpeg, { cv::IMWRITE_JPEG_QUALITY, 85 });
