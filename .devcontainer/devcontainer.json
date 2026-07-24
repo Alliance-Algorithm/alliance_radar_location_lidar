@@ -11,9 +11,7 @@
                 "remote.autoForwardPorts": false,
                 "clangd.path": "/usr/bin/clangd",
                 "clangd.arguments": [
-                    "--compile-commands-dir=/workspace/ros_ws/build/radar_lidar",
-                    "--header-insertion=never",
-                    "--clang-tidy"
+                    "--header-insertion=never"
                 ]
             },
             "extensions": [

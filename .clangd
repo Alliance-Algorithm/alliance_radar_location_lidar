@@ -1,11 +1,12 @@
 CompileFlags:
-  Compiler: clang++
+  CompilationDatabase: ./
+  Add:
+    - -isystem
+    - /workspace/.clangd-headers/overlays/openmp
   Remove:
     - "-march=*"
     - "-mfpu=*"
+    - -flto*
+    - -fno-fat-lto-objects
 Diagnostics:
   UnusedIncludes: None
-  Suppress:
-    - pp_file_not_found
-    - drv_unknown_argument
-    - sem_redef_builtin

@@ -70,44 +70,32 @@ CLICOLOR_FORCE=1 colcon build \
         -Wno-dev \
     "$@"
 
-# ── generate root compile_commands.json for clangd ──────────────
+# ── merge compile_commands.json for clangd ──
 python3 - <<'PY'
-import json, os
+import json
+import os
 from pathlib import Path
 
+workspace = Path(os.environ.get("RADAR_WS", "/workspace")).resolve()
 build_root = Path("build")
 merged = []
-for f in sorted(build_root.glob("*/compile_commands.json")):
-    merged.extend(json.loads(f.read_text()))
+for path in sorted(build_root.glob("*/compile_commands.json")):
+    merged.extend(json.loads(path.read_text()))
 
-host_ws = os.environ.get("HOST_WORKSPACE", "")
-cache = Path(host_ws) / ".clangd-headers" if host_ws else Path("/workspace") / ".clangd-headers"
-
-if merged:
-    out = Path("/workspace") / "compile_commands.json"
-    out.write_text(json.dumps(merged, indent=2) + "\n")
-    print(f"> clangd: {len(merged)} entries -> /workspace/compile_commands.json")
-
-if host_ws:
-    for entry in merged:
-        for key in ("command", "arguments"):
-            if key in entry:
-                if isinstance(entry[key], str):
-                    entry[key] = entry[key].replace("/workspace", host_ws)
-                    entry[key] = entry[key].replace("/usr/include/eigen3", str(cache / "usr/include/eigen3"))
-                    entry[key] = entry[key].replace("/usr/include/pcl-1.14", str(cache / "usr/include/pcl-1.14"))
-                    entry[key] = entry[key].replace("/usr/include/assimp", str(cache / "usr/include/assimp"))
-                elif isinstance(entry[key], list):
-                    entry[key] = [a.replace("/workspace", host_ws).replace("/usr/include/eigen3", str(cache / "usr/include/eigen3")).replace("/usr/include/pcl-1.14", str(cache / "usr/include/pcl-1.14")).replace("/usr/include/assimp", str(cache / "usr/include/assimp")) for a in entry[key]]
-        if "directory" in entry:
-            entry["directory"] = entry["directory"].replace("/workspace", host_ws)
-        if "file" in entry:
-            entry["file"] = entry["file"].replace("/workspace", host_ws)
-        if "output" in entry:
-            entry["output"] = entry["output"].replace("/workspace", host_ws)
-    out = Path(host_ws) / "compile_commands.json"
-    out.write_text(json.dumps(merged, indent=2) + "\n")
-    print(f"> clangd: {len(merged)} host entries -> {out}")
+if not merged:
+    print("> clangd: no compile_commands.json entries found")
+else:
+    payload = json.dumps(merged, indent=2) + "\n"
+    # Write root + ros_ws + ros_ws/build for clangd discovery.
+    outs = (
+        workspace / "compile_commands.json",
+        workspace / "ros_ws" / "compile_commands.json",
+        workspace / "ros_ws" / "build" / "compile_commands.json",
+    )
+    for out in outs:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(payload)
+        print(f"> clangd: {len(merged)} container entries -> {out}")
 PY
 
 # ── build offline tools (pure CMake, not ament packages) ────────

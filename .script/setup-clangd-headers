@@ -6,6 +6,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CACHE_DIR="${REPO_ROOT}/.clangd-headers"
+BUILD_ROOT="${REPO_ROOT}/ros_ws/build"
 
 is_running() {
     [[ "$(docker inspect -f '{{.State.Running}}' "$1" 2>/dev/null)" == "true" ]]
@@ -34,44 +35,103 @@ fi
 echo "[setup-clangd-headers] Extracting headers from container: ${CONTAINER}"
 echo "[setup-clangd-headers] Cache dir: ${CACHE_DIR}"
 
-rm -rf "${CACHE_DIR}"
-mkdir -p "${CACHE_DIR}"
+if [[ ! -d "${BUILD_ROOT}" ]]; then
+    echo "[setup-clangd-headers] ERROR: build directory not found: ${BUILD_ROOT}" >&2
+    echo "[setup-clangd-headers] Run build-radar inside the container first." >&2
+    exit 1
+fi
 
-PULL_PATHS=(
-    "/usr/include/eigen3"
-    "/usr/include/pcl-1.14"
-    "/usr/include/assimp"
-    "/usr/include/boost"
-    "/usr/include/flann"
-    # 容器装的是项目所需子集 ROS2 包，宿主机若是完整源码构建的桌面版
-    # ROS2 Jazzy 则会缺这些 (PCL/CV 桥接、Foxglove 相关)。
-    "/opt/ros/jazzy/include/pcl_conversions"
-    "/opt/ros/jazzy/include/pcl_msgs"
-    "/opt/ros/jazzy/include/pcl_ros"
-    "/opt/ros/jazzy/include/cv_bridge"
-    "/opt/ros/jazzy/include/rosx_introspection"
-    # 容器 GCC 14 的真实头文件搜索顺序 (Debian 布局)。宿主机若非同架构/版本
-    # 的 GCC (例如 Arch 上的 GCC 16, x86_64-pc-linux-gnu 布局)，clang 会
-    # 自动探测宿主机 GCC 并混入不兼容的 STL 头文件，需要靠 .clangd 里的
-    # -nostdinc++ + 下列缓存路径整体替换掉，缺一个都会导致 STL 内部结构不匹配。
-    "/usr/include/c++/14"
-    "/usr/include/x86_64-linux-gnu/c++/14"
-    "/usr/include/c++/14/backward"
-    "/usr/lib/gcc/x86_64-linux-gnu/14/include"
-    "/workspace/ros_ws/install/small_gicp/include"
+mapfile -t COMPILE_DB_FILES < <(find "${BUILD_ROOT}" -mindepth 2 -maxdepth 2 -name compile_commands.json | sort)
+if [[ ${#COMPILE_DB_FILES[@]} -eq 0 ]]; then
+    echo "[setup-clangd-headers] ERROR: no compile databases found under ${BUILD_ROOT}" >&2
+    exit 1
+fi
+
+mapfile -t PULL_PATHS < <(python3 - "${COMPILE_DB_FILES[@]}" <<'PY'
+import json
+import shlex
+import sys
+
+paths = {
+    "/usr/include",
+    "/usr/include/c++/14",
+    "/usr/include/x86_64-linux-gnu/c++/14",
+    "/usr/include/c++/14/backward",
+    "/usr/lib/gcc/x86_64-linux-gnu/14/include",
+}
+
+for database_path in sys.argv[1:]:
+    with open(database_path) as handle:
+        entries = json.load(handle)
+    for entry in entries:
+        arguments = entry.get("arguments") or shlex.split(entry.get("command", ""))
+        index = 1
+        while index < len(arguments):
+            argument = arguments[index]
+            if argument in {"-I", "-isystem", "-iquote", "-idirafter"} and index + 1 < len(arguments):
+                candidate = arguments[index + 1]
+                index += 2
+            elif argument.startswith("-I") and len(argument) > 2:
+                candidate = argument[2:]
+                index += 1
+            else:
+                index += 1
+                continue
+
+            stable_install_prefixes = (
+                "/workspace/ros_ws/install/radar_interfaces/include",
+                "/workspace/ros_ws/install/small_gicp/include",
+            )
+            if candidate.startswith(("/usr/", "/opt/ros/jazzy/", *stable_install_prefixes)):
+                paths.add(candidate.rstrip("/"))
+
+collapsed_paths = []
+for path in sorted(paths, key=lambda value: (value.count("/"), value)):
+    if any(path == parent or path.startswith(parent + "/") for parent in collapsed_paths):
+        continue
+    collapsed_paths.append(path)
+
+print("\n".join(sorted(collapsed_paths)))
+PY
 )
+
+TEMP_CACHE="$(mktemp -d "${CACHE_DIR}.tmp.XXXXXX")"
+trap 'rm -rf "${TEMP_CACHE}"' EXIT
 
 for src in "${PULL_PATHS[@]}"; do
     if docker exec "${CONTAINER}" test -d "${src}" 2>/dev/null; then
         rel="${src#/}"
-        dest="${CACHE_DIR}/${rel}"
+        if [[ "${src}" == /workspace/ros_ws/install/* ]]; then
+            rel="${src#/workspace/}"
+        fi
+        dest="${TEMP_CACHE}/${rel}"
         mkdir -p "$(dirname "${dest}")"
         echo "[setup-clangd-headers] Copying ${src} ..."
-        docker cp "${CONTAINER}:${src}" "${dest}"
+        if [[ "${src}" == /workspace/ros_ws/install/* ]]; then
+            mkdir -p "${dest}"
+            docker exec "${CONTAINER}" bash -lc '
+                set -euo pipefail
+                source_dir="$1"
+                snapshot="$(mktemp -d)"
+                trap '\''rm -rf "${snapshot}"'\'' EXIT
+                cp -LR "${source_dir}/." "${snapshot}/"
+                tar -C "${snapshot}" -cf - .
+            ' bash "${src}" | tar -C "${dest}" -xf -
+        else
+            docker exec "${CONTAINER}" tar --dereference -C / -cf - "${rel}" | tar -C "${TEMP_CACHE}" -xf -
+        fi
     else
         echo "[setup-clangd-headers] SKIP (not in container): ${src}"
     fi
 done
+
+if [[ -d "${CACHE_DIR}" ]]; then
+    mv --exchange -T "${TEMP_CACHE}" "${CACHE_DIR}"
+    rm -rf "${TEMP_CACHE}"
+else
+    mv -T "${TEMP_CACHE}" "${CACHE_DIR}"
+fi
+trap - EXIT
 
 # ── 生成 .clangd (本机专属, 不进版本控制) ──────────────────────────
 # clangd 的 CompileFlags.Add 不支持路径变量替换, 必须是每台机器的
@@ -85,5 +145,5 @@ else
 fi
 
 echo "[setup-clangd-headers] Done."
-echo "[setup-clangd-headers] .clangd 已配置指向 ${CACHE_DIR}"
+echo "[setup-clangd-headers] .clangd cache refreshed at ${CACHE_DIR}"
 echo "[setup-clangd-headers] 如果更换了容器或依赖，重新运行此脚本即可刷新缓存。"
