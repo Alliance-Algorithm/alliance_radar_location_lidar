@@ -162,16 +162,17 @@ RUN case "${TARGETARCH}" in \
     && rm /tmp/cmake.sh
 
 # Neovim (official GitHub release, version >= 0.10 required by LazyVim/Neovide)
-ARG NEOVIM_VERSION=v0.12.4
 RUN case "${TARGETARCH}" in \
-        amd64) nvim_arch=linux-x86_64 ;; \
-        arm64) nvim_arch=linux-arm64 ;; \
+        amd64) nvim_arch=x86_64 ;; \
+        arm64) nvim_arch=arm64 ;; \
         *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac && \
-    curl -fsSL --retry 3 "https://github.com/neovim/neovim/releases/download/${NEOVIM_VERSION}/nvim-${nvim_arch}.tar.gz" -o /tmp/nvim.tar.gz \
-    && mkdir -p /opt/nvim && tar -xzf /tmp/nvim.tar.gz -C /opt/nvim --strip-components=1 \
-    && ln -sf /opt/nvim/bin/nvim /usr/local/bin/nvim \
-    && rm /tmp/nvim.tar.gz
+    curl -LO "https://github.com/neovim/neovim/releases/latest/download/nvim-linux-${nvim_arch}.tar.gz" \
+    && rm -rf /opt/nvim \
+    && tar -C /opt -xzf "nvim-linux-${nvim_arch}.tar.gz" \
+    && mv "/opt/nvim-linux-${nvim_arch}" /opt/nvim \
+    && rm "nvim-linux-${nvim_arch}.tar.gz"
+ENV PATH="/opt/nvim/bin:${PATH}"
 
 # Node.js + opencode
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
