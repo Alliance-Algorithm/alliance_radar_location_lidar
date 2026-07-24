@@ -14,7 +14,7 @@
 ### 步骤
 
 ```bash
-git clone --recurse-submodules https://github.com/HarryPotter1tech/alliance_radar_location_lidar.git
+git clone --recurse-submodules https://github.com/Alliance-Algorithm/alliance_radar_location_lidar.git
 cd alliance_radar_location_lidar
 code .
 ```
