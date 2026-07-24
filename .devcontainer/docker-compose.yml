@@ -5,6 +5,7 @@ services:
       dockerfile: Dockerfile
       args:
         TARGETARCH: ${TARGETARCH:-amd64}
+    image: radar:develop
     user: "1000:1000"
     privileged: true
     volumes:
