@@ -2,7 +2,7 @@ name: Build and Push to Docker Hub
 on:
   workflow_dispatch:
   push:
-    branches: [master, develop]
+    branches: [master]
     paths:
       - Dockerfile
       - .github/workflows/docker-hub.yml

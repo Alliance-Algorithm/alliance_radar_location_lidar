@@ -47,8 +47,8 @@ code .
 ### 方式一：拉取预构建镜像（推荐）
 
 ```bash
-docker pull yukikaze2233/alliance_radar_location_lidar:develop
-docker tag yukikaze2233/alliance_radar_location_lidar:develop radar:develop
+docker pull yukikaze2233/alliance_radar_location_lidar:master
+docker tag yukikaze2233/alliance_radar_location_lidar:master radar:develop
 ```
 
 ### 方式二：本地构建镜像
