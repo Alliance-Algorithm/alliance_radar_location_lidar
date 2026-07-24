@@ -47,8 +47,8 @@ code .
 ### 方式一：拉取预构建镜像（推荐）
 
 ```bash
-docker pull ghcr.io/harrypotter1tech/radar:develop
-docker tag ghcr.io/harrypotter1tech/radar:develop radar:develop
+docker pull ghcr.io/alliance-algorithm/alliance_radar_location_lidar:develop
+docker tag ghcr.io/alliance-algorithm/alliance_radar_location_lidar:develop radar:develop
 ```
 
 ### 方式二：本地构建镜像
@@ -255,7 +255,7 @@ RADAR-LOCATION-LIDAR/
 │   │   └── radar_bringup/     # Launch / YAML / 组件编排
 │   └── third-party/        # small_gicp, hikcamera_sdk（含 SHM）, direct_visual_lidar_calibration
 ├── lidar_ros_driver/       # LiDAR 驱动（git submodules）
-│   └── * Livox 驱动使用 fork 版本以支持 Mid-70（上游 SDK2 暂未提供），维护者 @Yukikaze2233
+│   └── * Livox 驱动使用 fork 版本以支持 Mid-70（上游 SDK2 暂未提供），维护者 @yukikaze223344
 ├── docs/                   # SLAM 学习资料
 └── README.md
 ```

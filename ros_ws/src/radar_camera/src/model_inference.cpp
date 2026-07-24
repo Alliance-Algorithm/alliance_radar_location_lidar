@@ -46,9 +46,9 @@ auto filter_detections(const std::vector<float>& raw_output, int num_detections,
         const float box_h = (y2 - y1) * scale_y;
         if (box_w < 1.0f || box_h < 1.0f) continue;
 
-        const float ratio = std::max(box_w, box_h) / std::min(box_w, box_h);
-        const bool is_drone = std::find(config.drone_class_ids.begin(), config.drone_class_ids.end(),
-                                    static_cast<std::int64_t>(cls))
+        const float ratio   = std::max(box_w, box_h) / std::min(box_w, box_h);
+        const bool is_drone = std::find(config.drone_class_ids.begin(),
+                                  config.drone_class_ids.end(), static_cast<std::int64_t>(cls))
             != config.drone_class_ids.end();
         const float min_rate =
             is_drone ? config.drone_min_length_width_rate : config.min_length_width_rate;

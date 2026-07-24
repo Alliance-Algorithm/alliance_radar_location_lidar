@@ -4,7 +4,7 @@
   <name>radar_interfaces</name>
   <version>0.0.1</version>
   <description>Custom message definitions shared across radar_camera, radar_lidar, and radar_fusion</description>
-  <maintainer email="yingziyuw@gmail.com">Yukikaze2233</maintainer>
+  <maintainer email="yingziyuw@gmail.com">yukikaze223344</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>

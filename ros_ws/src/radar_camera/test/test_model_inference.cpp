@@ -9,35 +9,35 @@ namespace {
 
 auto make_config() -> radar_camera::inference_config::InferenceConfig {
     radar_camera::inference_config::InferenceConfig cfg;
-    cfg.model_input_width             = 1280;
-    cfg.model_input_height            = 1280;
-    cfg.conf_threshold                = 0.6f;
-    cfg.min_length_width_rate         = 0.5f;
-    cfg.max_length_width_rate         = 3.0f;
-    cfg.drone_min_length_width_rate   = 2.0f;
-    cfg.drone_max_length_width_rate   = 10.0f;
-    cfg.drone_class_ids               = { 5, 11 };
-    cfg.device_name                   = "CPU";
+    cfg.model_input_width           = 1280;
+    cfg.model_input_height          = 1280;
+    cfg.conf_threshold              = 0.6f;
+    cfg.min_length_width_rate       = 0.5f;
+    cfg.max_length_width_rate       = 3.0f;
+    cfg.drone_min_length_width_rate = 2.0f;
+    cfg.drone_max_length_width_rate = 10.0f;
+    cfg.drone_class_ids             = { 5, 11 };
+    cfg.device_name                 = "CPU";
     return cfg;
 }
 
-auto make_row(float x1, float y1, float x2, float y2, float conf, float cls)
-    -> std::vector<float> {
+auto make_row(float x1, float y1, float x2, float y2, float conf, float cls) -> std::vector<float> {
     return { x1, y1, x2, y2, conf, cls };
 }
 
 auto resolve_model_path() -> std::string {
-    if (const char* env = std::getenv("RADAR_CAMERA_TEST_MODEL"); env != nullptr && env[0] != '\0') {
+    if (const char* env = std::getenv("RADAR_CAMERA_TEST_MODEL");
+        env != nullptr && env[0] != '\0') {
         return env;
     }
-    const auto pkg =
-        std::filesystem::path(RADAR_CAMERA_TEST_SOURCE_DIR).parent_path() / "config"
+    const auto pkg = std::filesystem::path(RADAR_CAMERA_TEST_SOURCE_DIR).parent_path() / "config"
         / "camera_inference_model.onnx";
     return pkg.string();
 }
 
 auto resolve_image_path() -> std::string {
-    if (const char* env = std::getenv("RADAR_CAMERA_TEST_IMAGE"); env != nullptr && env[0] != '\0') {
+    if (const char* env = std::getenv("RADAR_CAMERA_TEST_IMAGE");
+        env != nullptr && env[0] != '\0') {
         return env;
     }
     return (std::filesystem::path(RADAR_CAMERA_TEST_SOURCE_DIR) / "fixtures" / "real_scene.jpg")
@@ -104,10 +104,9 @@ TEST(FilterDetectionsTest, KeepsDroneWhenAspectAtLeastTwo) {
 }
 
 TEST(FilterDetectionsTest, DropsTinyBox) {
-    auto cfg = make_config();
-    auto row = make_row(0.f, 0.f, 0.5f, 0.5f, 0.99f, 1.f);
-    auto dets =
-        radar_camera::model_inference::filter_detections(row, 1, 6, 1280, 1280, cfg);
+    auto cfg  = make_config();
+    auto row  = make_row(0.f, 0.f, 0.5f, 0.5f, 0.99f, 1.f);
+    auto dets = radar_camera::model_inference::filter_detections(row, 1, 6, 1280, 1280, cfg);
     ASSERT_TRUE(dets.has_value()) << dets.error();
     EXPECT_TRUE(dets->empty());
 }
@@ -124,7 +123,7 @@ TEST(FilterDetectionsTest, ScalesCenterToSourceImage) {
 }
 
 TEST(FilterDetectionsTest, RejectsShortBuffer) {
-    auto cfg  = make_config();
+    auto cfg = make_config();
     std::vector<float> short_buf { 1.f, 2.f, 3.f };
     auto dets = radar_camera::model_inference::filter_detections(short_buf, 1, 6, 1280, 1280, cfg);
     EXPECT_FALSE(dets.has_value());
@@ -170,8 +169,7 @@ TEST(ModelInferenceInitTest, MissingModelFails) {
 TEST(ModelInferenceSmokeTest, FullPipelineWhenAssetsPresent) {
     const auto model_path = resolve_model_path();
     if (!std::filesystem::exists(model_path)) {
-        GTEST_SKIP() << "ONNX missing: set RADAR_CAMERA_TEST_MODEL or place "
-                     << model_path;
+        GTEST_SKIP() << "ONNX missing: set RADAR_CAMERA_TEST_MODEL or place " << model_path;
     }
 
     radar_camera::model_inference::ModelInference engine;
@@ -189,8 +187,7 @@ TEST(ModelInferenceSmokeTest, FullPipelineWhenAssetsPresent) {
         image = cv::Mat(1280, 1280, CV_8UC3, cv::Scalar(32, 64, 128));
     }
 
-    auto tensor = engine.infer_preprocess(
-        image, static_cast<size_t>(cfg.model_input_width),
+    auto tensor = engine.infer_preprocess(image, static_cast<size_t>(cfg.model_input_width),
         static_cast<size_t>(cfg.model_input_height));
     ASSERT_TRUE(tensor.has_value()) << tensor.error();
 

@@ -12,7 +12,7 @@ auto make_camera_cfg() -> radar_camera::camera_config::CameraConfig {
     cfg.engine_class_id         = 3;
     cfg.infantry_3_class_id     = 5;
     cfg.infantry_4_class_id     = 7;
-    cfg.sentry_class_id        = 9;
+    cfg.sentry_class_id         = 9;
     cfg.drone_class_id          = 11;
     cfg.camera_matrix           = { 500.0, 0.0, 320.0, 0.0, 500.0, 240.0, 0.0, 0.0, 1.0 };
     cfg.distortion_coefficients = { 0.0, 0.0, 0.0, 0.0, 0.0 };

@@ -39,7 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsqlite3-dev \
     libeigen3-dev \
     libopencv-dev \
-    libpcl-all-dev \
+    libpcl-dev \
     libgoogle-glog-dev \
     libgflags-dev \
     libatlas-base-dev \
@@ -73,7 +73,7 @@ COPY .script/gen_mvs_cmake.sh /tmp/gen_mvs_cmake.sh
 RUN chmod +x /tmp/gen_mvs_cmake.sh && /tmp/gen_mvs_cmake.sh && rm /tmp/gen_mvs_cmake.sh
 
 # Livox SDK2
-RUN git clone https://github.com/Yukikaze2233/Livox-SDK2.git /tmp/Livox-SDK2 \
+RUN git clone https://github.com/yukikaze223344/Livox-SDK2.git /tmp/Livox-SDK2 \
     && cd /tmp/Livox-SDK2 \
     && sed -i '6iset(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w -Wno-pragmas -include cstdint")' CMakeLists.txt \
     && mkdir build && cd build \

@@ -187,7 +187,7 @@ auto Projector::proj_preprocess(const std::vector<detection::Detection>& detecti
 auto Projector::proj_postprocess(const std::vector<std::optional<cv::Point2d>>& projected,
     const std::vector<detection::Detection>& detections)
     -> std::expected<robot_pose::RobotPose, std::string> {
-    robot_pose::RobotPose pose {};
+    robot_pose::RobotPose pose { };
     for (size_t i = 0; i < detections.size(); ++i) {
         if (!projected[i]) continue;
         const auto& det = detections[i];
