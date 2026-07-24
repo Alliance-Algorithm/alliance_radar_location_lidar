@@ -10,7 +10,7 @@
 #include <small_gicp/ann/kdtree.hpp>
 #include <small_gicp/points/point_cloud.hpp>
 
-namespace radar::lidar {
+namespace radar_lidar::map_data {
 
 class MapData {
 public:
@@ -36,4 +36,4 @@ private:
     std::shared_ptr<PclTree> pcl_tree_;
 };
 
-} // namespace radar::lidar
+} // namespace radar_lidar::map_data

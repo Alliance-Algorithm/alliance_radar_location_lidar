@@ -5,7 +5,7 @@
 #include <filesystem>
 #include <gtest/gtest.h>
 
-#include "radar_lidar/localization.hpp"
+#include "radar_lidar/localization_stage.hpp"
 #include "radar_lidar/map_data.hpp"
 
 namespace {
@@ -35,17 +35,17 @@ protected:
 
 } // namespace
 
-TEST_F(LocalizationRoiTest, RejectsCloudWhenOnlyOutsideTdtLidarRoiRemain) {
-    auto map_result = radar::lidar::MapData::load(map_pcd_, 0.1);
+TEST_F(LocalizationRoiTest, RejectsCloudWhenOnlyOutsideLocalizationRoiRemain) {
+    auto map_result = radar_lidar::map_data::MapData::load(map_pcd_, 0.1);
     ASSERT_TRUE(map_result.has_value()) << map_result.error();
 
-    radar::lidar::config::LocalizationConfig cfg;
+    radar_lidar::config::LocalizationConfig cfg;
     cfg.use_spherical_grid = false;
     cfg.accumulate_frames  = 0;
 
-    radar::lidar::LocalizationStage localization(*map_result, cfg);
+    radar_lidar::localization::LocalizationStage localization(*map_result, cfg);
 
-    radar::lidar::types::Frame frame;
+    radar_lidar::types::Frame frame;
     for (int i = 0; i < 80; ++i) {
         frame.points.emplace_back(4.0, -2.0 + i * 0.01, 1.0);
     }

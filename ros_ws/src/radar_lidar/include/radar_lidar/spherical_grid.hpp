@@ -8,9 +8,9 @@
 
 #include <Eigen/Core>
 
-#include "radar_lidar/types.hpp"
+#include "radar_lidar/data_format.hpp"
 
-namespace radar::lidar {
+namespace radar_lidar::spherical_grid {
 
 /// @brief 球面网格预处理
 /// 将点云按球面角度（方位角×俯仰角）分桶，每个网格只保留最远的点
@@ -43,4 +43,4 @@ private:
     std::unordered_map<std::uint64_t, GridCell> grid_map_;
 };
 
-} // namespace radar::lidar
+} // namespace radar_lidar::spherical_grid

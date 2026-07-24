@@ -8,9 +8,9 @@
 #include <numbers>
 #include <ranges>
 
-#include "radar_lidar/localization.hpp"
+#include "radar_lidar/data_format.hpp"
+#include "radar_lidar/localization_stage.hpp"
 #include "radar_lidar/map_data.hpp"
-#include "radar_lidar/types.hpp"
 
 namespace {
 
@@ -39,10 +39,12 @@ auto make_cube_surface(double size, double step) -> pcl::PointCloud<pcl::PointXY
 }
 
 auto make_frame_from_cloud(const pcl::PointCloud<pcl::PointXYZ>& cloud)
-    -> radar::lidar::types::Frame {
-    auto points = cloud.points
-        | std::views::transform([](const auto& pt) { return Eigen::Vector3d(pt.x, pt.y, pt.z); })
-        | std::ranges::to<std::vector<Eigen::Vector3d>>();
+    -> radar_lidar::types::Frame {
+    std::vector<Eigen::Vector3d> points;
+    points.reserve(cloud.points.size());
+    for (const auto& pt : cloud.points) {
+        points.emplace_back(pt.x, pt.y, pt.z);
+    }
     return { .points = std::move(points) };
 }
 
@@ -60,18 +62,18 @@ protected:
 } // namespace
 
 TEST_F(LocalizationTest, IdentityTransform) {
-    auto map_result = radar::lidar::MapData::load(map_pcd_, 0.1);
+    auto map_result = radar_lidar::map_data::MapData::load(map_pcd_, 0.1);
     ASSERT_TRUE(map_result.has_value()) << map_result.error();
     auto map = *map_result;
 
-    radar::lidar::config::LocalizationConfig cfg;
+    radar_lidar::config::LocalizationConfig cfg;
     cfg.num_threads        = 2;
     cfg.max_iterations     = 50;
     cfg.max_corr_distance  = 1.0;
     cfg.use_spherical_grid = false;
     cfg.accumulate_frames  = 0;
 
-    auto localization = radar::lidar::LocalizationStage(map, cfg);
+    auto localization = radar_lidar::localization::LocalizationStage(map, cfg);
     auto frame        = make_frame_from_cloud(map->pcl_cloud());
 
     auto result = localization.process(frame);
@@ -85,28 +87,31 @@ TEST_F(LocalizationTest, IdentityTransform) {
 }
 
 TEST_F(LocalizationTest, KnownTranslation) {
-    auto map_result = radar::lidar::MapData::load(map_pcd_, 0.1);
+    auto map_result = radar_lidar::map_data::MapData::load(map_pcd_, 0.1);
     ASSERT_TRUE(map_result.has_value()) << map_result.error();
     auto map = *map_result;
 
-    radar::lidar::config::LocalizationConfig cfg;
+    radar_lidar::config::LocalizationConfig cfg;
     cfg.num_threads        = 2;
     cfg.max_iterations     = 100;
     cfg.max_corr_distance  = 2.0;
     cfg.use_spherical_grid = false;
     cfg.accumulate_frames  = 0;
 
-    auto localization = radar::lidar::LocalizationStage(map, cfg);
+    auto localization = radar_lidar::localization::LocalizationStage(map, cfg);
 
     Eigen::Isometry3d init_pose = Eigen::Isometry3d::Identity();
     init_pose.translation()     = Eigen::Vector3d(-0.5, -0.3, 0.0);
     localization.set_initial_pose(init_pose);
 
     const Eigen::Vector3d shift(0.5, 0.3, 0.0);
-    auto points = map->pcl_cloud().points | std::views::transform([&shift](const auto& pt) {
-        return Eigen::Vector3d(pt.x + shift.x(), pt.y + shift.y(), pt.z + shift.z());
-    }) | std::ranges::to<std::vector<Eigen::Vector3d>>();
-    auto frame  = radar::lidar::types::Frame { .points = std::move(points) };
+    std::vector<Eigen::Vector3d> points;
+    const auto& pts = map->pcl_cloud().points;
+    points.reserve(pts.size());
+    for (const auto& pt : pts) {
+        points.emplace_back(pt.x + shift.x(), pt.y + shift.y(), pt.z + shift.z());
+    }
+    auto frame = radar_lidar::types::Frame { .points = std::move(points) };
 
     auto result = localization.process(frame);
     ASSERT_TRUE(result.has_value()) << result.error();
@@ -118,18 +123,18 @@ TEST_F(LocalizationTest, KnownTranslation) {
 }
 
 TEST_F(LocalizationTest, KnownRotation) {
-    auto map_result = radar::lidar::MapData::load(map_pcd_, 0.1);
+    auto map_result = radar_lidar::map_data::MapData::load(map_pcd_, 0.1);
     ASSERT_TRUE(map_result.has_value()) << map_result.error();
     auto map = *map_result;
 
-    radar::lidar::config::LocalizationConfig cfg;
+    radar_lidar::config::LocalizationConfig cfg;
     cfg.num_threads        = 2;
     cfg.max_iterations     = 100;
     cfg.max_corr_distance  = 2.0;
     cfg.use_spherical_grid = false;
     cfg.accumulate_frames  = 0;
 
-    auto localization = radar::lidar::LocalizationStage(map, cfg);
+    auto localization = radar_lidar::localization::LocalizationStage(map, cfg);
 
     Eigen::Isometry3d init_pose = Eigen::Isometry3d::Identity();
     init_pose.linear() =
@@ -148,26 +153,26 @@ TEST_F(LocalizationTest, KnownRotation) {
 }
 
 TEST_F(LocalizationTest, EmptyScanReturnsError) {
-    auto map_result = radar::lidar::MapData::load(map_pcd_, 0.1);
+    auto map_result = radar_lidar::map_data::MapData::load(map_pcd_, 0.1);
     ASSERT_TRUE(map_result.has_value());
     auto map = *map_result;
 
-    radar::lidar::config::LocalizationConfig cfg;
-    auto localization = radar::lidar::LocalizationStage(map, cfg);
+    radar_lidar::config::LocalizationConfig cfg;
+    auto localization = radar_lidar::localization::LocalizationStage(map, cfg);
 
-    radar::lidar::types::Frame empty_frame;
+    radar_lidar::types::Frame empty_frame;
     auto result = localization.process(empty_frame);
     EXPECT_FALSE(result.has_value());
     EXPECT_NE(result.error().find("Empty scan"), std::string::npos);
 }
 
 TEST_F(LocalizationTest, SetInitialPoseAndReset) {
-    auto map_result = radar::lidar::MapData::load(map_pcd_, 0.1);
+    auto map_result = radar_lidar::map_data::MapData::load(map_pcd_, 0.1);
     ASSERT_TRUE(map_result.has_value());
     auto map = *map_result;
 
-    radar::lidar::config::LocalizationConfig cfg;
-    auto localization = radar::lidar::LocalizationStage(map, cfg);
+    radar_lidar::config::LocalizationConfig cfg;
+    auto localization = radar_lidar::localization::LocalizationStage(map, cfg);
 
     Eigen::Isometry3d pose = Eigen::Isometry3d::Identity();
     pose.translation()     = Eigen::Vector3d(1.0, 2.0, 3.0);

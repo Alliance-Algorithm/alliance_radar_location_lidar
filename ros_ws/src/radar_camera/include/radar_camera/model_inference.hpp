@@ -10,6 +10,10 @@
 
 namespace radar_camera::model_inference {
 
+auto filter_detections(const std::vector<float>& raw_output, int num_detections, int stride,
+    int src_width, int src_height, const inference_config::InferenceConfig& config)
+    -> std::expected<std::vector<detection::Detection>, std::string>;
+
 class ModelInference {
 public:
     ModelInference()  = default;
@@ -30,12 +34,10 @@ public:
             std::string>;
 
 private:
-    cv::Mat resized_img_;
-    cv::Mat rgb_img_;
-    cv::Mat float_img_;
     ov::Tensor input_tensor_;
     std::vector<float> raw_buffer_;
     std::vector<detection::Detection> postprocess_buffer_;
+    ov::Shape last_output_shape_;
 
     inference_config::InferenceConfig config_;
     ov::Core core_;

@@ -4,9 +4,9 @@
 
 #include <gtest/gtest.h>
 
-#include "radar_lidar/cluster.hpp"
-#include "radar_lidar/dynamic_cloud.hpp"
-#include "radar_lidar/types.hpp"
+#include "radar_lidar/cluster_stage.hpp"
+#include "radar_lidar/data_format.hpp"
+#include "radar_lidar/dynamic_cloud_stage.hpp"
 
 namespace {
 
@@ -28,18 +28,18 @@ auto make_wall(int nx, int ny, double step, double offset_x = 0.0, double offset
 TEST(DynamicCloudTest, ExtractsObstacleFromWall) {
     auto map = make_wall(10, 10, 0.5, 10.0, 5.0, 0.5);
 
-    radar::lidar::types::PointCloud scan;
+    radar_lidar::types::PointCloud scan;
     for (const auto& pt : map->points)
         scan.emplace_back(pt.x, pt.y, pt.z);
     for (int i = 0; i < 10; ++i)
         scan.emplace_back(5.0 + i * 0.05, 5.0, 0.5);
 
-    radar::lidar::DynamicCloudConfig cfg;
+    radar_lidar::config::DynamicCloudConfig cfg;
     cfg.distance_threshold = 0.1;
     cfg.num_threads        = 2;
     cfg.accumulate_frames  = 0;
 
-    radar::lidar::DynamicCloudStage stage(cfg);
+    radar_lidar::dynamic_cloud::DynamicCloudStage stage(cfg);
     stage.set_map(map);
 
     auto result = stage.process(scan);
@@ -56,21 +56,21 @@ TEST(DynamicCloudTest, ExtractsObstacleFromWall) {
 TEST(DynamicCloudTest, EmptyScanReturnsError) {
     auto map = make_wall(5, 5, 0.5);
 
-    radar::lidar::DynamicCloudConfig cfg;
+    radar_lidar::config::DynamicCloudConfig cfg;
     cfg.accumulate_frames = 0;
-    radar::lidar::DynamicCloudStage stage(cfg);
+    radar_lidar::dynamic_cloud::DynamicCloudStage stage(cfg);
     stage.set_map(map);
 
-    radar::lidar::types::PointCloud empty;
+    radar_lidar::types::PointCloud empty;
     auto result = stage.process(empty);
     EXPECT_FALSE(result.has_value());
 }
 
 TEST(DynamicCloudTest, NoMapReturnsError) {
-    radar::lidar::DynamicCloudConfig cfg;
-    radar::lidar::DynamicCloudStage stage(cfg);
+    radar_lidar::config::DynamicCloudConfig cfg;
+    radar_lidar::dynamic_cloud::DynamicCloudStage stage(cfg);
 
-    radar::lidar::types::PointCloud scan;
+    radar_lidar::types::PointCloud scan;
     scan.emplace_back(1.0, 2.0, 3.0);
     auto result = stage.process(scan);
     EXPECT_FALSE(result.has_value());
@@ -87,17 +87,17 @@ TEST(DynamicCloudTest, FiltersOutExcludedMapRegions) {
     const Eigen::Vector3d outside_main_roi { -11.5, -3.5, 0.5 };
     const Eigen::Vector3d kept_point { -4.0, 2.5, 0.5 };
 
-    radar::lidar::types::PointCloud scan;
+    radar_lidar::types::PointCloud scan;
     scan.push_back(in_corner_exclusion);
     scan.push_back(in_slope_exclusion);
     scan.push_back(outside_main_roi);
     scan.push_back(kept_point);
 
-    radar::lidar::DynamicCloudConfig cfg;
+    radar_lidar::config::DynamicCloudConfig cfg;
     cfg.distance_threshold = 0.1;
     cfg.accumulate_frames  = 0;
 
-    radar::lidar::DynamicCloudStage stage(cfg);
+    radar_lidar::dynamic_cloud::DynamicCloudStage stage(cfg);
     stage.set_map(map);
 
     auto result = stage.process(scan);
@@ -109,16 +109,16 @@ TEST(DynamicCloudTest, FiltersOutExcludedMapRegions) {
 }
 
 TEST(ClusterTest, SingleCluster) {
-    radar::lidar::types::PointCloud points;
+    radar_lidar::types::PointCloud points;
     for (int i = 0; i < 10; ++i)
         points.emplace_back(1.0 + i * 0.05, 2.0, 3.0);
 
-    radar::lidar::ClusterConfig cfg;
+    radar_lidar::config::ClusterConfig cfg;
     cfg.cluster_tolerance = 0.25;
     cfg.min_cluster_size  = 5;
     cfg.max_cluster_size  = 1000;
 
-    radar::lidar::ClusterStage stage(cfg);
+    radar_lidar::cluster::ClusterStage stage(cfg);
     auto result = stage.process(points);
     ASSERT_TRUE(result.has_value()) << result.error();
     ASSERT_EQ(result->size(), 1u);
@@ -134,45 +134,45 @@ TEST(ClusterTest, SingleCluster) {
 }
 
 TEST(ClusterTest, TwoClusters) {
-    radar::lidar::types::PointCloud points;
+    radar_lidar::types::PointCloud points;
     for (int i = 0; i < 10; ++i)
         points.emplace_back(i * 0.05, 0.0, 0.0);
     for (int i = 0; i < 10; ++i)
         points.emplace_back(10.0 + i * 0.05, 0.0, 0.0);
 
-    radar::lidar::ClusterConfig cfg;
+    radar_lidar::config::ClusterConfig cfg;
     cfg.cluster_tolerance = 0.25;
     cfg.min_cluster_size  = 5;
     cfg.max_cluster_size  = 1000;
 
-    radar::lidar::ClusterStage stage(cfg);
+    radar_lidar::cluster::ClusterStage stage(cfg);
     auto result = stage.process(points);
     ASSERT_TRUE(result.has_value()) << result.error();
     EXPECT_EQ(result->size(), 2u);
 }
 
 TEST(ClusterTest, EmptyInputReturnsEmpty) {
-    radar::lidar::ClusterConfig cfg;
-    radar::lidar::ClusterStage stage(cfg);
+    radar_lidar::config::ClusterConfig cfg;
+    radar_lidar::cluster::ClusterStage stage(cfg);
 
-    radar::lidar::types::PointCloud empty;
+    radar_lidar::types::PointCloud empty;
     auto result = stage.process(empty);
     ASSERT_TRUE(result.has_value());
     EXPECT_TRUE(result->empty());
 }
 
 TEST(ClusterTest, TooFewPointsFiltered) {
-    radar::lidar::types::PointCloud points;
+    radar_lidar::types::PointCloud points;
     points.emplace_back(0, 0, 0);
     points.emplace_back(0.1, 0, 0);
     points.emplace_back(0.2, 0, 0);
 
-    radar::lidar::ClusterConfig cfg;
+    radar_lidar::config::ClusterConfig cfg;
     cfg.cluster_tolerance = 0.25;
     cfg.min_cluster_size  = 5;
     cfg.max_cluster_size  = 1000;
 
-    radar::lidar::ClusterStage stage(cfg);
+    radar_lidar::cluster::ClusterStage stage(cfg);
     auto result = stage.process(points);
     ASSERT_TRUE(result.has_value());
     EXPECT_TRUE(result->empty());

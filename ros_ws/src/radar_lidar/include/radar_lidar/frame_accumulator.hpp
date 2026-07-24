@@ -3,9 +3,9 @@
 #include <deque>
 #include <vector>
 
-#include "radar_lidar/types.hpp"
+#include "radar_lidar/data_format.hpp"
 
-namespace radar::lidar {
+namespace radar_lidar::frame_accumulator {
 
 /// @brief 滑动窗口帧累积器
 /// 维护最近 N 帧点云，用于球面网格预处理时积累足够点密度
@@ -35,4 +35,4 @@ private:
     std::deque<types::PointCloud> frames_;
 };
 
-} // namespace radar::lidar
+} // namespace radar_lidar::frame_accumulator

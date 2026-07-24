@@ -6,35 +6,9 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 
-namespace radar::fusion {
+#include "radar_fusion/data_format.hpp"
 
-enum class TrackLifecycle {
-    TENTATIVE,
-    CONFIRMED,
-    DELETED,
-};
-
-/// 2D 常速卡尔曼滤波器状态: [x, y, vx, vy]
-struct KalmanState {
-    Eigen::Vector4d x = Eigen::Vector4d::Zero();
-    Eigen::Matrix4d P = Eigen::Matrix4d::Identity();
-
-    int64_t last_update_ns   = 0;
-    int track_id             = -1;
-    int hit_count            = 0;
-    int miss_count           = 0;
-    int color                = -1; // 0=blue, 2=red, -1=unknown
-    int number               = -1; // robot number 0-5
-    TrackLifecycle lifecycle = TrackLifecycle::TENTATIVE;
-
-    [[nodiscard]] auto position() const -> Eigen::Vector2d { return x.head<2>(); }
-    [[nodiscard]] auto velocity() const -> Eigen::Vector2d { return x.tail<2>(); }
-    [[nodiscard]] auto is_stale(int64_t now_ns, double timeout_sec) const -> bool;
-    [[nodiscard]] auto is_deleted() const -> bool { return lifecycle == TrackLifecycle::DELETED; }
-    [[nodiscard]] auto is_confirmed() const -> bool {
-        return lifecycle == TrackLifecycle::CONFIRMED;
-    }
-};
+namespace radar_fusion::kalman_tracker {
 
 /// 单个目标的 2D 常速卡尔曼滤波器
 class KalmanTracker {
@@ -66,4 +40,4 @@ private:
     double measurement_noise_ = 0.25;
 };
 
-} // namespace radar::fusion
+} // namespace radar_fusion::kalman_tracker

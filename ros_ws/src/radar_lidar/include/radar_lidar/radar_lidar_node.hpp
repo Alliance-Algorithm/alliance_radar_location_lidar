@@ -13,18 +13,18 @@
 #include <tf2_ros/transform_listener.h>
 #include <visualization_msgs/msg/marker_array.hpp>
 
-#include "radar_lidar/cluster.hpp"
-#include "radar_lidar/config.hpp"
-#include "radar_lidar/dynamic_cloud.hpp"
-#include "radar_lidar/localization.hpp"
+#include "radar_lidar/cluster_stage.hpp"
+#include "radar_lidar/data_format.hpp"
+#include "radar_lidar/dynamic_cloud_stage.hpp"
+#include "radar_lidar/localization_stage.hpp"
 #include "radar_lidar/map_data.hpp"
-#include "radar_lidar/types.hpp"
 
-namespace radar::lidar {
+namespace radar_lidar::node {
 
-class LidarPipeline : public rclcpp::Node {
+class RadarLidarNode final : public rclcpp::Node {
 public:
-    LidarPipeline();
+    RadarLidarNode();
+    explicit RadarLidarNode(const rclcpp::NodeOptions& options);
 
 private:
     void on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg);
@@ -32,7 +32,8 @@ private:
     void publish_dynamic_tf(const types::PoseEstimate& pose, types::Timestamp stamp);
     void publish_diagnostics(const types::PoseEstimate& pose, double elapsed_ms, uint64_t frame);
     void publish_dynamic(const types::PointCloud& dynamic_points, types::Timestamp stamp);
-    void publish_clusters(const std::vector<ClusterResult>& clusters, types::Timestamp stamp);
+    void publish_clusters(
+        const std::vector<cluster::ClusterResult>& clusters, types::Timestamp stamp);
 
     void transform_scan_to_map(const types::PointCloud& scan, const types::PoseEstimate& pose,
         types::PointCloud& transformed);
@@ -43,10 +44,10 @@ private:
     auto try_odin_relocalization_pose(const std::string& source_frame, const rclcpp::Time& stamp)
         -> std::optional<types::PoseEstimate>;
 
-    std::shared_ptr<const MapData> map_;
-    LocalizationStage localization_;
-    DynamicCloudStage dynamic_stage_;
-    ClusterStage cluster_stage_;
+    std::shared_ptr<const map_data::MapData> map_;
+    localization::LocalizationStage localization_;
+    dynamic_cloud::DynamicCloudStage dynamic_stage_;
+    cluster::ClusterStage cluster_stage_;
 
     std::string scan_topic_   = "/livox/lidar";
     std::string hardware_id_  = "livox_mid70";
@@ -72,4 +73,4 @@ private:
     bool was_odin_relocalized_ { false };
 };
 
-} // namespace radar::lidar
+} // namespace radar_lidar::node

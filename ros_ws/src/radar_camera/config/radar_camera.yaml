@@ -1,6 +1,7 @@
 radar_camera_node:
   ros__parameters:
     enemy_color: "blue"
+    # Class ids must match best_fixed_names export (red 0-5, blue 6-11)
     hero_red: 0
     engineer_red: 1
     infantry3_red: 2
@@ -18,8 +19,11 @@ radar_camera_node:
     model_input_width: 1280
     model_input_height: 1280
     conf_threshold: 0.6
-    min_length_width_rate: 0.8
-    max_length_width_rate: 1.5
+    min_length_width_rate: 0.5
+    max_length_width_rate: 3.0
+    drone_min_length_width_rate: 2.0
+    drone_max_length_width_rate: 10.0
+    drone_class_ids: [5, 11]
     use_openvino: true
     num_classes: 12
     mesh_path: "/workspace/ros_ws/src/radar_camera/model"

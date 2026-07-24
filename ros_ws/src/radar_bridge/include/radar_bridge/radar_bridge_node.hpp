@@ -17,8 +17,6 @@ struct BridgeConfig {
     std::string shm_name;
     std::string video_pub_address;
     std::string image_topic;
-    int video_width  = 0;
-    int video_height = 0;
 };
 
 auto ConfigsLoader(rclcpp::Node& node, BridgeConfig& config) -> std::expected<void, std::string>;

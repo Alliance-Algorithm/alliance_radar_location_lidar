@@ -2,7 +2,7 @@
 
 #include <Eigen/Cholesky>
 
-namespace radar::fusion {
+namespace radar_fusion::kalman_tracker {
 
 KalmanTracker::KalmanTracker(int track_id) { state_.track_id = track_id; }
 
@@ -74,4 +74,4 @@ auto KalmanState::is_stale(int64_t now_ns, double timeout_sec) const -> bool {
     return age > timeout_sec;
 }
 
-} // namespace radar::fusion
+} // namespace radar_fusion::kalman_tracker

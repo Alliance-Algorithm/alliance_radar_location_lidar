@@ -7,10 +7,9 @@
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 
-#include "radar_lidar/config.hpp"
-#include "radar_lidar/types.hpp"
+#include "radar_lidar/data_format.hpp"
 
-namespace radar::lidar::geom {
+namespace radar_lidar::geom {
 
 /// @brief 判断点是否在 AABB 范围内
 [[nodiscard]] inline auto in_roi_aabb(const Eigen::Vector3d& p, const config::RoiBounds& roi)
@@ -26,8 +25,14 @@ namespace radar::lidar::geom {
     if (!roi.use_roi) {
         return points;
     }
-    return points | std::views::filter([&roi](const auto& p) { return in_roi_aabb(p, roi); })
-        | std::ranges::to<types::PointCloud>();
+    types::PointCloud result;
+    result.reserve(points.size());
+    for (const auto& p : points) {
+        if (in_roi_aabb(p, roi)) {
+            result.push_back(p);
+        }
+    }
+    return result;
 }
 
 /// @brief 由 yaw(Z)+pitch(Y) 组装位姿 (roll=0)
@@ -55,12 +60,15 @@ namespace radar::lidar::geom {
 /// 替代 pipeline.cpp / offline_test_node.cpp / registration_tool.cpp 中重复的过滤逻辑
 [[nodiscard]] inline auto filter_valid_points(const pcl::PointCloud<pcl::PointXYZ>& pcl_cloud)
     -> types::Frame {
-    auto points = pcl_cloud.points | std::views::filter([](const auto& pt) {
-        return std::isfinite(pt.x) && std::isfinite(pt.y) && std::isfinite(pt.z)
-            && (pt.x * pt.x + pt.y * pt.y + pt.z * pt.z) > 1e-12;
-    }) | std::views::transform([](const auto& pt) { return Eigen::Vector3d(pt.x, pt.y, pt.z); })
-        | std::ranges::to<types::PointCloud>();
+    types::PointCloud points;
+    points.reserve(pcl_cloud.points.size());
+    for (const auto& pt : pcl_cloud.points) {
+        if (std::isfinite(pt.x) && std::isfinite(pt.y) && std::isfinite(pt.z)
+            && (pt.x * pt.x + pt.y * pt.y + pt.z * pt.z) > 1e-12) {
+            points.emplace_back(pt.x, pt.y, pt.z);
+        }
+    }
     return { .points = std::move(points) };
 }
 
-} // namespace radar::lidar::geom
+} // namespace radar_lidar::geom

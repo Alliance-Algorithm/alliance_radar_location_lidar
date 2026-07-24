@@ -10,8 +10,8 @@
 	branch = jazzy-fixes
 [submodule "lidar_ros_driver/livox_ros2_driver"]
 	path = lidar_ros_driver/livox_ros2_driver
-	url = https://github.com/yukikaze223344/livox_ros_driver2.git
-[submodule "rus_ws/third-party/hikcamera_sdk"]
+	url = https://github.com/yukikaze223344/livox_ros2_driver.git
+[submodule "ros_ws/third-party/hikcamera_sdk"]
 	path = ros_ws/third-party/hikcamera_sdk
 	url = https://github.com/HarryPotter1tech/hikcamera_sdk.git
 [submodule "ros_ws/third-party/direct_visual_lidar_calibration"]

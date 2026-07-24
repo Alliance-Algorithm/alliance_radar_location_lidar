@@ -27,36 +27,161 @@ fi
 python3 - <<'PY' "${HOST_WORKSPACE}" "${CONTAINER_WORKSPACE}" "${OUTPUT_PATH}" "${COMPILE_DB_FILES[@]}"
 import json
 import os
+import shlex
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 
-host_workspace = sys.argv[1]
+host_workspace = Path(sys.argv[1]).resolve()
 container_workspace = sys.argv[2]
-output_path = Path(sys.argv[3])
+requested_output = Path(sys.argv[3]).resolve()
 db_files = [Path(path) for path in sys.argv[4:]]
+cache = host_workspace / ".clangd-headers"
 
-def rewrite(value):
-    if isinstance(value, str):
-        value = value.replace(container_workspace, host_workspace)
-        cache = Path(host_workspace) / ".clangd-headers"
-        value = value.replace("/usr/include/eigen3", str(cache / "usr/include/eigen3"))
-        value = value.replace("/usr/include/pcl-1.14", str(cache / "usr/include/pcl-1.14"))
-        value = value.replace("/usr/include/assimp", str(cache / "usr/include/assimp"))
-        return value
-    if isinstance(value, list):
-        return [rewrite(item) for item in value]
-    if isinstance(value, dict):
-        return {key: rewrite(item) for key, item in value.items()}
+required_cache_files = [
+    cache / "usr/include/c++/14/string_view",
+    cache / "usr/include/x86_64-linux-gnu/c++/14/bits/c++config.h",
+    cache / "usr/include/boost/mpl/assert.hpp",
+    cache / "opt/ros/jazzy/include/rclcpp/rclcpp/rclcpp.hpp",
+]
+for path in required_cache_files:
+    if not path.is_file():
+        raise SystemExit(f"> ERROR: Required clangd header cache file is missing: {path}")
+
+cached_omp_header = cache / "usr/lib/gcc/x86_64-linux-gnu/14/include/omp.h"
+if not cached_omp_header.is_file():
+    raise SystemExit(f"> ERROR: Required clangd OpenMP header is missing: {cached_omp_header}")
+openmp_overlay = cache / "overlays/openmp"
+openmp_overlay.mkdir(parents=True, exist_ok=True)
+shutil.copyfile(cached_omp_header, openmp_overlay / "omp.h")
+
+def rewrite_workspace_path(value):
+    if value == container_workspace:
+        return str(host_workspace)
+    prefix = container_workspace + "/"
+    if value.startswith(prefix):
+        return str(host_workspace) + value.removeprefix(container_workspace)
     return value
 
-merged = []
+
+toolchain_includes = [
+    cache / "usr/include/c++/14",
+    cache / "usr/include/x86_64-linux-gnu/c++/14",
+    cache / "usr/include/c++/14/backward",
+    openmp_overlay,
+    cache / "usr/include",
+]
+
+
+def add_toolchain_includes(entry):
+    flags = ["-nostdinc++", *[flag for path in toolchain_includes for flag in ("-isystem", str(path))]]
+    if "arguments" in entry:
+        entry["arguments"] = [entry["arguments"][0], *flags, *entry["arguments"][1:]]
+    if "command" in entry:
+        command = shlex.split(entry["command"])
+        entry["command"] = shlex.join([command[0], *flags, *command[1:]])
+    return entry
+
+
+def cached_include_path(path):
+    include_path = Path(path)
+    install_root = host_workspace / "ros_ws/install"
+    if include_path.is_relative_to(install_root):
+        candidate = cache / "ros_ws/install" / include_path.relative_to(install_root)
+        if candidate.is_dir():
+            return str(candidate)
+    if include_path.is_absolute():
+        candidate = cache / include_path.relative_to("/")
+        if candidate.is_dir():
+            return str(candidate)
+    return path
+
+
+def rewrite_arguments(arguments):
+    rewritten = []
+    index = 0
+    while index < len(arguments):
+        argument = arguments[index]
+        if argument in {"-I", "-isystem", "-iquote", "-idirafter"} and index + 1 < len(arguments):
+            include_path = rewrite_workspace_path(arguments[index + 1])
+            rewritten.extend((argument, cached_include_path(include_path)))
+            index += 2
+            continue
+        if argument.startswith("-I") and len(argument) > 2:
+            include_path = rewrite_workspace_path(argument[2:])
+            rewritten.append("-I" + cached_include_path(include_path))
+        else:
+            rewritten.append(rewrite_workspace_path(argument))
+        index += 1
+    return rewritten
+
+
+def rewrite_entry(entry):
+    for key in ("directory", "file", "output"):
+        if key in entry:
+            entry[key] = rewrite_workspace_path(entry[key])
+    if "arguments" in entry:
+        entry["arguments"] = rewrite_arguments(entry["arguments"])
+    if "command" in entry:
+        entry["command"] = shlex.join(rewrite_arguments(shlex.split(entry["command"])))
+    return add_toolchain_includes(entry)
+
+# Container-native merge: keep /workspace paths for in-container clangd.
+container_merged = []
 for db_file in db_files:
     with db_file.open() as handle:
-        data = json.load(handle)
-    merged.extend(rewrite(entry) for entry in data)
+        container_merged.extend(json.load(handle))
 
-output_path.write_text(json.dumps(merged, indent=2) + "\n")
+# Host-rewritten merge: absolute host paths + header cache for Neovim.
+host_merged = [rewrite_entry(dict(entry)) for entry in container_merged]
+
+for entry in host_merged:
+    for key in ("directory", "file"):
+        if entry.get(key, "").startswith(container_workspace):
+            raise SystemExit(f"> ERROR: Stale container path remains in {key}: {entry[key]}")
+    command_arguments = shlex.split(entry.get("command", ""))
+    if any(argument.startswith(container_workspace) for argument in command_arguments):
+        raise SystemExit(f"> ERROR: Stale container path remains in command for {entry.get('file')}")
+    if any(argument.startswith(container_workspace) for argument in entry.get("arguments", [])):
+        raise SystemExit(f"> ERROR: Stale container path remains in arguments for {entry.get('file')}")
+
+
+def write_atomic(path, data):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile("w", dir=path.parent, delete=False) as handle:
+        json.dump(data, handle, indent=2)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+        temporary_path = Path(handle.name)
+    os.replace(temporary_path, path)
+
+
+# Host Neovim uses the root DB (and optional explicit path).
+root_output = host_workspace / "compile_commands.json"
+host_output_paths = {root_output.resolve(), requested_output}
+for output_path in host_output_paths:
+    write_atomic(output_path, host_merged)
+
+# Preserve container-native DB separately so export does not poison container clangd.
+container_output = host_workspace / "compile_commands.container.json"
+write_atomic(container_output, container_merged)
+# ros_ws/ is only for container discovery after build-all; keep it container-native.
+ros_ws_output = host_workspace / "ros_ws" / "compile_commands.json"
+write_atomic(ros_ws_output, container_merged)
+
 print(f"merged_files={len(db_files)}")
-print(f"merged_entries={len(merged)}")
-print(f"output={output_path}")
+print(f"merged_entries={len(host_merged)}")
+print(f"host_root_output={root_output}")
+print(f"container_output={container_output}")
+print(f"ros_ws_container_output={ros_ws_output}")
+if requested_output not in {root_output.resolve()}:
+    print(f"requested_output={requested_output}")
+print(
+    "> host: root compile_commands.json uses host paths for Neovim.\n"
+    "> container: ros_ws/compile_commands.json and compile_commands.container.json keep /workspace paths.\n"
+    "> after export, container clangd: copy compile_commands.container.json -> compile_commands.json, "
+    "or re-run build-all/build-radar inside the container."
+)
 PY

@@ -19,10 +19,10 @@
 #include <string_view>
 #include <vector>
 
+#include "radar_lidar/data_format.hpp"
 #include "radar_lidar/geometry_utils.hpp"
-#include "radar_lidar/localization.hpp"
+#include "radar_lidar/localization_stage.hpp"
 #include "radar_lidar/map_data.hpp"
-#include "radar_lidar/types.hpp"
 
 namespace {
 
@@ -160,7 +160,7 @@ auto parse_args(int argc, char** argv) -> std::expected<Args, std::string> {
     return args;
 }
 
-auto write_pose_json(const std::string& path, const radar::lidar::types::PoseEstimate& pose)
+auto write_pose_json(const std::string& path, const radar_lidar::types::PoseEstimate& pose)
     -> std::expected<void, std::string> {
     const auto& t_map_lidar = pose.t_map_lidar;
     const auto trans        = t_map_lidar.translation();
@@ -172,8 +172,11 @@ auto write_pose_json(const std::string& path, const radar::lidar::types::PoseEst
         return std::format("    [{:.8f}, {:.8f}, {:.8f}, {:.8f}, {:.8f}, {:.8f}]{}", r(0), r(1),
             r(2), r(3), r(4), r(5), i < 5 ? "," : "");
     };
-    auto cov = std::views::iota(0, 6) | std::views::transform(fmt_row) | std::views::join_with('\n')
-        | std::ranges::to<std::string>();
+    std::string cov;
+    for (int i = 0; i < 6; ++i) {
+        cov += fmt_row(i);
+        if (i < 5) cov += '\n';
+    }
 
     auto json = std::format("{{\n"
                             "  \"frame\": \"work_center_origin_zup_meters\",\n"
@@ -200,7 +203,7 @@ auto write_pose_json(const std::string& path, const radar::lidar::types::PoseEst
 }
 
 auto build_merged_pcd(const pcl::PointCloud<pcl::PointXYZ>& map_cloud,
-    const radar::lidar::types::PointCloud& scan, const Eigen::Isometry3d& T)
+    const radar_lidar::types::PointCloud& scan, const Eigen::Isometry3d& T)
     -> pcl::PointCloud<pcl::PointXYZI>::Ptr {
     auto merged = pcl::make_shared<pcl::PointCloud<pcl::PointXYZI>>();
     merged->reserve(map_cloud.size() + scan.size());
@@ -228,7 +231,7 @@ int main(int argc, char** argv) {
     const auto& args = *args_result;
 
     std::println("[registration_tool] Loading map: {}", args.map_path);
-    auto map_result = radar::lidar::MapData::load(args.map_path, args.voxel_leaf);
+    auto map_result = radar_lidar::map_data::MapData::load(args.map_path, args.voxel_leaf);
     if (!map_result) {
         std::println(stderr, "[registration_tool] ERROR: {}", map_result.error());
         return 1;
@@ -254,7 +257,7 @@ int main(int argc, char** argv) {
         scan_pcl = downsampled;
     }
 
-    auto frame = radar::lidar::geom::filter_valid_points(*scan_pcl);
+    auto frame = radar_lidar::geom::filter_valid_points(*scan_pcl);
     std::println("[registration_tool] Scan loaded: {} valid points", frame.points.size());
     if (frame.points.size() < 100) {
         std::println(
@@ -262,18 +265,18 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    radar::lidar::config::LocalizationConfig cfg;
+    radar_lidar::config::LocalizationConfig cfg;
     cfg.voxel_leaf_size   = args.voxel_leaf;
     cfg.max_corr_distance = args.max_corr;
     cfg.max_iterations    = args.max_iter;
     cfg.num_threads       = args.num_threads;
     cfg.verbose           = args.verbose;
 
-    auto localization = radar::lidar::LocalizationStage(map, cfg);
+    auto localization = radar_lidar::localization::LocalizationStage(map, cfg);
 
     if (args.init_x != 0.0 || args.init_y != 0.0 || args.init_z != 0.0
         || args.init_yaw_deg != 0.0) {
-        const auto init_pose = radar::lidar::geom::pose_from_yaw_pitch(
+        const auto init_pose = radar_lidar::geom::pose_from_yaw_pitch(
             Eigen::Vector3d(args.init_x, args.init_y, args.init_z), deg_to_rad(args.init_yaw_deg),
             0.0);
         localization.set_initial_pose(init_pose);
