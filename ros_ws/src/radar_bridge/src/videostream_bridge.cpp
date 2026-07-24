@@ -3,6 +3,7 @@
 #include <iostream>
 
 #include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>
 
 namespace radar_bridge::videostream_bridge {
 
@@ -43,6 +44,8 @@ auto VideoBridge::video_thread() -> std::expected<void, std::string> {
                 continue;
             }
             auto& frame = frame_result.value();
+
+            cv::cvtColor(mat, mat, cv::COLOR_RGB2BGR);
 
             std::vector<uchar> jpeg;
             if (!cv::imencode(".jpg", frame.mat(), jpeg,

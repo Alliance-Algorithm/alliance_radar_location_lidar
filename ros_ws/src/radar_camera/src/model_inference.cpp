@@ -71,7 +71,8 @@ auto ModelInference::infer_preprocess(const cv::Mat& image, size_t width, size_t
             return std::unexpected("infer_preprocess failed: empty image");
         }
         cv::Mat blob = cv::dnn::blobFromImage(image, 1.0 / 255.0,
-            cv::Size(static_cast<int>(width), static_cast<int>(height)), cv::Scalar(), true, false);
+            cv::Size(static_cast<int>(width), static_cast<int>(height)), cv::Scalar(), false,
+            false);
 
         ov::Shape expected_shape { 1, 3, height, width };
         if (!input_tensor_ || input_tensor_.get_shape() != expected_shape) {

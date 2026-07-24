@@ -32,4 +32,6 @@ radar_camera_node:
     rotation: [0.0, 0.0, 0.0]
     translation: [0.0, 0.0, 0.0]
     pub_topic_name: "/radar_camera/robot_pose"
-    sub_topic_name: "/camera/image_raw"
+    shm_name: "/hikcamera_shm"
+    width: 5472
+    height: 3648

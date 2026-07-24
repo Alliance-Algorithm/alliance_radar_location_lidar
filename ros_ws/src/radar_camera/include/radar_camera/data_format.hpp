@@ -25,7 +25,9 @@ struct CameraConfig {
     int sentry_class_id;
     int drone_class_id;
     std::string pub_topic_name;
-    std::string sub_topic_name;
+    std::string shm_name;
+    int width  = 1920;
+    int height = 1080;
     std::vector<double> camera_matrix;
     std::vector<double> distortion_coefficients;
     std::vector<double> rotation;

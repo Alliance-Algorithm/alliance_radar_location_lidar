@@ -1,11 +1,14 @@
 #pragma once
+#include <atomic>
 #include <chrono>
 #include <expected>
 #include <memory>
 #include <opencv2/opencv.hpp>
 #include <rclcpp/rclcpp.hpp>
-#include <sensor_msgs/msg/image.hpp>
+#include <thread>
 #include <vector>
+
+#include <hikcamera/shm.hpp>
 
 #include "radar_camera/data_format.hpp"
 #include "radar_camera/model_inference.hpp"
@@ -21,15 +24,20 @@ auto ConfigsLoader(rclcpp::Node& node, camera_config::CameraConfig& camera,
 class RadarCameraNode final : public rclcpp::Node {
 public:
     RadarCameraNode();
-    ~RadarCameraNode() = default;
+    ~RadarCameraNode() override;
 
-    auto ImageCallback(sensor_msgs::msg::Image::SharedPtr msg) -> void;
     auto PublishCallback(const robot_pose::RobotPose& robot_poses) -> void;
 
-    cv::Mat ImageData;
+private:
+    auto infer_thread_start() -> std::expected<void, std::string>;
+    auto infer_thread_stop() -> void;
+
     std::chrono::steady_clock::time_point capture_timestamp_;
-    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_subscription_;
     rclcpp::Publisher<radar_interfaces::msg::CameraDetectionPose>::SharedPtr pose_publisher_;
+
+    int shm_fd_ = -1;
+    std::atomic<bool> infer_running_ { false };
+    std::thread infer_thread_;
 
     camera_config::CameraConfig camera_config_;
     inference_config::InferenceConfig inference_config_;
