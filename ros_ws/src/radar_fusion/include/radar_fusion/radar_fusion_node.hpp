@@ -14,36 +14,14 @@
 #include <vector>
 #include <visualization_msgs/msg/marker_array.hpp>
 
+#include "radar_fusion/data_format.hpp"
 #include "radar_fusion/kalman_tracker.hpp"
 
-namespace radar::fusion {
+namespace radar_fusion::node {
 
-struct FusionConfig {
-    double gate_distance         = 1.0;
-    double track_timeout_sec     = 1.5;
-    int min_hits_to_confirm      = 3;
-    int max_misses_before_delete = 2;
-    int max_tracks               = 20;
-    bool enable_camera_fusion    = false;
-    double camera_timeout_sec    = 1.5;
-    double map_to_rm_offset_x    = 14.0; // m, 地图中心→RM红方角原点 X (半场长 28/2)
-    double map_to_rm_offset_y    = 7.5;  // m, 地图中心→RM红方角原点 Y (半场宽 15/2)
-};
-
-enum class FusionMode {
-    RADAR_ONLY,
-    RADAR_CAMERA,
-    DEGRADED,
-};
-
-struct CameraObservation {
-    geometry_msgs::msg::Point position;
-    double confidence = 0.0;
-};
-
-class FusionNode : public rclcpp::Node {
+class RadarFusionNode final : public rclcpp::Node {
 public:
-    explicit FusionNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions { });
+    explicit RadarFusionNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions { });
 
 private:
     void on_lidar_pose(geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg);
@@ -51,9 +29,13 @@ private:
 
     void on_cluster(sensor_msgs::msg::PointCloud2::SharedPtr msg);
 
-    void publish_tracks(const std::vector<KalmanTracker>& tracks, const rclcpp::Time& stamp);
-    void publish_fused_tracks(const std::vector<KalmanTracker>& tracks, const rclcpp::Time& stamp);
-    void publish_lidar_location(const std::vector<KalmanTracker>& tracks);
+    void publish_tracks(const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& tracks,
+        const rclcpp::Time& stamp);
+    void publish_fused_tracks(
+        const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& tracks,
+        const rclcpp::Time& stamp);
+    void publish_lidar_location(
+        const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& tracks);
     void publish_localization_pose(const geometry_msgs::msg::PoseWithCovarianceStamped& pose);
     void publish_status(const rclcpp::Time& stamp) const;
     void update_fusion_mode(int64_t reference_stamp_ns);
@@ -61,10 +43,11 @@ private:
     void process_measurements(const std::vector<Eigen::Vector2d>& measurements, int64_t now_ns,
         bool mark_unmatched_tracks);
 
-    FusionConfig cfg_;
-    FusionMode fusion_mode_ = FusionMode::RADAR_ONLY;
-    std::vector<KalmanTracker> tracks_;
-    std::vector<CameraObservation> latest_camera_observations_;
+    radar_fusion::fusion_config::FusionConfig cfg_;
+    radar_fusion::fusion_config::FusionMode fusion_mode_ =
+        radar_fusion::fusion_config::FusionMode::RADAR_ONLY;
+    std::vector<radar_fusion::kalman_tracker::KalmanTracker> tracks_;
+    std::vector<radar_fusion::camera_observation::CameraObservation> latest_camera_observations_;
     int64_t latest_camera_stamp_ns_ = 0;
     int next_track_id_              = 0;
 
@@ -79,4 +62,4 @@ private:
     rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticStatus>::SharedPtr pub_status_;
 };
 
-} // namespace radar::fusion
+} // namespace radar_fusion::node

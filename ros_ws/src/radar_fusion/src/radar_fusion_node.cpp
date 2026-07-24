@@ -1,4 +1,4 @@
-#include "radar_fusion/fusion_node.hpp"
+#include "radar_fusion/radar_fusion_node.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -7,7 +7,7 @@
 
 #include <sensor_msgs/point_cloud2_iterator.hpp>
 
-namespace radar::fusion {
+namespace radar_fusion::node {
 
 using PoseCov = geometry_msgs::msg::PoseWithCovarianceStamped;
 
@@ -19,13 +19,13 @@ namespace {
         double distance_sq;
     };
 
-    auto to_string(FusionMode mode) -> std::string_view {
+    auto to_string(radar_fusion::fusion_config::FusionMode mode) -> std::string_view {
         switch (mode) {
-        case FusionMode::RADAR_ONLY:
+        case radar_fusion::fusion_config::FusionMode::RADAR_ONLY:
             return "RADAR_ONLY";
-        case FusionMode::RADAR_CAMERA:
+        case radar_fusion::fusion_config::FusionMode::RADAR_CAMERA:
             return "RADAR_CAMERA";
-        case FusionMode::DEGRADED:
+        case radar_fusion::fusion_config::FusionMode::DEGRADED:
             return "DEGRADED";
         }
         return "UNKNOWN";
@@ -33,7 +33,7 @@ namespace {
 
 } // namespace
 
-FusionNode::FusionNode(const rclcpp::NodeOptions& options)
+RadarFusionNode::RadarFusionNode(const rclcpp::NodeOptions& options)
     : Node("radar_fusion_node", options) {
 
     this->declare_parameter("gate_distance", 1.0);
@@ -84,15 +84,16 @@ FusionNode::FusionNode(const rclcpp::NodeOptions& options)
     RCLCPP_INFO(get_logger(),
         "radar_fusion ready. gate=%.1fm timeout=%.1fs camera=%s arena_offset=(%.1f,%.1f)m",
         cfg_.gate_distance, cfg_.track_timeout_sec, cfg_.enable_camera_fusion ? "on" : "off",
-        cfg_.arena_offset_x, cfg_.arena_offset_y);
+        cfg_.map_to_rm_offset_x, cfg_.map_to_rm_offset_y);
 }
 
-void FusionNode::on_lidar_pose(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg) {
+void RadarFusionNode::on_lidar_pose(
+    const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg) {
     publish_localization_pose(*msg);
     publish_status(rclcpp::Time(msg->header.stamp));
 }
 
-void FusionNode::on_camera_detection(
+void RadarFusionNode::on_camera_detection(
     const radar_interfaces::msg::CameraDetectionPose::SharedPtr msg) {
     auto stamp              = rclcpp::Time(msg->header.stamp);
     latest_camera_stamp_ns_ = stamp.nanoseconds();
@@ -113,10 +114,13 @@ void FusionNode::on_camera_detection(
     std::vector<Eigen::Vector2d> measurements;
     for (const auto& slot : slots) {
         if (slot.conf > 0.0 && std::isfinite(slot.pos.x) && std::isfinite(slot.pos.y)) {
-            latest_camera_observations_.push_back(CameraObservation {
-                .position   = slot.pos,
-                .confidence = slot.conf,
-            });
+            latest_camera_observations_.push_back(
+                radar_fusion::camera_observation::CameraObservation {
+                    .x          = slot.pos.x,
+                    .y          = slot.pos.y,
+                    .z          = slot.pos.z,
+                    .confidence = slot.conf,
+                });
             measurements.emplace_back(slot.pos.x, slot.pos.y);
         }
     }
@@ -130,7 +134,7 @@ void FusionNode::on_camera_detection(
     publish_status(stamp);
 }
 
-void FusionNode::process_measurements(
+void RadarFusionNode::process_measurements(
     const std::vector<Eigen::Vector2d>& measurements, int64_t now_ns, bool mark_unmatched_tracks) {
     for (auto& track : tracks_) {
         track.predict(now_ns);
@@ -179,20 +183,20 @@ void FusionNode::process_measurements(
         if (matched_meas[j]) continue;
         if (tracks_.size() >= static_cast<size_t>(cfg_.max_tracks)) break;
 
-        KalmanTracker new_track(next_track_id_++);
+        radar_fusion::kalman_tracker::KalmanTracker new_track(next_track_id_++);
         new_track.update(measurements[j], now_ns, cfg_.min_hits_to_confirm);
         tracks_.push_back(new_track);
     }
 
     tracks_.erase(std::remove_if(tracks_.begin(), tracks_.end(),
-                      [&](const KalmanTracker& t) {
+                      [&](const radar_fusion::kalman_tracker::KalmanTracker& t) {
                           return t.state().is_deleted()
                               || t.state().is_stale(now_ns, cfg_.track_timeout_sec);
                       }),
         tracks_.end());
 }
 
-void FusionNode::on_cluster(const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
+void RadarFusionNode::on_cluster(const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
     auto stamp  = rclcpp::Time(msg->header.stamp);
     auto now_ns = stamp.nanoseconds();
     update_fusion_mode(now_ns);
@@ -216,8 +220,9 @@ void FusionNode::on_cluster(const sensor_msgs::msg::PointCloud2::SharedPtr msg) 
     publish_status(stamp);
 }
 
-void FusionNode::publish_tracks(
-    const std::vector<KalmanTracker>& tracks, const rclcpp::Time& stamp) {
+void RadarFusionNode::publish_tracks(
+    const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& tracks,
+    const rclcpp::Time& stamp) {
     visualization_msgs::msg::MarkerArray markers;
 
     for (size_t i = 0; i < tracks.size(); ++i) {
@@ -311,8 +316,9 @@ void FusionNode::publish_tracks(
     pub_tracks_->publish(markers);
 }
 
-void FusionNode::publish_fused_tracks(
-    const std::vector<KalmanTracker>& tracks, const rclcpp::Time& stamp) {
+void RadarFusionNode::publish_fused_tracks(
+    const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& tracks,
+    const rclcpp::Time& stamp) {
     auto fused_markers = visualization_msgs::msg::MarkerArray();
     for (const auto& track : tracks) {
         const auto& state = track.state();
@@ -335,28 +341,36 @@ void FusionNode::publish_fused_tracks(
         marker.scale.y            = 0.2;
         marker.scale.z            = 0.2;
         marker.color.r            = 1.0f;
-        marker.color.g            = fusion_mode_ == FusionMode::RADAR_CAMERA ? 0.6f : 0.2f;
-        marker.color.b            = 1.0f;
-        marker.color.a            = 0.9f;
-        marker.lifetime           = rclcpp::Duration::from_seconds(0.5);
+        marker.color.g =
+            fusion_mode_ == radar_fusion::fusion_config::FusionMode::RADAR_CAMERA ? 0.6f : 0.2f;
+        marker.color.b  = 1.0f;
+        marker.color.a  = 0.9f;
+        marker.lifetime = rclcpp::Duration::from_seconds(0.5);
         fused_markers.markers.push_back(marker);
     }
 
     pub_fused_tracks_->publish(fused_markers);
 }
 
-void FusionNode::publish_lidar_location(const std::vector<KalmanTracker>& tracks) {
-    auto msg = radar_interfaces::msg::LidarLocation{};
+void RadarFusionNode::publish_lidar_location(
+    const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& tracks) {
+    auto msg = radar_interfaces::msg::LidarLocation { };
 
     uint16_t* const slots_x[] = {
-        &msg.opponent_hero_x,       &msg.opponent_engineer_x,
-        &msg.opponent_infantry_3_x, &msg.opponent_infantry_4_x,
-        &msg.opponent_aerial_x,     &msg.opponent_sentry_x,
+        &msg.opponent_hero_x,
+        &msg.opponent_engineer_x,
+        &msg.opponent_infantry_3_x,
+        &msg.opponent_infantry_4_x,
+        &msg.opponent_aerial_x,
+        &msg.opponent_sentry_x,
     };
     uint16_t* const slots_y[] = {
-        &msg.opponent_hero_y,       &msg.opponent_engineer_y,
-        &msg.opponent_infantry_3_y, &msg.opponent_infantry_4_y,
-        &msg.opponent_aerial_y,     &msg.opponent_sentry_y,
+        &msg.opponent_hero_y,
+        &msg.opponent_engineer_y,
+        &msg.opponent_infantry_3_y,
+        &msg.opponent_infantry_4_y,
+        &msg.opponent_aerial_y,
+        &msg.opponent_sentry_y,
     };
 
     int slot_idx = 0;
@@ -373,14 +387,14 @@ void FusionNode::publish_lidar_location(const std::vector<KalmanTracker>& tracks
     pub_lidar_location_->publish(msg);
 }
 
-void FusionNode::publish_localization_pose(
+void RadarFusionNode::publish_localization_pose(
     const geometry_msgs::msg::PoseWithCovarianceStamped& pose) {
     pub_pose_->publish(pose);
 }
 
-void FusionNode::publish_status(const rclcpp::Time& stamp) const {
+void RadarFusionNode::publish_status(const rclcpp::Time& stamp) const {
     auto status    = diagnostic_msgs::msg::DiagnosticStatus();
-    status.level   = (fusion_mode_ == FusionMode::DEGRADED)
+    status.level   = (fusion_mode_ == radar_fusion::fusion_config::FusionMode::DEGRADED)
         ? diagnostic_msgs::msg::DiagnosticStatus::WARN
         : diagnostic_msgs::msg::DiagnosticStatus::OK;
     status.name    = "radar_fusion/status";
@@ -401,9 +415,9 @@ void FusionNode::publish_status(const rclcpp::Time& stamp) const {
     pub_status_->publish(status);
 }
 
-void FusionNode::update_fusion_mode(int64_t reference_stamp_ns) {
+void RadarFusionNode::update_fusion_mode(int64_t reference_stamp_ns) {
     if (!cfg_.enable_camera_fusion) {
-        fusion_mode_ = FusionMode::RADAR_ONLY;
+        fusion_mode_ = radar_fusion::fusion_config::FusionMode::RADAR_ONLY;
         return;
     }
 
@@ -411,7 +425,8 @@ void FusionNode::update_fusion_mode(int64_t reference_stamp_ns) {
     const bool camera_stale = latest_camera_observations_.empty()
         || (reference_stamp_ns - latest_camera_stamp_ns_) > timeout_ns;
 
-    fusion_mode_ = camera_stale ? FusionMode::DEGRADED : FusionMode::RADAR_CAMERA;
+    fusion_mode_ = camera_stale ? radar_fusion::fusion_config::FusionMode::DEGRADED
+                                : radar_fusion::fusion_config::FusionMode::RADAR_CAMERA;
 }
 
-} // namespace radar::fusion
+} // namespace radar_fusion::node
