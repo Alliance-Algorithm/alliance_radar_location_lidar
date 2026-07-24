@@ -50,13 +50,12 @@ auto VideoBridge::video_thread() -> std::expected<void, std::string> {
                 ts.tv_nsec -= 1'000'000'000;
             }
 
-            if (sem_timedwait(&shm_ptr_->sem, &ts) != 0)
-                continue;
+            if (sem_timedwait(&shm_ptr_->sem, &ts) != 0) continue;
 
             pthread_mutex_lock(&shm_ptr_->mutex);
-            auto idx   = shm_ptr_->write_index % SLOT_NUM;
+            auto idx = shm_ptr_->write_index % SLOT_NUM;
             cv::Mat rgb(image_height_, image_width_, CV_8UC3, shm_ptr_->imagedata[idx]);
-            auto mat   = rgb.clone();
+            auto mat = rgb.clone();
             pthread_mutex_unlock(&shm_ptr_->mutex);
 
             cv::cvtColor(mat, mat, cv::COLOR_RGB2BGR);
@@ -92,11 +91,11 @@ auto VideoBridge::video_thread_stop() -> std::expected<void, std::string> {
     if (video_thread_.joinable()) video_thread_.join();
     if (shm_ptr_) {
         std::ignore = hikcamera::SHMReleasePtr(shm_ptr_);
-        shm_ptr_ = nullptr;
+        shm_ptr_    = nullptr;
     }
     if (shm_fd_ != -1) {
         std::ignore = hikcamera::SHMClose(shm_fd_);
-        shm_fd_ = -1;
+        shm_fd_     = -1;
     }
     return { };
 }

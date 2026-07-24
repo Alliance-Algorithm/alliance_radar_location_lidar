@@ -63,8 +63,8 @@ RadarBridgeNode::RadarBridgeNode()
         }
     });
 
-    auto init_ret = video_bridge_.video_init(config_.shm_name, config_.video_pub_address,
-        config_.video_width, config_.video_height);
+    auto init_ret = video_bridge_.video_init(
+        config_.shm_name, config_.video_pub_address, config_.video_width, config_.video_height);
     if (!init_ret.has_value()) {
         RCLCPP_ERROR(this->get_logger(), "video_init failed: %s", init_ret.error().c_str());
         throw std::runtime_error("video_init failed: " + init_ret.error());

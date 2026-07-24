@@ -17,7 +17,7 @@ struct BridgeConfig {
     std::string shm_name;
     std::string video_pub_address;
     std::string image_topic;
-    int video_width = 4096;
+    int video_width  = 4096;
     int video_height = 3000;
 };
 
