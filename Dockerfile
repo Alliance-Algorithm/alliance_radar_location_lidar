@@ -161,18 +161,12 @@ RUN case "${TARGETARCH}" in \
     && ln -sf /opt/cmake/bin/cpack /usr/local/bin/cpack \
     && rm /tmp/cmake.sh
 
-# Neovim (official release, apt's noble package is stuck at 0.9.5 which is
-# too old for modern configs like LazyVim requiring >=0.11.2)
-ARG NEOVIM_VERSION=v0.12.3
-RUN case "${TARGETARCH}" in \
-        amd64) nvim_arch=linux-x86_64 ;; \
-        arm64) nvim_arch=linux-arm64 ;; \
-        *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
-    esac && \
-    wget -q "https://github.com/neovim/neovim/releases/download/${NEOVIM_VERSION}/nvim-${nvim_arch}.tar.gz" -O /tmp/nvim.tar.gz \
-    && mkdir -p /opt/nvim && tar -xzf /tmp/nvim.tar.gz -C /opt/nvim --strip-components=1 \
-    && ln -sf /opt/nvim/bin/nvim /usr/local/bin/nvim \
-    && rm /tmp/nvim.tar.gz
+# Neovim (ppa:neovim-ppa/unstable for version >= 0.10 required by LazyVim/Neovide)
+RUN add-apt-repository ppa:neovim-ppa/unstable -y \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends neovim \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/*
 
 # Node.js + opencode
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
