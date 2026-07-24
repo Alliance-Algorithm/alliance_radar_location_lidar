@@ -10,30 +10,16 @@
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 
-#include "radar_lidar/config.hpp"
-#include "radar_lidar/types.hpp"
+#include "radar_lidar/data_format.hpp"
 
-namespace radar::lidar {
-
-struct DynamicCloudConfig {
-    double distance_threshold = 0.1;
-    int num_threads           = 12;
-    int accumulate_frames     = 3;
-    config::RoiBounds roi { .use_roi = true,
-        .x_min                       = 0,
-        .x_max                       = 30,
-        .y_min                       = -15,
-        .y_max                       = 15,
-        .z_min                       = 0,
-        .z_max                       = 1.4 };
-};
+namespace radar_lidar::dynamic_cloud {
 
 /// @brief 动态点提取
 /// 用 KdTree K=1 最近邻把扫描和地图对比，距离 > 阈值的点 = 动态点（障碍物）
 /// 支持 ROI 裁剪 + 多帧累积，可独立于 ROS 使用
 class DynamicCloudStage {
 public:
-    explicit DynamicCloudStage(DynamicCloudConfig cfg);
+    explicit DynamicCloudStage(config::DynamicCloudConfig cfg);
 
     /// @brief 设置地图点云（用于 KdTree 构建）
     void set_map(const pcl::PointCloud<pcl::PointXYZ>::Ptr& map_cloud);
@@ -49,7 +35,7 @@ public:
     void clear() { frames_.clear(); }
 
 private:
-    DynamicCloudConfig cfg_;
+    config::DynamicCloudConfig cfg_;
     pcl::KdTreeFLANN<pcl::PointXYZ> kd_tree_;
     bool map_set_ = false;
 
@@ -62,4 +48,4 @@ private:
     std::vector<std::vector<float>> thread_dist_sq_;
 };
 
-} // namespace radar::lidar
+} // namespace radar_lidar::dynamic_cloud

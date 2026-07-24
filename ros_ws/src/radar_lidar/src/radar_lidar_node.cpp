@@ -1,4 +1,4 @@
-#include "radar_lidar/pipeline.hpp"
+#include "radar_lidar/radar_lidar_node.hpp"
 
 #include <chrono>
 #include <ranges>
@@ -9,7 +9,7 @@
 
 #include "radar_lidar/geometry_utils.hpp"
 
-namespace radar::lidar {
+namespace radar_lidar::node {
 
 namespace {
 
@@ -25,22 +25,25 @@ namespace {
         return cfg;
     }
 
-    auto load_dynamic_config(rclcpp::Node& node) -> DynamicCloudConfig {
-        DynamicCloudConfig cfg;
+    auto load_dynamic_config(rclcpp::Node& node) -> config::DynamicCloudConfig {
+        config::DynamicCloudConfig cfg;
         node.get_parameter("dynamic_distance_threshold", cfg.distance_threshold);
         return cfg;
     }
 
-    auto load_cluster_config([[maybe_unused]] rclcpp::Node& node) -> ClusterConfig {
-        ClusterConfig cfg;
+    auto load_cluster_config([[maybe_unused]] rclcpp::Node& node) -> config::ClusterConfig {
+        config::ClusterConfig cfg;
         return cfg;
     }
 
 } // namespace
 
-LidarPipeline::LidarPipeline()
+RadarLidarNode::RadarLidarNode()
+    : RadarLidarNode(rclcpp::NodeOptions { }) { }
+
+RadarLidarNode::RadarLidarNode(const rclcpp::NodeOptions& options)
     : Node("radar_lidar_node",
-          rclcpp::NodeOptions { }.automatically_declare_parameters_from_overrides(true))
+          rclcpp::NodeOptions(options).automatically_declare_parameters_from_overrides(true))
     , map_(nullptr)
     , localization_(nullptr, { })
     , dynamic_stage_({ })
@@ -64,7 +67,7 @@ LidarPipeline::LidarPipeline()
         rclcpp::shutdown();
         return;
     }
-    auto map_result = MapData::load(map_path, 0.1);
+    auto map_result = map_data::MapData::load(map_path, 0.1);
     if (!map_result) {
         RCLCPP_FATAL(get_logger(), "Failed to load map: %s", map_result.error().c_str());
         rclcpp::shutdown();
@@ -73,12 +76,12 @@ LidarPipeline::LidarPipeline()
     map_ = *map_result;
     RCLCPP_INFO(get_logger(), "Map loaded: %zu points", map_->size());
 
-    localization_ = LocalizationStage(map_, load_localization_config(*this));
+    localization_ = localization::LocalizationStage(map_, load_localization_config(*this));
 
-    dynamic_stage_ = DynamicCloudStage(load_dynamic_config(*this));
+    dynamic_stage_ = dynamic_cloud::DynamicCloudStage(load_dynamic_config(*this));
     dynamic_stage_.set_map(std::make_shared<pcl::PointCloud<pcl::PointXYZ>>(map_->pcl_cloud()));
 
-    cluster_stage_ = ClusterStage(load_cluster_config(*this));
+    cluster_stage_ = cluster::ClusterStage(load_cluster_config(*this));
 
     // ── subscription ───────────────────────────────────────────────
     sub_scan_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(scan_topic_,
@@ -98,7 +101,7 @@ LidarPipeline::LidarPipeline()
         scan_topic_.c_str(), detection_enabled_ ? "ON" : "OFF");
 }
 
-void LidarPipeline::on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg) {
+void RadarLidarNode::on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg) {
     ++frame_count_;
     const auto t0 = std::chrono::steady_clock::now();
 
@@ -172,14 +175,16 @@ void LidarPipeline::on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg)
     publish_diagnostics(*pose, elapsed_ms, frame_count_);
 }
 
-void LidarPipeline::transform_scan_to_map(const types::PointCloud& scan,
+void RadarLidarNode::transform_scan_to_map(const types::PointCloud& scan,
     const types::PoseEstimate& pose, types::PointCloud& transformed) {
-    transformed = scan
-        | std::views::transform([&pose](const auto& p) { return pose.t_map_lidar * p; })
-        | std::ranges::to<types::PointCloud>();
+    transformed.clear();
+    transformed.reserve(scan.size());
+    for (const auto& p : scan) {
+        transformed.push_back(pose.t_map_lidar * p);
+    }
 }
 
-auto LidarPipeline::try_odin_relocalization_pose(const std::string& source_frame,
+auto RadarLidarNode::try_odin_relocalization_pose(const std::string& source_frame,
     const rclcpp::Time& stamp) -> std::optional<types::PoseEstimate> {
     geometry_msgs::msg::TransformStamped tf_msg;
     try {
@@ -200,7 +205,7 @@ auto LidarPipeline::try_odin_relocalization_pose(const std::string& source_frame
     return out;
 }
 
-void LidarPipeline::publish_pose(const types::PoseEstimate& pose, types::Timestamp stamp) {
+void RadarLidarNode::publish_pose(const types::PoseEstimate& pose, types::Timestamp stamp) {
     geometry_msgs::msg::PoseWithCovarianceStamped msg;
     msg.header.stamp    = rclcpp::Time(stamp);
     msg.header.frame_id = output_frame_;
@@ -222,7 +227,7 @@ void LidarPipeline::publish_pose(const types::PoseEstimate& pose, types::Timesta
     publish_dynamic_tf(pose, stamp);
 }
 
-void LidarPipeline::publish_dynamic_tf(const types::PoseEstimate& pose, types::Timestamp stamp) {
+void RadarLidarNode::publish_dynamic_tf(const types::PoseEstimate& pose, types::Timestamp stamp) {
     geometry_msgs::msg::TransformStamped transform_msg;
     transform_msg.header.stamp    = rclcpp::Time(stamp);
     transform_msg.header.frame_id = output_frame_;
@@ -242,7 +247,7 @@ void LidarPipeline::publish_dynamic_tf(const types::PoseEstimate& pose, types::T
     tf_broadcaster_->sendTransform(transform_msg);
 }
 
-void LidarPipeline::publish_diagnostics(
+void RadarLidarNode::publish_diagnostics(
     const types::PoseEstimate& pose, double elapsed_ms, uint64_t frame) {
     auto diag        = diagnostic_msgs::msg::DiagnosticStatus();
     diag.level       = pose.converged ? diagnostic_msgs::msg::DiagnosticStatus::OK
@@ -269,7 +274,7 @@ void LidarPipeline::publish_diagnostics(
         diag.message.c_str());
 }
 
-void LidarPipeline::publish_dynamic(
+void RadarLidarNode::publish_dynamic(
     const types::PointCloud& dynamic_points, types::Timestamp stamp) {
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>());
     cloud->reserve(dynamic_points.size());
@@ -288,8 +293,8 @@ void LidarPipeline::publish_dynamic(
     pub_dynamic_->publish(msg);
 }
 
-void LidarPipeline::publish_clusters(
-    const std::vector<ClusterResult>& clusters, types::Timestamp stamp) {
+void RadarLidarNode::publish_clusters(
+    const std::vector<cluster::ClusterResult>& clusters, types::Timestamp stamp) {
     // Centroid PointCloud2 for downstream consumption (fusion_node)
     pcl::PointCloud<pcl::PointXYZ>::Ptr centroids(new pcl::PointCloud<pcl::PointXYZ>());
     centroids->reserve(clusters.size());
@@ -369,4 +374,4 @@ void LidarPipeline::publish_clusters(
     pub_cluster_viz_->publish(markers);
 }
 
-} // namespace radar::lidar
+} // namespace radar_lidar::node

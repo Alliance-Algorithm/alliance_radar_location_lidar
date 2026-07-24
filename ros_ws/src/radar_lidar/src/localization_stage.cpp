@@ -1,4 +1,4 @@
-#include "radar_lidar/localization.hpp"
+#include "radar_lidar/localization_stage.hpp"
 
 #include <cmath>
 
@@ -8,7 +8,7 @@
 #include "radar_lidar/geometry_utils.hpp"
 #include "radar_lidar/map_data.hpp"
 
-namespace radar::lidar {
+namespace radar_lidar::localization {
 
 namespace {
 
@@ -19,15 +19,20 @@ namespace {
 
     [[nodiscard]] auto filter_localization_roi(const types::PointCloud& points)
         -> types::PointCloud {
-        return points
-            | std::views::filter([](const auto& point) { return in_localization_roi(point); })
-            | std::ranges::to<types::PointCloud>();
+        types::PointCloud result;
+        result.reserve(points.size());
+        for (const auto& point : points) {
+            if (in_localization_roi(point)) {
+                result.push_back(point);
+            }
+        }
+        return result;
     }
 
 } // namespace
 
 LocalizationStage::LocalizationStage(
-    std::shared_ptr<const MapData> map, config::LocalizationConfig cfg)
+    std::shared_ptr<const map_data::MapData> map, config::LocalizationConfig cfg)
     : map_(std::move(map))
     , cfg_(cfg)
     , prev_pose_(Eigen::Isometry3d::Identity())
@@ -139,4 +144,4 @@ auto LocalizationStage::process(const types::Frame& scan)
     return out;
 }
 
-} // namespace radar::lidar
+} // namespace radar_lidar::localization

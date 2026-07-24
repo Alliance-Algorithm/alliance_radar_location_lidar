@@ -1,4 +1,4 @@
-#include "radar_lidar/dynamic_cloud.hpp"
+#include "radar_lidar/dynamic_cloud_stage.hpp"
 
 #include <algorithm>
 #include <omp.h>
@@ -8,7 +8,7 @@
 
 #include "radar_lidar/geometry_utils.hpp"
 
-namespace radar::lidar {
+namespace radar_lidar::dynamic_cloud {
 
 namespace {
 
@@ -16,8 +16,8 @@ namespace {
         return width / std::numbers::sqrt2;
     }
 
-    // 以下边界值取自 T-DT_Radar 参考实现，其 rm_frame 原点在场地角落 (x:[3,28] y:[0,15])。
-    // 本项目工作系原点在场地中心 (x:[-14,14] y:[-7.5,7.5])，已整体平移 (-14, -7.5) 对齐。
+    // Dynamic ROI in the project working frame: origin at field center
+    // (x:[-14,14] y:[-7.5,7.5]). Bounds are expressed in that frame directly.
     auto in_dynamic_main_roi(const Eigen::Vector3d& point) -> bool {
         return point.x() >= -11.0 && point.x() <= 14.0 && point.y() >= -7.5 && point.y() <= 7.5
             && point.z() >= 0.0 && point.z() <= 1.4;
@@ -46,14 +46,19 @@ namespace {
     }
 
     auto filter_dynamic_roi(const types::PointCloud& points) -> types::PointCloud {
-        return points
-            | std::views::filter([](const auto& point) { return keep_dynamic_point(point); })
-            | std::ranges::to<types::PointCloud>();
+        types::PointCloud result;
+        result.reserve(points.size());
+        for (const auto& point : points) {
+            if (keep_dynamic_point(point)) {
+                result.push_back(point);
+            }
+        }
+        return result;
     }
 
 } // namespace
 
-DynamicCloudStage::DynamicCloudStage(DynamicCloudConfig cfg)
+DynamicCloudStage::DynamicCloudStage(config::DynamicCloudConfig cfg)
     : cfg_(std::move(cfg))
     , thread_count_(std::max(1, cfg_.num_threads))
     , thread_clouds_(static_cast<std::size_t>(thread_count_))
@@ -112,7 +117,10 @@ auto DynamicCloudStage::process(const types::PointCloud& scan)
     }
 
     // 合并线程结果
-    auto dynamic_points = thread_clouds_ | std::views::join | std::ranges::to<types::PointCloud>();
+    types::PointCloud dynamic_points;
+    for (const auto& tc : thread_clouds_) {
+        dynamic_points.insert(dynamic_points.end(), tc.begin(), tc.end());
+    }
 
     // 帧累积
     if (cfg_.accumulate_frames > 0) {
@@ -129,7 +137,11 @@ auto DynamicCloudStage::process(const types::PointCloud& scan)
 }
 
 auto DynamicCloudStage::accumulated() const -> types::PointCloud {
-    return frames_ | std::views::join | std::ranges::to<types::PointCloud>();
+    types::PointCloud result;
+    for (const auto& f : frames_) {
+        result.insert(result.end(), f.begin(), f.end());
+    }
+    return result;
 }
 
-} // namespace radar::lidar
+} // namespace radar_lidar::dynamic_cloud

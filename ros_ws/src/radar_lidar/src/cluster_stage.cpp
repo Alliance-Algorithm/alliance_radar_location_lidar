@@ -1,4 +1,4 @@
-#include "radar_lidar/cluster.hpp"
+#include "radar_lidar/cluster_stage.hpp"
 
 #include <pcl/kdtree/kdtree.h>
 #include <pcl/point_cloud.h>
@@ -8,9 +8,9 @@
 
 #include <limits>
 
-namespace radar::lidar {
+namespace radar_lidar::cluster {
 
-ClusterStage::ClusterStage(ClusterConfig cfg)
+ClusterStage::ClusterStage(config::ClusterConfig cfg)
     : cfg_(std::move(cfg)) { }
 
 auto ClusterStage::process(const types::PointCloud& dynamic_points)
@@ -84,4 +84,4 @@ auto ClusterStage::process(const types::PointCloud& dynamic_points)
     return results;
 }
 
-} // namespace radar::lidar
+} // namespace radar_lidar::cluster

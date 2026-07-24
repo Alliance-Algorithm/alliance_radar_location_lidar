@@ -9,7 +9,7 @@ static auto pack_key(int azimuth_idx, int elevation_idx) -> std::uint64_t {
         | static_cast<std::uint32_t>(elevation_idx);
 }
 
-namespace radar::lidar {
+namespace radar_lidar::spherical_grid {
 
 void SphericalGrid::add(const types::PointCloud& points) {
     if (grid_map_.empty()) {
@@ -34,12 +34,15 @@ void SphericalGrid::add(const types::PointCloud& points) {
 }
 
 auto SphericalGrid::extract() -> types::PointCloud {
-    auto result = grid_map_ | std::views::values
-        | std::views::filter([](const auto& cell) { return cell.max_distance_sq >= 0.0; })
-        | std::views::transform([](const auto& cell) { return cell.farthest_point; })
-        | std::ranges::to<types::PointCloud>();
+    types::PointCloud result;
+    result.reserve(grid_map_.size());
+    for (const auto& [key, cell] : grid_map_) {
+        if (cell.max_distance_sq >= 0.0) {
+            result.push_back(cell.farthest_point);
+        }
+    }
     grid_map_.clear();
     return result;
 }
 
-} // namespace radar::lidar
+} // namespace radar_lidar::spherical_grid
