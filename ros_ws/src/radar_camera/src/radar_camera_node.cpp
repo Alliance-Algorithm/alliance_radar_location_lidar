@@ -16,28 +16,28 @@ RadarCameraNode::RadarCameraNode()
     RCLCPP_INFO(get_logger(), "ConfigsLoader succeeded");
 
     model_inference_ = std::make_unique<model_inference::ModelInference>();
-    // auto model_ret   = model_inference_->infer_init(inference_config_);
-    // if (!model_ret) {
-    //     RCLCPP_ERROR(
-    //         get_logger(), "ModelInference infer_init failed: %s", model_ret.error().c_str());
-    //     throw std::runtime_error("ModelInference infer_init failed: " + model_ret.error());
-    // }
-    // RCLCPP_INFO(get_logger(), "ModelInference infer_init succeeded");
+    auto model_ret   = model_inference_->infer_init(inference_config_);
+    if (!model_ret) {
+        RCLCPP_ERROR(
+            get_logger(), "ModelInference infer_init failed: %s", model_ret.error().c_str());
+        throw std::runtime_error("ModelInference infer_init failed: " + model_ret.error());
+    }
+    RCLCPP_INFO(get_logger(), "ModelInference infer_init succeeded");
 
-    // auto cam_ret = projector_.proj_init_camera(camera_config_);
-    // if (!cam_ret) {
-    //     RCLCPP_ERROR(get_logger(), "Projector camera model init failed: %s",
-    //     cam_ret.error().c_str()); throw std::runtime_error("Projector camera model init failed: "
-    //     + cam_ret.error());
-    // }
-    // RCLCPP_INFO(get_logger(), "Camera init succeeded");
+    auto cam_ret = projector_.proj_init_camera(camera_config_);
+    if (!cam_ret) {
+        RCLCPP_ERROR(get_logger(), "Projector camera model init failed: %s",
+            cam_ret.error().c_str());
+        throw std::runtime_error("Projector camera model init failed: " + cam_ret.error());
+    }
+    RCLCPP_INFO(get_logger(), "Camera init succeeded");
 
-    // auto map_ret = projector_.proj_init_map(projection_config_);
-    // if (!map_ret) {
-    //     RCLCPP_ERROR(get_logger(), "Map init failed: %s", map_ret.error().c_str());
-    //     throw std::runtime_error("Map init failed: " + map_ret.error());
-    // }
-    // RCLCPP_INFO(get_logger(), "Map init succeeded");
+    auto map_ret = projector_.proj_init_map(projection_config_);
+    if (!map_ret) {
+        RCLCPP_ERROR(get_logger(), "Map init failed: %s", map_ret.error().c_str());
+        throw std::runtime_error("Map init failed: " + map_ret.error());
+    }
+    RCLCPP_INFO(get_logger(), "Map init succeeded");
 
     pose_publisher_ = this->create_publisher<radar_interfaces::msg::CameraDetectionPose>(
         camera_config_.pub_topic_name, 10);
@@ -76,62 +76,54 @@ auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
             }
             capture_timestamp_ = ts;
 
-            auto t0 = std::chrono::steady_clock::now();
+            auto tensor = model_inference_->infer_preprocess(
+                frame, inference_config_.model_input_width,
+                inference_config_.model_input_height);
+            if (!tensor) {
+                RCLCPP_WARN(get_logger(), "Infer preprocess failed: %s", tensor.error().c_str());
+                continue;
+            }
 
-            cv::Mat blob = cv::dnn::blobFromImage(frame, 1.0 / 255.0,
-                cv::Size(inference_config_.model_input_width, inference_config_.model_input_height),
-                cv::Scalar(), false, false);
+            auto async_ret = model_inference_->infer_runtime_async(tensor->get());
+            if (!async_ret) {
+                RCLCPP_WARN(get_logger(), "Inference async failed: %s", async_ret.error().c_str());
+                continue;
+            }
 
-            auto pre_us = std::chrono::duration_cast<std::chrono::microseconds>(
-                std::chrono::steady_clock::now() - t0)
-                              .count();
+            auto raw = model_inference_->infer_runtime_wait();
+            if (!raw) {
+                RCLCPP_WARN(get_logger(), "Inference wait failed: %s", raw.error().c_str());
+                continue;
+            }
 
-            // ============================================================
-            // FIXME: uncomment when model file is available
-            // ============================================================
-            // auto tensor = model_inference_->infer_preprocess(
-            //     frame, inference_config_.model_input_width,
-            //     inference_config_.model_input_height);
-            // if (!tensor) {
-            //     RCLCPP_WARN(get_logger(), "Infer preprocess failed: %s", tensor.error().c_str());
-            //     continue;
-            // }
-            // auto async_ret = model_inference_->infer_runtime_async(tensor->get());
-            // if (!async_ret) {
-            //     RCLCPP_WARN(get_logger(), "Inference async failed: %s",
-            //     async_ret.error().c_str()); continue;
-            // }
-            // auto raw = model_inference_->infer_runtime_wait();
-            // if (!raw) {
-            //     RCLCPP_WARN(get_logger(), "Inference wait failed: %s", raw.error().c_str());
-            //     continue;
-            // }
-            // auto dets = model_inference_->infer_postprocess(
-            //     raw->get(), frame.cols, frame.rows);
-            // if (!dets) {
-            //     RCLCPP_WARN(get_logger(), "Infer postprocess failed: %s", dets.error().c_str());
-            //     continue;
-            // }
-            // auto projected = projector_.proj_preprocess(dets->get());
-            // if (!projected) {
-            //     RCLCPP_WARN(get_logger(), "Projection preprocess failed: %s",
-            //         projected.error().c_str());
-            //     continue;
-            // }
-            // auto pose = projector_.proj_postprocess(*projected, dets->get());
-            // if (!pose) {
-            //     RCLCPP_WARN(get_logger(), "Projection postprocess failed: %s",
-            //         pose.error().c_str());
-            //     continue;
-            // }
-            // PublishCallback(*pose);
-            // ============================================================
+            auto dets = model_inference_->infer_postprocess(
+                raw->get(), frame.cols, frame.rows);
+            if (!dets) {
+                RCLCPP_WARN(get_logger(), "Infer postprocess failed: %s", dets.error().c_str());
+                continue;
+            }
+
+            auto projected = projector_.proj_preprocess(dets->get());
+            if (!projected) {
+                RCLCPP_WARN(get_logger(), "Projection preprocess failed: %s",
+                    projected.error().c_str());
+                continue;
+            }
+
+            auto pose = projector_.proj_postprocess(*projected, dets->get());
+            if (!pose) {
+                RCLCPP_WARN(get_logger(), "Projection postprocess failed: %s",
+                    pose.error().c_str());
+                continue;
+            }
+
+            PublishCallback(*pose);
 
             auto total_us = std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::steady_clock::now() - t_loop)
                                 .count();
-            RCLCPP_INFO(get_logger(), "TIMING: pre=%ldus total=%ldus (%.1ffps) frame=%dx%d",
-                (long)pre_us, (long)total_us, 1e6 / total_us, frame.cols, frame.rows);
+            RCLCPP_INFO(get_logger(), "TIMING: total=%ldus (%.1ffps)", (long)total_us,
+                1e6 / total_us);
         }
     });
     return { };
