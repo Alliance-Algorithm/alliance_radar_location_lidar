@@ -24,7 +24,7 @@
 - [x] 改独立线程：`SHMRead → blobFromImage → TIMING`
 - [x] `declare_parameter` 默认值
 - [x] class ID 修正（red 0–5, blue 6–11）
-- [ ] 提交到仓库
+- [x] 提交到仓库
 
 ### radar_bridge — cvtColor (workspace, uncommitted)
 - [x] SHM RGB→BGR 后 JPEG encode
@@ -39,9 +39,9 @@
 
 ### Pending
 - [ ] `#ifdef CAMERA_TIMING` 包裹采集 TIMING
-- [ ] `.onnx` 模型就位后取消 `infer_thread` FIXME 注释
+- [x] `.onnx` 模型就位后取消 `infer_thread` FIXME 注释
 - [ ] 完整推理管线（OpenVINO CPU）帧率验证
-- [ ] `proj_init_camera` / `proj_init_map` 恢复（需标定数据）
+- [x] `proj_init_camera` / `proj_init_map` 恢复（需标定数据）
 - [ ] 长时间运行稳定性测试
 - [ ] `/dev/shm` 残留文件清理策略
 
