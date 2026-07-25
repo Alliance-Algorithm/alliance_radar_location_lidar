@@ -26,8 +26,8 @@ RadarCameraNode::RadarCameraNode()
 
     auto cam_ret = projector_.proj_init_camera(camera_config_);
     if (!cam_ret) {
-        RCLCPP_ERROR(get_logger(), "Projector camera model init failed: %s",
-            cam_ret.error().c_str());
+        RCLCPP_ERROR(
+            get_logger(), "Projector camera model init failed: %s", cam_ret.error().c_str());
         throw std::runtime_error("Projector camera model init failed: " + cam_ret.error());
     }
     RCLCPP_INFO(get_logger(), "Camera init succeeded");
@@ -77,8 +77,7 @@ auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
             capture_timestamp_ = ts;
 
             auto tensor = model_inference_->infer_preprocess(
-                frame, inference_config_.model_input_width,
-                inference_config_.model_input_height);
+                frame, inference_config_.model_input_width, inference_config_.model_input_height);
             if (!tensor) {
                 RCLCPP_WARN(get_logger(), "Infer preprocess failed: %s", tensor.error().c_str());
                 continue;
@@ -96,8 +95,7 @@ auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
                 continue;
             }
 
-            auto dets = model_inference_->infer_postprocess(
-                raw->get(), frame.cols, frame.rows);
+            auto dets = model_inference_->infer_postprocess(raw->get(), frame.cols, frame.rows);
             if (!dets) {
                 RCLCPP_WARN(get_logger(), "Infer postprocess failed: %s", dets.error().c_str());
                 continue;
@@ -105,15 +103,15 @@ auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
 
             auto projected = projector_.proj_preprocess(dets->get());
             if (!projected) {
-                RCLCPP_WARN(get_logger(), "Projection preprocess failed: %s",
-                    projected.error().c_str());
+                RCLCPP_WARN(
+                    get_logger(), "Projection preprocess failed: %s", projected.error().c_str());
                 continue;
             }
 
             auto pose = projector_.proj_postprocess(*projected, dets->get());
             if (!pose) {
-                RCLCPP_WARN(get_logger(), "Projection postprocess failed: %s",
-                    pose.error().c_str());
+                RCLCPP_WARN(
+                    get_logger(), "Projection postprocess failed: %s", pose.error().c_str());
                 continue;
             }
 
@@ -122,8 +120,8 @@ auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
             auto total_us = std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::steady_clock::now() - t_loop)
                                 .count();
-            RCLCPP_INFO(get_logger(), "TIMING: total=%ldus (%.1ffps)", (long)total_us,
-                1e6 / total_us);
+            RCLCPP_INFO(
+                get_logger(), "TIMING: total=%ldus (%.1ffps)", (long)total_us, 1e6 / total_us);
         }
     });
     return { };
