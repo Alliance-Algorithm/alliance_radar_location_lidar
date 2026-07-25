@@ -14,7 +14,7 @@ radar_camera_node:
     infantry4_blue: 9
     sentry_blue: 10
     drone_blue: 11
-    model_path: "/workspace/ros_ws/src/radar_camera/config/camera_inference_model.onnx"
+    model_path: "/workspace/model/yolo/best_fixed_names.xml"
     device_name: "CPU"
     model_input_width: 1280
     model_input_height: 1280
@@ -26,7 +26,7 @@ radar_camera_node:
     drone_class_ids: [5, 11]
     use_openvino: true
     num_classes: 12
-    mesh_path: "/workspace/ros_ws/src/radar_camera/model"
+    mesh_path: "/workspace/model/field/RMUC2026_l.fbx"
     camera_matrix: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
     distortion_coefficients: [0.0, 0.0, 0.0, 0.0, 0.0]
     rotation: [0.0, 0.0, 0.0]
