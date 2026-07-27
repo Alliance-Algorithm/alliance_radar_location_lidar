@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+MODEL="${ROOT_DIR}/ros_ws/src/radar_camera/model/best_fixed_names_1280.onnx"
+ENGINE="${ROOT_DIR}/ros_ws/src/radar_camera/model/best_fixed_names_1280_fp16.engine"
+BENCHMARK="${ENGINE}.benchmark.json"
+
+command -v trtexec >/dev/null || {
+    echo "trtexec is required on the host" >&2
+    exit 1
+}
+test -f "${MODEL}" || {
+    echo "ONNX model not found: ${MODEL}" >&2
+    exit 1
+}
+
+# TensorRT 11 uses strongly typed ONNX graphs; the source export already
+# contains FP16 weights, so the removed legacy --fp16 flag is not used.
+trtexec \
+    --onnx="${MODEL}" \
+    --saveEngine="${ENGINE}" \
+    --memPoolSize=workspace:4096M \
+    --builderOptimizationLevel=3 \
+    --skipInference
+
+trtexec \
+    --loadEngine="${ENGINE}" \
+    --duration=20 \
+    --warmUp=200 \
+    --iterations=200 \
+    --includeDataTransfers \
+    --exportTimes="${BENCHMARK}"
+
+echo "Engine: ${ENGINE}"
+echo "Benchmark: ${BENCHMARK}"

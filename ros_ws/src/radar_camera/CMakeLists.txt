@@ -4,6 +4,14 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -DNDEBUG")
+set(RADAR_CAMERA_TENSORRT_DEFAULT OFF)
+if(DEFINED ENV{RADAR_CAMERA_TENSORRT_ROOT}
+    AND EXISTS "$ENV{RADAR_CAMERA_TENSORRT_ROOT}/include/NvInferRuntime.h"
+    AND EXISTS "$ENV{RADAR_CAMERA_TENSORRT_ROOT}/lib/libnvinfer.so")
+    set(RADAR_CAMERA_TENSORRT_DEFAULT ON)
+endif()
+option(RADAR_CAMERA_ENABLE_TENSORRT "Build the TensorRT backend"
+    ${RADAR_CAMERA_TENSORRT_DEFAULT})
 if(NOT CMAKE_CROSSCOMPILING)
     find_package(Python3 QUIET COMPONENTS Interpreter)
     if(Python3_Interpreter_FOUND)
@@ -21,12 +29,31 @@ find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs dnn calib3d)
 find_package(Eigen3 REQUIRED)
 find_package(assimp REQUIRED)
 
+if(RADAR_CAMERA_ENABLE_TENSORRT)
+    set(TENSORRT_ROOT "$ENV{RADAR_CAMERA_TENSORRT_ROOT}" CACHE PATH
+        "Host-staged TensorRT/CUDA root")
+    find_path(TENSORRT_INCLUDE_DIR NvInferRuntime.h
+        PATHS "${TENSORRT_ROOT}/include" REQUIRED)
+    find_path(CUDA_INCLUDE_DIR cuda_runtime_api.h
+        PATHS "${TENSORRT_ROOT}/include" REQUIRED)
+    find_library(TENSORRT_LIBRARY nvinfer
+        PATHS "${TENSORRT_ROOT}/lib" REQUIRED)
+    find_library(TENSORRT_PLUGIN_LIBRARY nvinfer_plugin
+        PATHS "${TENSORRT_ROOT}/lib" REQUIRED)
+    find_library(CUDART_LIBRARY cudart
+        PATHS "${TENSORRT_ROOT}/lib" REQUIRED)
+endif()
+
 ament_auto_find_build_dependencies()
 
 add_library(${PROJECT_NAME}_core STATIC
     src/model_inference.cpp
     src/projector.cpp
 )
+if(RADAR_CAMERA_ENABLE_TENSORRT)
+    target_sources(${PROJECT_NAME}_core PRIVATE src/tensorrt_inference.cpp)
+    target_compile_definitions(${PROJECT_NAME}_core PUBLIC RADAR_CAMERA_HAS_TENSORRT=1)
+endif()
 set_target_properties(${PROJECT_NAME}_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(${PROJECT_NAME}_core PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -43,6 +70,17 @@ target_link_libraries(${PROJECT_NAME}_core
         Eigen3::Eigen
         assimp::assimp
 )
+if(RADAR_CAMERA_ENABLE_TENSORRT)
+    target_include_directories(${PROJECT_NAME}_core PRIVATE
+        ${TENSORRT_INCLUDE_DIR}
+        ${CUDA_INCLUDE_DIR}
+    )
+    target_link_libraries(${PROJECT_NAME}_core PUBLIC
+        ${TENSORRT_LIBRARY}
+        ${TENSORRT_PLUGIN_LIBRARY}
+        ${CUDART_LIBRARY}
+    )
+endif()
 
 ament_auto_add_executable(${PROJECT_NAME}_node
     src/runtime.cpp
@@ -69,4 +107,5 @@ if(BUILD_TESTING)
 endif()
 
 install(TARGETS ${PROJECT_NAME}_node DESTINATION lib/${PROJECT_NAME})
+install(DIRECTORY model DESTINATION share/${PROJECT_NAME})
 ament_package()

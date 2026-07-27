@@ -1,12 +1,16 @@
 #pragma once
 #include <expected>
 #include <functional>
+#include <memory>
 #include <opencv2/opencv.hpp>
 #include <openvino/openvino.hpp>
 #include <string>
 #include <vector>
 
 #include "radar_camera/data_format.hpp"
+#ifdef RADAR_CAMERA_HAS_TENSORRT
+#include "radar_camera/tensorrt_inference.hpp"
+#endif
 
 namespace radar_camera::model_inference {
 
@@ -23,9 +27,9 @@ public:
         -> std::expected<void, std::string>;
 
     auto infer_preprocess(const cv::Mat& image, size_t width, size_t height)
-        -> std::expected<std::reference_wrapper<const ov::Tensor>, std::string>;
+        -> std::expected<std::reference_wrapper<const std::vector<float>>, std::string>;
 
-    auto infer_runtime_async(const ov::Tensor& input_tensor) -> std::expected<void, std::string>;
+    auto infer_runtime_async() -> std::expected<void, std::string>;
     auto infer_runtime_wait()
         -> std::expected<std::reference_wrapper<const std::vector<float>>, std::string>;
 
@@ -34,6 +38,7 @@ public:
             std::string>;
 
 private:
+    std::vector<float> input_buffer_;
     ov::Tensor input_tensor_;
     std::vector<float> raw_buffer_;
     std::vector<detection::Detection> postprocess_buffer_;
@@ -43,6 +48,9 @@ private:
     ov::Core core_;
     ov::CompiledModel compiled_model_;
     ov::InferRequest infer_request_;
+#ifdef RADAR_CAMERA_HAS_TENSORRT
+    std::unique_ptr<TensorRtInference> tensorrt_inference_;
+#endif
 };
 
 } // namespace radar_camera::model_inference
