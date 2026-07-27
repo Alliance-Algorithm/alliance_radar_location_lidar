@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+STAGE_DIR="${RADAR_TENSORRT_STAGE:-/tmp/radar_camera_trt_host}"
+
+command -v trtexec >/dev/null || {
+    echo "trtexec is required on the host" >&2
+    exit 1
+}
+test -d /opt/cuda/targets/x86_64-linux/include || {
+    echo "CUDA headers not found under /opt/cuda" >&2
+    exit 1
+}
+
+rm -rf "${STAGE_DIR}"
+mkdir -p "${STAGE_DIR}/include" "${STAGE_DIR}/lib"
+
+cp -a /usr/include/NvInfer*.h /usr/include/NvOnnxParser.h "${STAGE_DIR}/include/"
+cp -a /usr/include/impl "${STAGE_DIR}/include/"
+cp -a /opt/cuda/targets/x86_64-linux/include/. "${STAGE_DIR}/include/"
+
+cp -a /usr/lib/libnvinfer.so* /usr/lib/libnvinfer_plugin.so* \
+    /usr/lib/libnvonnxparser.so* "${STAGE_DIR}/lib/"
+cp -a /opt/cuda/targets/x86_64-linux/lib/libcudart.so* \
+    /opt/cuda/targets/x86_64-linux/lib/libcublas.so* \
+    /opt/cuda/targets/x86_64-linux/lib/libcublasLt.so* "${STAGE_DIR}/lib/"
+
+# The NVIDIA container runtime normally injects these driver libraries. The
+# explicit copies keep privileged compose launches working on this host too.
+for driver_library in \
+    /usr/lib/libcuda.so \
+    /usr/lib/libcuda.so.1 \
+    /usr/lib/libcuda.so.* \
+    /usr/lib/libnvidia-ptxjitcompiler.so \
+    /usr/lib/libnvidia-ptxjitcompiler.so.1 \
+    /usr/lib/libnvidia-ptxjitcompiler.so.*; do
+    if test -e "${driver_library}" || test -L "${driver_library}"; then
+        cp -a "${driver_library}" "${STAGE_DIR}/lib/"
+    fi
+done
+
+echo "TensorRT stage prepared: ${STAGE_DIR}"
+du -sh "${STAGE_DIR}"

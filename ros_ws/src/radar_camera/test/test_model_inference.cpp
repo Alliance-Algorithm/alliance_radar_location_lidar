@@ -11,13 +11,14 @@ auto make_config() -> radar_camera::inference_config::InferenceConfig {
     radar_camera::inference_config::InferenceConfig cfg;
     cfg.model_input_width           = 1280;
     cfg.model_input_height          = 1280;
-    cfg.conf_threshold              = 0.6f;
+    cfg.conf_threshold              = 0.3f;
     cfg.min_length_width_rate       = 0.5f;
     cfg.max_length_width_rate       = 3.0f;
     cfg.drone_min_length_width_rate = 2.0f;
     cfg.drone_max_length_width_rate = 10.0f;
     cfg.drone_class_ids             = { 5, 11 };
     cfg.device_name                 = "CPU";
+    cfg.backend                     = "openvino";
     return cfg;
 }
 
@@ -30,8 +31,8 @@ auto resolve_model_path() -> std::string {
         env != nullptr && env[0] != '\0') {
         return env;
     }
-    const auto pkg = std::filesystem::path(RADAR_CAMERA_TEST_SOURCE_DIR).parent_path() / "config"
-        / "camera_inference_model.onnx";
+    const auto pkg = std::filesystem::path(RADAR_CAMERA_TEST_SOURCE_DIR).parent_path() / "model"
+        / "best_fixed_names_1280.onnx";
     return pkg.string();
 }
 
@@ -48,7 +49,7 @@ auto resolve_image_path() -> std::string {
 
 TEST(FilterDetectionsTest, DropsBelowConfidence) {
     auto cfg  = make_config();
-    auto row  = make_row(100.f, 100.f, 200.f, 200.f, 0.5f, 1.f);
+    auto row  = make_row(100.f, 100.f, 200.f, 200.f, 0.2f, 1.f);
     auto dets = radar_camera::model_inference::filter_detections(row, 1, 6, 1280, 1280, cfg);
     ASSERT_TRUE(dets.has_value()) << dets.error();
     EXPECT_TRUE(dets->empty());
@@ -68,7 +69,7 @@ TEST(FilterDetectionsTest, KeepsValidBox) {
 
 TEST(FilterDetectionsTest, DropsNonDroneWhenAspectTooExtreme) {
     auto cfg = make_config();
-    // 100x10 -> ratio 10 > max 3.0 for non-drone (cls=1 engineer-red)
+    // 100x10 -> ratio 10 > max 3.0 for non-drone (cls=1 engineer-blue)
     auto row  = make_row(0.f, 0.f, 100.f, 10.f, 0.95f, 1.f);
     auto dets = radar_camera::model_inference::filter_detections(row, 1, 6, 1280, 1280, cfg);
     ASSERT_TRUE(dets.has_value()) << dets.error();
@@ -86,7 +87,7 @@ TEST(FilterDetectionsTest, KeepsNonDroneWithLooserAspect) {
 
 TEST(FilterDetectionsTest, DropsDroneWhenAspectBelowTwo) {
     auto cfg = make_config();
-    // 100x80 -> ratio 1.25 < drone min 2.0 (cls=5 drone-red)
+    // 100x80 -> ratio 1.25 < drone min 2.0 (cls=5 drone-blue)
     auto row  = make_row(0.f, 0.f, 100.f, 80.f, 0.95f, 5.f);
     auto dets = radar_camera::model_inference::filter_detections(row, 1, 6, 1280, 1280, cfg);
     ASSERT_TRUE(dets.has_value()) << dets.error();
@@ -95,7 +96,7 @@ TEST(FilterDetectionsTest, DropsDroneWhenAspectBelowTwo) {
 
 TEST(FilterDetectionsTest, KeepsDroneWhenAspectAtLeastTwo) {
     auto cfg = make_config();
-    // 100x40 -> ratio 2.5 >= 2.0 for drone (cls=11 drone-blue)
+    // 100x40 -> ratio 2.5 >= 2.0 for drone (cls=11 drone-red)
     auto row  = make_row(0.f, 0.f, 100.f, 40.f, 0.95f, 11.f);
     auto dets = radar_camera::model_inference::filter_detections(row, 1, 6, 1280, 1280, cfg);
     ASSERT_TRUE(dets.has_value()) << dets.error();
@@ -129,24 +130,45 @@ TEST(FilterDetectionsTest, RejectsShortBuffer) {
     EXPECT_FALSE(dets.has_value());
 }
 
+TEST(FilterDetectionsTest, KeepsHighestConfidencePerClass) {
+    auto cfg = make_config();
+    std::vector<float> rows {
+        100.f, 100.f, 300.f, 300.f, 0.70f, 2.f,
+        120.f, 120.f, 320.f, 320.f, 0.90f, 2.f,
+        400.f, 400.f, 600.f, 600.f, 0.80f, 3.f,
+    };
+    auto dets = radar_camera::model_inference::filter_detections(rows, 3, 6, 1280, 1280, cfg);
+    ASSERT_TRUE(dets.has_value()) << dets.error();
+    ASSERT_EQ(dets->size(), 2u);
+    EXPECT_EQ((*dets)[0].id, 2);
+    EXPECT_FLOAT_EQ((*dets)[0].confidence, 0.90f);
+    EXPECT_EQ((*dets)[1].id, 3);
+}
+
+TEST(FilterDetectionsTest, KeepsEachClassOnceWithoutNms) {
+    auto cfg = make_config();
+    std::vector<float> rows {
+        100.f, 100.f, 300.f, 300.f, 0.80f, 2.f,
+        101.f, 101.f, 301.f, 301.f, 0.70f, 2.f,
+        100.f, 100.f, 300.f, 300.f, 0.75f, 3.f,
+    };
+    auto dets = radar_camera::model_inference::filter_detections(rows, 3, 6, 1280, 1280, cfg);
+    ASSERT_TRUE(dets.has_value()) << dets.error();
+    ASSERT_EQ(dets->size(), 2u);
+    EXPECT_EQ((*dets)[0].id, 2);
+    EXPECT_EQ((*dets)[1].id, 3);
+}
+
 TEST(ModelInferencePreprocessTest, BuildsNchwTensorInUnitRange) {
     radar_camera::model_inference::ModelInference engine;
     cv::Mat image(480, 640, CV_8UC3, cv::Scalar(0, 128, 255));
     auto tensor = engine.infer_preprocess(image, 320, 240);
     ASSERT_TRUE(tensor.has_value()) << tensor.error();
-    const auto& t = tensor->get();
-    ASSERT_EQ(t.get_shape().size(), 4u);
-    EXPECT_EQ(t.get_shape()[0], 1u);
-    EXPECT_EQ(t.get_shape()[1], 3u);
-    EXPECT_EQ(t.get_shape()[2], 240u);
-    EXPECT_EQ(t.get_shape()[3], 320u);
-    EXPECT_EQ(t.get_element_type(), ov::element::f32);
-
-    const float* data = static_cast<const float*>(t.data());
-    const size_t n    = t.get_size();
-    for (size_t i = 0; i < n; ++i) {
-        EXPECT_GE(data[i], 0.0f);
-        EXPECT_LE(data[i], 1.0f + 1e-5f);
+    const auto& data = tensor->get();
+    EXPECT_EQ(data.size(), 1u * 3u * 240u * 320u);
+    for (const float value : data) {
+        EXPECT_GE(value, 0.0f);
+        EXPECT_LE(value, 1.0f + 1e-5f);
     }
 }
 
@@ -191,7 +213,7 @@ TEST(ModelInferenceSmokeTest, FullPipelineWhenAssetsPresent) {
         static_cast<size_t>(cfg.model_input_height));
     ASSERT_TRUE(tensor.has_value()) << tensor.error();
 
-    auto async_ret = engine.infer_runtime_async(tensor->get());
+    auto async_ret = engine.infer_runtime_async();
     ASSERT_TRUE(async_ret.has_value()) << async_ret.error();
 
     auto raw = engine.infer_runtime_wait();

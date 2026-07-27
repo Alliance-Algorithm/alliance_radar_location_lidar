@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>radar_fast_livo2_rgb</name>
+  <version>0.0.1</version>
+  <description>RGB map projection primitives for FAST-LIVO2 LiDAR colorization</description>
+  <maintainer email="huangziang_2024@qq.com">yukikaze223344</maintainer>
+  <license>GPL-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>builtin_interfaces</depend>
+  <depend>eigen</depend>
+  <depend>geometry_msgs</depend>
+  <depend>hikcamera</depend>
+  <depend>libopencv-dev</depend>
+  <depend>libpcl-all-dev</depend>
+  <depend>nav_msgs</depend>
+  <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

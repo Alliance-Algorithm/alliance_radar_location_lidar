@@ -1,6 +1,7 @@
 #include "radar_camera/model_inference.hpp"
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 namespace radar_camera::model_inference {
 
@@ -56,32 +57,41 @@ auto filter_detections(const std::vector<float>& raw_output, int num_detections,
             is_drone ? config.drone_max_length_width_rate : config.max_length_width_rate;
         if (ratio < min_rate || ratio > max_rate) continue;
 
-        out.push_back(detection::Detection {
+        const detection::Detection detection {
             .center     = cv::Point2d((x1 + x2) * 0.5f * scale_x, (y1 + y2) * 0.5f * scale_y),
             .id         = cls,
-            .confidence = conf });
+            .confidence = conf };
+        auto existing = std::find_if(out.begin(), out.end(), [cls](const auto& item) {
+            return item.id == cls;
+        });
+        if (existing == out.end()) {
+            out.push_back(detection);
+        } else if (conf > existing->confidence) {
+            *existing = detection;
+        }
     }
     return out;
 }
 
 auto ModelInference::infer_preprocess(const cv::Mat& image, size_t width, size_t height)
-    -> std::expected<std::reference_wrapper<const ov::Tensor>, std::string> {
+    -> std::expected<std::reference_wrapper<const std::vector<float>>, std::string> {
     try {
         if (image.empty()) {
             return std::unexpected("infer_preprocess failed: empty image");
         }
-        cv::Mat blob = cv::dnn::blobFromImage(image, 1.0 / 255.0,
-            cv::Size(static_cast<int>(width), static_cast<int>(height)), cv::Scalar(), false,
+        // SHMRead already resizes live RGB8 frames. Only resize direct callers that provide a
+        // different shape, and preserve RGB channel order in both cases.
+        cv::Mat input = image;
+        if (image.cols != static_cast<int>(width) || image.rows != static_cast<int>(height)) {
+            cv::resize(input, input, cv::Size(static_cast<int>(width), static_cast<int>(height)));
+        }
+        cv::Mat blob = cv::dnn::blobFromImage(input, 1.0 / 255.0, cv::Size(), cv::Scalar(), false,
             false);
 
-        ov::Shape expected_shape { 1, 3, height, width };
-        if (!input_tensor_ || input_tensor_.get_shape() != expected_shape) {
-            input_tensor_ = ov::Tensor(ov::element::f32, expected_shape);
-        }
-
-        std::memcpy(input_tensor_.data<float>(), blob.data, blob.total() * sizeof(float));
-
-        return std::ref(input_tensor_);
+        const auto elements = blob.total();
+        input_buffer_.resize(elements);
+        std::memcpy(input_buffer_.data(), blob.ptr<float>(), elements * sizeof(float));
+        return std::ref(input_buffer_);
     } catch (const std::exception& e) {
         return std::unexpected(std::string("infer_preprocess failed: ") + e.what());
     }
@@ -91,6 +101,21 @@ auto ModelInference::infer_init(const inference_config::InferenceConfig& config)
     -> std::expected<void, std::string> {
     config_ = config;
     try {
+        if (config_.backend == "tensorrt") {
+#ifdef RADAR_CAMERA_HAS_TENSORRT
+            tensorrt_inference_ = std::make_unique<TensorRtInference>();
+            auto result = tensorrt_inference_->init(config_.model_path);
+            if (!result) return std::unexpected(result.error());
+            last_output_shape_ = { 1, 300, 6 };
+            return { };
+#else
+            return std::unexpected(
+                "TensorRT backend requested, but radar_camera was built without TensorRT support");
+#endif
+        }
+        if (config_.backend != "openvino") {
+            return std::unexpected("Unsupported inference backend: " + config_.backend);
+        }
         core_           = ov::Core();
         compiled_model_ = core_.compile_model(config_.model_path, config_.device_name);
         infer_request_  = compiled_model_.create_infer_request();
@@ -100,10 +125,21 @@ auto ModelInference::infer_init(const inference_config::InferenceConfig& config)
     }
 }
 
-auto ModelInference::infer_runtime_async(const ov::Tensor& input_tensor)
+auto ModelInference::infer_runtime_async()
     -> std::expected<void, std::string> {
     try {
-        infer_request_.set_input_tensor(input_tensor);
+        if (config_.backend == "tensorrt") {
+#ifdef RADAR_CAMERA_HAS_TENSORRT
+            return tensorrt_inference_->start(input_buffer_.data(), input_buffer_.size());
+#else
+            return std::unexpected("TensorRT backend is not compiled in");
+#endif
+        }
+
+        ov::Shape expected_shape { 1, 3, static_cast<size_t>(config_.model_input_height),
+            static_cast<size_t>(config_.model_input_width) };
+        input_tensor_ = ov::Tensor(ov::element::f32, expected_shape, input_buffer_.data());
+        infer_request_.set_input_tensor(input_tensor_);
         infer_request_.start_async();
         return { };
     } catch (const std::exception& e) {
@@ -114,6 +150,13 @@ auto ModelInference::infer_runtime_async(const ov::Tensor& input_tensor)
 auto ModelInference::infer_runtime_wait()
     -> std::expected<std::reference_wrapper<const std::vector<float>>, std::string> {
     try {
+        if (config_.backend == "tensorrt") {
+#ifdef RADAR_CAMERA_HAS_TENSORRT
+            return tensorrt_inference_->wait();
+#else
+            return std::unexpected("TensorRT backend is not compiled in");
+#endif
+        }
         infer_request_.wait();
 
         auto output_tensor = infer_request_.get_output_tensor();

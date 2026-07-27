@@ -5,6 +5,7 @@
 
 register_keys:
   strict_usb3.0_check: 0
+  # Preserve Odin device timestamps for LiDAR-IMU synchronization.
   use_host_ros_time: 0
   streamctrl: 1
 
