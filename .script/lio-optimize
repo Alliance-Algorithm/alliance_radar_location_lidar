@@ -1,0 +1,71 @@
+#!/bin/bash
+# LIO offline pose graph optimization — unified pipeline
+#
+# Quick start:
+#   1. During mapping:    .script/lio-optimize record
+#   2. After mapping:     .script/lio-optimize run <bag_path>
+#
+# Output: keyframe_optimized.csv, trajectory_before.csv, trajectory_after.csv
+#         + drift report
+
+set -euo pipefail
+RADAR_WS="${RADAR_WS:-/workspace}"
+TOOL="${RADAR_WS}/tools/loop_closure/optimize_pose_graph.py"
+MODEL="${RADAR_WS}/model/generated"
+OUT_DIR="${MODEL}/optimization"
+
+cmd="${1:-help}"
+shift 2>/dev/null || true
+
+case "$cmd" in
+    record)
+        output="${1:-${MODEL}/lio_bag_$(date +%Y%m%d_%H%M%S)}"
+        echo "Recording /fast_livo2/odom + /fast_livo2/cloud_world → ${output}"
+        echo "Ctrl+C to stop."
+        mkdir -p "$output"
+        ros2 bag record -o "$output" \
+            /fast_livo2/odom \
+            /fast_livo2/cloud_world \
+            /fast_livo2/path \
+            --max-cache-size 500000000
+        echo "Bag: $output"
+        ;;
+
+    run)
+        bag="${1:-}"
+        if [ -z "$bag" ]; then
+            echo "Usage: .script/lio-optimize run <bag_path>"
+            ls -d "${MODEL}"/lio_bag_* 2>/dev/null || echo "  (no bags in model/generated)"
+            exit 1
+        fi
+        if [ ! -d "$bag" ] && [ ! -f "$bag" ]; then
+            echo "ERROR: Bag not found: $bag"
+            exit 1
+        fi
+        rm -rf "$OUT_DIR"
+        mkdir -p "$OUT_DIR"
+        python3 "$TOOL" --bag "$bag" --output-dir "$OUT_DIR" \
+            --keyframe-dist 0.3 --loop-radius 2.0 --loop-min-skip 30
+        ;;
+
+    pcd)
+        rm -rf "$OUT_DIR"
+        mkdir -p "$OUT_DIR"
+        python3 "$TOOL" --pcd-dir "$MODEL" --output-dir "$OUT_DIR" \
+            --keyframe-dist 0.5 --loop-radius 3.0 --loop-min-skip 5
+        ;;
+
+    help|*)
+        echo "LIO Offline Pose Graph Optimization"
+        echo ""
+        echo "Usage:"
+        echo "  record [name]     Record LIO bag during mapping"
+        echo "  run <bag>         Run full optimization on bag"
+        echo "  pcd               Run on existing PCD segments (coarse)"
+        echo ""
+        echo "Quick pipeline:"
+        echo "  1. .script/lio-optimize record         # during mapping"
+        echo "  2. .script/lio-optimize run <bag>      # after mapping"
+        echo "  3. Check model/generated/optimization/ # results"
+        ;;
+esac

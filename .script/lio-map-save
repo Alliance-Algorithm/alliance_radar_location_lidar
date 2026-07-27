@@ -1,0 +1,52 @@
+#!/bin/bash
+# LIO 建图 + 后处理：导出干净静态点云地图
+# 用法：
+#   1. 先启动 LIO 建图（ros2 launch ... pcd_save_en:=true）
+#   2. 建图完成后按 Ctrl+C 退出（节点退出时自动保存最终 PCD）
+#   3. 运行本脚本后处理
+set -euo pipefail
+
+RADAR_WS="${RADAR_WS:-/workspace}"
+MODEL_DIR="${RADAR_WS}/model/generated"
+TOOL="${RADAR_WS}/tools/pcd_postprocess/pcd_postprocess.py"
+
+RAW_MAP="${MODEL_DIR}/lio_map.pcd"
+CLEAN_MAP="${MODEL_DIR}/lio_map_clean.pcd"
+VOXEL_MAP="${MODEL_DIR}/lio_map_voxel_005.pcd"
+
+echo "=== Step 1: 统计原始地图 ==="
+if [ ! -f "$RAW_MAP" ]; then
+    echo "原始地图不存在: $RAW_MAP"
+    echo "如需合并分片: python3 $TOOL --merge $RAW_MAP"
+    exit 1
+fi
+python3 -c "
+import pcl
+p = pcl.load('$RAW_MAP')
+print(f'原始点数: {len(p)}')
+x = p.to_array()
+print(f'X range: [{x[:,0].min():.2f}, {x[:,0].max():.2f}]')
+print(f'Y range: [{x[:,1].min():.2f}, {x[:,1].max():.2f}]')
+print(f'Z range: [{x[:,2].min():.2f}, {x[:,2].max():.2f}]')
+" 2>/dev/null || echo "  (需要 python-pcl 查看统计，跳过)"
+
+echo ""
+echo "=== Step 2: 去重 + 去离群点 ==="
+python3 "$TOOL" "$RAW_MAP" \
+    --output "$CLEAN_MAP" \
+    --voxel-size 0.05 \
+    --outlier-radius 0.3 \
+    --outlier-min-neighbors 5
+
+echo ""
+echo "=== Step 3: 粗降采样 (0.1m voxel) ==="
+python3 "$TOOL" "$CLEAN_MAP" \
+    --output "$VOXEL_MAP" \
+    --voxel-size 0.1 \
+    --no-outlier-removal
+
+echo ""
+echo "=== 完成 ==="
+echo "  原始地图: $RAW_MAP"
+echo "  去重去噪: $CLEAN_MAP"
+echo "  粗降采样: $VOXEL_MAP (供 radar_lidar GICP 使用)"

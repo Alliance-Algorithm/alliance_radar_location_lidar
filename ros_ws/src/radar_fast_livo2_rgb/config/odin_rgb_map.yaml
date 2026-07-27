@@ -1,0 +1,36 @@
+# Odin1 built-in camera colorization for FAST-LIVO2 world points.
+# Source: image/cam_in_ex.txt (device-specific)
+
+rgb_colorizer_node:
+  ros__parameters:
+    camera_input_mode: "ros_image"
+    camera_image_topic: "/odin1/image/undistorted"
+    camera_width: 1600
+    camera_height: 1296
+    img_time_offset: -0.096
+
+    # Device-specific intrinsics (A11, A22, u0, v0 from cam_in_ex.txt)
+    fx: 735.247467
+    fy: 735.158546
+    cx: 801.053752
+    cy: 612.108037
+
+    # Device-specific Tcl_0: p_camera = R_cl * p_lidar + t_cl
+    rotation_lidar_camera: [0.000190, -1.000000,  0.000730,
+                           -0.002500, -0.000730, -1.000000,
+                            1.000000,  0.000180, -0.002500]
+    translation_lidar_camera: [0.03205, -0.00622, -0.00897]
+
+    quality_axis_alignment: 1.0
+    quality_inverse_distance: 1.0
+    quality_image_center: 0.5
+    quality_gradient: 0.25
+
+    voxel_size: 0.10
+    max_image_queue: 30
+    max_odom_cache: 200
+    time_tolerance_ms: 120
+    publish_interval_ms: 100
+    pcd_save_interval_ms: 5000
+    pcd_save_dir: "/workspace/model/generated"
+    pcd_trigger: false

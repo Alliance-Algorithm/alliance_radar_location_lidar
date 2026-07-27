@@ -1,0 +1,87 @@
+#!/bin/bash
+# Record Odin1 IMU data for Allan variance analysis
+# Usage: .script/imu-allan-calib [duration_seconds]
+#
+# Two-step workflow:
+#   1. Record:  .script/imu-allan-calib record 7200   # 2 hours recommended
+#   2. Analyze: .script/imu-allan-calib analyze imu_calib.bag
+
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+RADAR_WS="${RADAR_WS:-/workspace}"
+BAG_DIR="${RADAR_WS}/model/generated"
+TOOL="${RADAR_WS}/tools/imu_allan/imu_noise_estimator.py"
+
+mkdir -p "${BAG_DIR}"
+
+cmd="${1:-help}"
+case "$cmd" in
+    record)
+        duration="${2:-7200}"
+        bag_path="${BAG_DIR}/imu_allan_calib"
+        echo "Recording ${duration}s of /odin1/imu to ${bag_path}..."
+        echo "Keep the Odin1 COMPLETELY STATIONARY during recording."
+        echo ""
+
+        cd "${RADAR_WS}/ros_ws"
+        source install/setup.bash 2>/dev/null || source install/setup.zsh 2>/dev/null || true
+
+        ros2 bag record -o "${bag_path}" /odin1/imu --max-cache-size 1000000000 \
+            --compression-mode file --compression-format zstd &
+        ROSBAG_PID=$!
+
+        echo "Recording... (${duration}s). Press Ctrl+C to stop early."
+        sleep "$duration"
+        kill "$ROSBAG_PID" 2>/dev/null || true
+        wait "$ROSBAG_PID" 2>/dev/null || true
+
+        # Find the actual bag directory
+        actual_bag=$(ls -d "${bag_path}"* 2>/dev/null | head -1)
+        echo ""
+        echo "Bag saved to: ${actual_bag}"
+        echo ""
+        echo "Next: .script/imu-allan-calib analyze ${actual_bag}"
+        ;;
+
+    analyze)
+        bag_path="${2:-}"
+        if [ -z "$bag_path" ]; then
+            echo "Usage: .script/imu-allan-calib analyze <bag_path>"
+            echo ""
+            echo "Available bags:"
+            ls -d "${BAG_DIR}"/imu_allan_calib* 2>/dev/null || echo "  (none)"
+            exit 1
+        fi
+        if [ ! -d "$bag_path" ] && [ ! -f "$bag_path" ]; then
+            echo "ERROR: Bag not found: $bag_path"
+            exit 1
+        fi
+
+        output="${BAG_DIR}/imu_allan.png"
+        echo "Analyzing ${bag_path}..."
+        python3 "${TOOL}" --bag "$bag_path" --output "$output"
+        echo ""
+        echo "Plot: ${output}"
+        ;;
+
+    test)
+        echo "Running with synthetic test data..."
+        output="${BAG_DIR}/imu_allan_test.png"
+        python3 "${TOOL}" --test --output "$output"
+        ;;
+
+    *)
+        echo "IMU Allan Variance Calibration Tool"
+        echo ""
+        echo "Usage:"
+        echo "  .script/imu-allan-calib record [seconds]   Record IMU data (default: 7200s = 2h)"
+        echo "  .script/imu-allan-calib analyze <bag>      Analyze recorded bag"
+        echo "  .script/imu-allan-calib test               Run with synthetic test data"
+        echo ""
+        echo "Requirements:"
+        echo "  - Odin1 powered on and stationary during recording"
+        echo "  - python3, numpy, matplotlib installed"
+        echo "  - 2+ hours of data recommended for reliable bias instability estimation"
+        echo "  - Minimum 10 minutes for rough ARW/VRW estimate"
+        ;;
+esac
