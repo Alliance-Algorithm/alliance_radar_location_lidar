@@ -1,0 +1,82 @@
+# rgb_map.yaml — Camera calibration for live RGB→BGR8 recorder
+#
+# Task 4 of the FAST-LIVO2 RGB map/replay plan.
+# Measured full-resolution intrinsics and distortion coefficients for the
+# Hikvision MV-CS016-10UC camera at 5472×3648.
+#
+# These values are consumed by camera_recorder_node at startup.
+# At runtime the node validates every field:
+#   - fx, fy: must be strictly positive (>0) and finite
+#   - cx, cy: must be strictly positive (>0) and finite
+#   - distortion: exactly 5 coefficients, at least one non-zero
+#   - width * height * 3: must fit within hikcamera::MAX_IMAGE_SIZE
+#     (overflow-safe, promotion to size_t before multiply)
+# Any violation → FATAL startup error, node refuses to run.
+#
+# Replace the placeholder values below with actual calibration results
+# from your calibration tool (e.g. Kalibr, OpenCV calibrateCamera).
+# Leaving them as-is will cause the recorder to refuse to start.
+
+/**:
+  ros__parameters:
+    # ── SHM configuration ────────────────────────────────────────────
+    shm_name: "/hikcamera_shm"        # Must match the writer's shm_name
+    width: 5472                       # Full sensor horizontal resolution
+    height: 3648                      # Full sensor vertical resolution
+    img_time_offset: 0.0              # seconds, monotonic→system clock offset
+    camera_frame_id: "camera"         # TF frame for the camera optical link
+
+    # ── Camera intrinsics (full resolution, measured) ────────────────
+    # PLACEHOLDER — replace with real calibration values.
+    # The recorder will FATAL-exit on startup if any value is zero.
+    fx: 0.0
+    fy: 0.0
+    cx: 0.0
+    cy: 0.0
+
+    # ── Distortion (plumb_bob model: k1, k2, p1, p2, k3) ────────────
+    # PLACEHOLDER — must be non-all-zero to pass startup validation.
+    distortion: [0.0, 0.0, 0.0, 0.0, 0.0]
+
+# ── RGB Colorizer Node（Task 5）──────────────────────────────────────
+rgb_colorizer_node:
+  ros__parameters:
+    # ── Camera input ──────────────────────────────────────────────
+    camera_input_mode: "ros_image"       # "shm" (live) or "ros_image" (replay)
+    shm_name: "/hikcamera_shm"           # SHM name (live mode)
+    img_time_offset: 0.0                 # seconds, monotonic→system clock offset
+    camera_image_topic: "/fast_livo2/camera/bgr8"  # ROS image topic (replay)
+    camera_width: 5472                   # Full sensor width
+    camera_height: 3648                  # Full sensor height
+
+    # ── Camera intrinsics (full resolution, measured) ─────────────
+    # PLACEHOLDER — replace with real calibration values.
+    fx: 0.0
+    fy: 0.0
+    cx: 0.0
+    cy: 0.0
+
+    # ── LiDAR → camera extrinsics ─────────────────────────────────
+    # Rotation matrix (row-major, 9 elements) and translation (3 elements).
+    # PLACEHOLDER — must be non-identity to pass startup validation
+    # if the calibration check rejects identity extrinsics.
+    rotation_lidar_camera: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+    translation_lidar_camera: [0.0, 0.0, 0.0]
+
+    # ── Quality scoring weights ───────────────────────────────────
+    quality_axis_alignment: 1.0
+    quality_inverse_distance: 1.0
+    quality_image_center: 0.5
+    quality_gradient: 0.25
+
+    # ── Map parameters ────────────────────────────────────────────
+    voxel_size: 0.10                     # Colour voxel resolution (m)
+    max_image_queue: 5                   # Max BGR frames held
+    max_odom_cache: 200                  # Max odometry entries held
+    time_tolerance_ms: 50                # Max age for image matching
+
+    # ── Publish / Save ────────────────────────────────────────────
+    publish_interval_ms: 1000            # Cloud publish period
+    pcd_save_interval_ms: 5000           # PCD trigger poll period
+    pcd_save_dir: "/tmp"                 # PCD output directory
+    pcd_trigger: false                   # Set to true to save one PCD
