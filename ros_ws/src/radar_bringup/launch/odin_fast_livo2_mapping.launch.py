@@ -110,22 +110,6 @@ def generate_launch_description():
         parameters=[LaunchConfiguration("rgb_config")],
     )
 
-    # GTSAM loop closure backend (decoupled from LIO, aligned with SPARK-FAST-LIO)
-    gtsam_node = Node(
-        package="radar_fast_livo2",
-        executable="gtsam_backend_node",
-        name="gtsam_backend_node",
-        output="screen",
-        parameters=[{
-            "odom_topic": "/fast_livo2/odom",
-            "scan_topic": "/fast_livo2/cloud_lidar",
-            "keyframe_dist": 0.5,
-            "loop_radius": 1.0,
-            "loop_min_skip": 20,
-            "map_frame": "map",
-        }],
-    )
-
     # 静态 TF（base_link → odin1 等外参树），与其他 launch 保持一致
     static_tf_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -144,5 +128,4 @@ def generate_launch_description():
         odin_launch,
         livo2_node,
         rgb_node,
-        gtsam_node,
     ])
