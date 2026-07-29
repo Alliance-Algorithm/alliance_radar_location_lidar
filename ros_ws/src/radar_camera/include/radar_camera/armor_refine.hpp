@@ -1,8 +1,8 @@
 #pragma once
 #include <cstdint>
 #include <expected>
-#include <optional>
 #include <opencv2/opencv.hpp>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -16,23 +16,23 @@ enum class ArmorColor : std::uint8_t { UNKNOWN = 0, RED = 1, BLUE = 2 };
 
 // L2 (shenzhen-0708) plate detector configuration.
 struct ArmorRefineConfig {
-    std::string armor_model_path;         // shenzhen-0708_fp16.engine
-    int model_input          = 640;       // square letterbox side
-    float score_threshold    = 0.8f;      // plate confidence gate
-    float nms_threshold      = 0.3f;      // IoU NMS threshold
+    std::string armor_model_path; // shenzhen-0708_fp16.engine
+    int model_input       = 640;  // square letterbox side
+    float score_threshold = 0.8f; // plate confidence gate
+    float nms_threshold   = 0.3f; // IoU NMS threshold
 };
 
 // L3 (armor-number) number classifier configuration.
 struct NumberRefineConfig {
-    std::string number_model_path;        // armor-number_fp16.engine
-    int model_input          = 224;       // square letterbox side
-    float conf_threshold     = 0.8f;      // number confidence gate
+    std::string number_model_path; // armor-number_fp16.engine
+    int model_input      = 224;    // square letterbox side
+    float conf_threshold = 0.8f;   // number confidence gate
 };
 
 // One decoded L2 armor plate, coordinates mapped back to the source frame.
 struct ArmorPlate {
-    cv::Rect2f bbox;                       // plate box in src-image pixels
-    int genre        = 0;                  // L2 genre index (0=unk,1=hero,...)
+    cv::Rect2f bbox;      // plate box in src-image pixels
+    int genre        = 0; // L2 genre index (0=unk,1=hero,...)
     ArmorColor color = ArmorColor::UNKNOWN;
     float confidence = 0.0f;
 };
