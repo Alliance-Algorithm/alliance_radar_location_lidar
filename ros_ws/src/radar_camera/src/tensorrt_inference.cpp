@@ -98,24 +98,51 @@ auto TensorRtInference::init(const std::string& engine_path) -> std::expected<vo
         return std::unexpected("TensorRT engine must expose one input and one output");
     }
 
-    const auto input_dims = impl_->engine->getTensorShape(impl_->input_name.c_str());
-    const auto output_dims = impl_->engine->getTensorShape(impl_->output_name.c_str());
-    if (input_dims.nbDims != 4 || input_dims.d[0] != 1 || input_dims.d[1] != 3
-        || input_dims.d[2] != 1280 || input_dims.d[3] != 1280) {
-        return std::unexpected("TensorRT input must be static 1x3x1280x1280");
-    }
-    if (output_dims.nbDims != 3 || output_dims.d[0] != 1 || output_dims.d[1] != 300
-        || output_dims.d[2] != 6) {
-        return std::unexpected("TensorRT output must be static 1x300x6");
-    }
     if (impl_->engine->getTensorDataType(impl_->input_name.c_str()) != nvinfer1::DataType::kFLOAT
         || impl_->engine->getTensorDataType(impl_->output_name.c_str())
             != nvinfer1::DataType::kFLOAT) {
         return std::unexpected("TensorRT backend requires float32 IO tensors");
     }
 
-    impl_->input_count  = 1u * 3u * 1280u * 1280u;
-    impl_->output_count = 1u * 300u * 6u;
+    // Resolve shapes from the engine so the same backend serves L1 (static
+    // 1x3x1280x1280 -> 1x300x6), L2 (1x3x640x640 -> 1x25200x22) and L3
+    // (dynamic 1x3x224x224 -> 1x9). Dynamic input dims are pinned to the
+    // optimization profile's OPT shape, which for our engines is fixed.
+    auto input_dims = impl_->engine->getTensorShape(impl_->input_name.c_str());
+    if (input_dims.nbDims < 1) return std::unexpected("TensorRT input shape is invalid");
+
+    bool dynamic_input = false;
+    for (int32_t i = 0; i < input_dims.nbDims; ++i) {
+        if (input_dims.d[i] < 0) dynamic_input = true;
+    }
+    if (dynamic_input) {
+        if (impl_->engine->getNbOptimizationProfiles() < 1) {
+            return std::unexpected("TensorRT dynamic engine has no optimization profile");
+        }
+        input_dims = impl_->engine->getProfileShape(
+            impl_->input_name.c_str(), 0, nvinfer1::OptProfileSelector::kOPT);
+    }
+
+    std::size_t input_count = 1;
+    for (int32_t i = 0; i < input_dims.nbDims; ++i) {
+        if (input_dims.d[i] <= 0) return std::unexpected("TensorRT input shape is not fully resolved");
+        input_count *= static_cast<std::size_t>(input_dims.d[i]);
+    }
+    if (!impl_->context->setInputShape(impl_->input_name.c_str(), input_dims)) {
+        return std::unexpected("TensorRT setInputShape failed: " + impl_->logger.last_message());
+    }
+
+    // Output shape must be queried from the context after the input is pinned.
+    const auto output_dims = impl_->context->getTensorShape(impl_->output_name.c_str());
+    if (output_dims.nbDims < 1) return std::unexpected("TensorRT output shape is invalid");
+    std::size_t output_count = 1;
+    for (int32_t i = 0; i < output_dims.nbDims; ++i) {
+        if (output_dims.d[i] <= 0) return std::unexpected("TensorRT output shape is not fully resolved");
+        output_count *= static_cast<std::size_t>(output_dims.d[i]);
+    }
+
+    impl_->input_count  = input_count;
+    impl_->output_count = output_count;
     impl_->output.resize(impl_->output_count);
 
     if (auto code = cudaStreamCreate(&impl_->stream); code != cudaSuccess) {

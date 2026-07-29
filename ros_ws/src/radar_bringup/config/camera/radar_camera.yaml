@@ -29,6 +29,12 @@ radar_camera_node:
     num_classes: 12
     # Set this to the deployment map mesh when projection is enabled.
     mesh_path: ""
+    # L2 plate detector + L3 number classifier. Leave paths empty to disable.
+    armor_model_path: "/workspace/ros_ws/src/radar_camera/model/shenzhen-0708_fp16.engine"
+    armor_score_threshold: 0.8
+    armor_nms_threshold: 0.3
+    number_model_path: "/workspace/ros_ws/src/radar_camera/model/armor-number_fp16.engine"
+    number_conf_threshold: 0.8
     camera_matrix: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
     distortion_coefficients: [0.0, 0.0, 0.0, 0.0, 0.0]
     rotation: [0.0, 0.0, 0.0]
