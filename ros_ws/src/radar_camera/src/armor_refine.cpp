@@ -163,8 +163,9 @@ auto ArmorRefiner::run_l2(const cv::Mat& frame, const cv::Rect2f& roi)
         ArmorColor color;
         float conf;
     };
+    // Post-threshold survivors are typically a handful; reserving all `num`
+    // grid cells (~25200) would allocate hundreds of KB on every call.
     std::vector<Candidate> candidates;
-    candidates.reserve(static_cast<size_t>(num));
 
     for (int i = 0; i < num; ++i) {
         const float* row = data + static_cast<size_t>(i) * static_cast<size_t>(kL2Stride);

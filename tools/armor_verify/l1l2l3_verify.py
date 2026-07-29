@@ -11,6 +11,7 @@ Mirrors the C++ radar_camera::armor_refine::ArmorRefiner decode logic:
 Fusion is pure priority: L3>=thr overrides L2>=thr overrides L1. Drones skip L2/L3.
 Also reports per-layer inference latency (CPU / onnxruntime).
 """
+import argparse
 import csv
 import time
 from pathlib import Path
@@ -19,11 +20,18 @@ import cv2
 import numpy as np
 import onnxruntime as ort
 
-MODEL_DIR = Path(
-    "/home/yukikaze/Documents/workspace/alliance_radar_location_lidar/ros_ws/src/radar_camera/model")
-FRAMES = Path("/home/yukikaze/Downloads/抽帧_100张_2")
-OUT_DIR = Path(
-    "/home/yukikaze/Documents/workspace/alliance_radar_location_lidar/model/generated/l1l2l3_verify")
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--model-dir", default="/workspace/ros_ws/src/radar_camera/model",
+                    help="directory holding the L1/L2/L3 .onnx models")
+parser.add_argument("--frames", default="/workspace/tools/verify_frames",
+                    help="directory of input frames (*.jpg)")
+parser.add_argument("--out-dir", default="/workspace/tools/verify_output/l1l2l3_verify",
+                    help="directory for annotated images + CSV")
+args = parser.parse_args()
+
+MODEL_DIR = Path(args.model_dir)
+FRAMES = Path(args.frames)
+OUT_DIR = Path(args.out_dir)
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 L1_CONF = 0.30
@@ -205,7 +213,7 @@ def main():
                          f"{conf:.2f}"])
         cv2.imwrite(str(OUT_DIR / fp.name), vis)
 
-    with open(OUT_DIR.parent / "l1l2l3_verify.csv", "w", newline="") as f:
+    with open(OUT_DIR / "l1l2l3_verify.csv", "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["frame", "l1_class", "decision_layer", "final_class", "l1_conf"])
         w.writerows(rows)
