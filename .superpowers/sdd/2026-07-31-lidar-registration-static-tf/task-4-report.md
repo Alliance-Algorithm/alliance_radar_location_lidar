@@ -38,3 +38,24 @@ Implemented and verified.
 ## Concerns
 
 - The 100 ms post-publication shutdown handoff is intentionally separate from the registration deadline. It improves delivery of the terminal reliable/transient-local status before process exit but is still a bounded scheduling assumption under extreme executor starvation.
+
+## Review Round 1/5
+
+### Changes
+
+- Made `FAILED` terminal by returning from `on_scan` before processing queued scans and rechecking after registration work before any TF, pose, or perception output.
+- Extended the timeout regression test with a real `radar_base -> lidar_link` extrinsic and a registration-capable scan published from the observed `FAILED` callback.
+- Tightened the rejection assertion to exact equality with `Registration timeout: Too few points: 10`.
+
+### TDD And Verification
+
+- RED command in `radar:develop`:
+  `docker run --rm -v "/home/yukikaze/Documents/workspace/alliance_radar_location_lidar/.worktrees/competition-bringup:/workspace" -w /workspace/ros_ws radar:develop bash -lc 'source /opt/ros/jazzy/setup.bash && source install/setup.bash && colcon build --packages-select radar_interfaces radar_lidar --cmake-args -DBUILD_TESTING=ON && source install/setup.bash && RADAR_LIDAR_TEST_DOMAIN_ID=231 ./build/radar_lidar/radar_surface_tests --gtest_filter="RadarLidarTimeoutTest.RegistrationTimeoutAfterInsufficientScanFailsWithoutPoseOrStaticTf"'`
+- RED result: 0/1 passed; after `FAILED`, the queued scan logged `Pose locked`, `pose_count` was 2, and `static_tf_count` was 1.
+- GREEN command in `radar:develop`:
+  `docker run --rm -v "/home/yukikaze/Documents/workspace/alliance_radar_location_lidar/.worktrees/competition-bringup:/workspace" -w /workspace/ros_ws radar:develop bash -lc 'source /opt/ros/jazzy/setup.bash && source install/setup.bash && colcon build --packages-select radar_interfaces radar_lidar --cmake-args -DBUILD_TESTING=ON && source install/setup.bash && RADAR_LIDAR_TEST_DOMAIN_ID=231 ./build/radar_lidar/radar_surface_tests --gtest_filter="RadarLidarTimeoutTest.RegistrationTimeoutAfterInsufficientScanFailsWithoutPoseOrStaticTf:RadarLidarSurfaceTest.AcceptedRegistrationPublishesImmutableStaticTransformAndLatchedStatus"'`
+- GREEN result: 2/2 passed in 835 ms; timeout remained terminal and accepted registration behavior remained intact.
+
+### Concerns
+
+- No new concerns. Terminal-state synchronization follows the executable's existing single-threaded executor architecture.

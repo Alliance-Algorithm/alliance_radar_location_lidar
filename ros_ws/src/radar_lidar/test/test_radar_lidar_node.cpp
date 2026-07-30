@@ -818,11 +818,36 @@ TEST(RadarLidarTimeoutTest, RegistrationTimeoutAfterInsufficientScanFailsWithout
     options.append_parameter_override("map_path", map_path);
     options.append_parameter_override("scan_topic", scan_topic);
     options.append_parameter_override("registration_timeout_sec", 0.2);
+    options.append_parameter_override("initial_pose_enabled", true);
+    options.append_parameter_override("initial_pose_tx", 2.0);
+    options.append_parameter_override("initial_pose_ty", -1.0);
+    options.append_parameter_override("initial_pose_tz", 0.5);
+    options.append_parameter_override("initial_pose_yaw", 0.3);
+    options.append_parameter_override("lock_fitness", 20.0);
 
     auto pipeline = std::make_shared<radar_lidar::node::RadarLidarNode>(options);
     auto observer = std::make_shared<rclcpp::Node>("timeout_observer", options);
+    auto extrinsic_broadcaster = std::make_unique<tf2_ros::StaticTransformBroadcaster>(*observer);
+    geometry_msgs::msg::TransformStamped extrinsic;
+    extrinsic.header.frame_id = "radar_base";
+    extrinsic.child_frame_id = "lidar_link";
+    extrinsic.transform.rotation.w = 1.0;
+    extrinsic_broadcaster->sendTransform(extrinsic);
     auto scan_pub = observer->create_publisher<sensor_msgs::msg::PointCloud2>(
         scan_topic, rclcpp::SensorDataQoS());
+    pcl::PointCloud<pcl::PointXYZ> registration_cloud;
+    for (double x = 6.0; x < 25.0; x += 0.5) {
+        for (double y = -8.0; y < 6.0; y += 0.5) {
+            registration_cloud.emplace_back(static_cast<float>(x), static_cast<float>(y), 0.5f);
+        }
+    }
+    registration_cloud.width = registration_cloud.size();
+    registration_cloud.height = 1;
+    registration_cloud.is_dense = true;
+    sensor_msgs::msg::PointCloud2 registration_scan;
+    pcl::toROSMsg(registration_cloud, registration_scan);
+    registration_scan.header.stamp.sec = 1;
+    registration_scan.header.frame_id = "lidar_link";
 
     std::mutex mutex;
     std::condition_variable cv;
@@ -835,6 +860,7 @@ TEST(RadarLidarTimeoutTest, RegistrationTimeoutAfterInsufficientScanFailsWithout
             if (msg->state != radar_interfaces::msg::RegistrationStatus::FAILED) return;
             std::lock_guard<std::mutex> lock(mutex);
             failed_status = *msg;
+            scan_pub->publish(registration_scan);
             cv.notify_all();
         });
     auto pose_sub = observer->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
@@ -880,9 +906,7 @@ TEST(RadarLidarTimeoutTest, RegistrationTimeoutAfterInsufficientScanFailsWithout
         received_failed_status =
             cv.wait_for(lock, 2s, [&]() { return failed_status.has_value(); });
         if (received_failed_status) {
-            EXPECT_FALSE(failed_status->reason.empty());
-            EXPECT_NE(failed_status->reason.find("timeout"), std::string::npos);
-            EXPECT_NE(failed_status->reason.find("Too few points: 10"), std::string::npos);
+            EXPECT_EQ(failed_status->reason, "Registration timeout: Too few points: 10");
         }
     }
 

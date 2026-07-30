@@ -116,6 +116,8 @@ RadarLidarNode::RadarLidarNode(const rclcpp::NodeOptions& options)
 }
 
 void RadarLidarNode::on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg) {
+    if (failure_requested_) return;
+
     ++frame_count_;
     const auto t0 = std::chrono::steady_clock::now();
 
@@ -160,6 +162,7 @@ void RadarLidarNode::on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg
     if (!localization_.failure_reason().empty()) {
         last_rejection_reason_ = localization_.failure_reason();
     }
+    if (failure_requested_) return;
 
     auto t_map_radar_base = radar_base_pose(pose->t_map_lidar);
     if (!t_map_radar_base) {
