@@ -10,6 +10,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/GameState.msg"
   "msg/LidarLocation.msg"
   "msg/CameraDetectionPose.msg"
+  "msg/RegistrationStatus.msg"
   DEPENDENCIES std_msgs geometry_msgs
 )
 ament_export_dependencies(rosidl_default_runtime)

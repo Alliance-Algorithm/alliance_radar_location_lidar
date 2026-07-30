@@ -20,9 +20,11 @@
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <pcl_conversions/pcl_conversions.h>
+#include <radar_interfaces/msg/registration_status.hpp>
 #include <rclcpp/executors/single_threaded_executor.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
+#include <tf2_msgs/msg/tf_message.hpp>
 
 #include "radar_lidar/radar_lidar_node.hpp"
 
@@ -50,14 +52,15 @@ auto make_scan_topic(int seq) -> std::string {
 
 // ── Fixed production output topics ─────────────────────────────────
 
-constexpr auto kPoseTopic       = "/lidar/pose";
-constexpr auto kDiagTopic       = "/diagnostics";
-constexpr auto kDynamicTopic    = "/lidar/dynamic";
-constexpr auto kClusterTopic    = "/lidar/cluster";
-constexpr auto kClusterVizTopic = "/lidar/cluster_viz";
-constexpr auto kOutputFrame     = "map";
-constexpr auto kDiagnosticName  = "radar_lidar/localization";
-constexpr auto kHardwareId      = "test_hw";
+constexpr auto kPoseTopic               = "/lidar/pose";
+constexpr auto kDiagTopic               = "/diagnostics";
+constexpr auto kDynamicTopic            = "/lidar/dynamic";
+constexpr auto kClusterTopic            = "/lidar/cluster";
+constexpr auto kClusterVizTopic         = "/lidar/cluster_viz";
+constexpr auto kOutputFrame             = "map";
+constexpr auto kDiagnosticName          = "radar_lidar/localization";
+constexpr auto kHardwareId              = "test_hw";
+constexpr auto kRegistrationStatusTopic = "/localization/registration_status";
 
 // ── Test fixture ────────────────────────────────────────────────────
 
@@ -169,6 +172,7 @@ protected:
         opts.append_parameter_override("initial_pose_roll", 0.0);
         opts.append_parameter_override("initial_pose_pitch", 0.0);
         opts.append_parameter_override("initial_pose_yaw", 0.3);
+        opts.append_parameter_override("lock_fitness", 20.0);
 
         pipeline_ = std::make_shared<radar_lidar::node::RadarLidarNode>(opts);
         pub_node_ = std::make_shared<rclcpp::Node>(pub_node_name_);
@@ -479,6 +483,7 @@ TEST_F(RadarLidarSurfaceTest, OutputTopicsPreservedWithExactQoS) {
         { kDynamicTopic, "sensor_msgs/msg/PointCloud2" },
         { kClusterTopic, "sensor_msgs/msg/PointCloud2" },
         { kClusterVizTopic, "visualization_msgs/msg/MarkerArray" },
+        { kRegistrationStatusTopic, "radar_interfaces/msg/RegistrationStatus" },
     };
 
     std::map<std::string, std::string> actual;
@@ -562,6 +567,115 @@ TEST_F(RadarLidarSurfaceTest, OutputTopicsPreservedWithExactQoS) {
         EXPECT_EQ(diag_qos.depth(), 10u);
         EXPECT_GT(diag_sub_->get_publisher_count(), 0u);
     }
+    {
+        auto pub_info = pipeline_->get_publishers_info_by_topic(kRegistrationStatusTopic);
+        ASSERT_GE(pub_info.size(), 1u)
+            << "No publisher endpoint found for topic: " << kRegistrationStatusTopic;
+        auto it = std::ranges::find_if(
+            pub_info, [](const auto& info) { return info.node_name() == "radar_lidar_node"; });
+        ASSERT_NE(it, pub_info.end())
+            << "No publisher endpoint owned by radar_lidar_node for: " << kRegistrationStatusTopic;
+
+        const auto& qos = it->qos_profile().get_rmw_qos_profile();
+        EXPECT_EQ(qos.reliability, RMW_QOS_POLICY_RELIABILITY_RELIABLE);
+        EXPECT_EQ(qos.durability, RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL);
+        if (qos.history != RMW_QOS_POLICY_HISTORY_UNKNOWN) {
+            EXPECT_EQ(qos.history, RMW_QOS_POLICY_HISTORY_KEEP_LAST);
+            EXPECT_EQ(qos.depth, 1u);
+        }
+    }
+}
+
+TEST_F(
+    RadarLidarSurfaceTest, AcceptedRegistrationPublishesImmutableStaticTransformAndLatchedStatus) {
+    struct Observations {
+        std::mutex mutex;
+        std::condition_variable cv;
+        std::vector<geometry_msgs::msg::TransformStamped> static_transforms;
+        std::vector<geometry_msgs::msg::TransformStamped> dynamic_transforms;
+        std::optional<radar_interfaces::msg::RegistrationStatus> status;
+    };
+    auto observations = std::make_shared<Observations>();
+
+    auto capture_edge = [observations](const tf2_msgs::msg::TFMessage::SharedPtr msg,
+                            std::vector<geometry_msgs::msg::TransformStamped>& destination) {
+        std::lock_guard<std::mutex> lock(observations->mutex);
+        for (const auto& transform : msg->transforms) {
+            if (transform.header.frame_id == kOutputFrame
+                && transform.child_frame_id == "radar_base") {
+                destination.push_back(transform);
+            }
+        }
+        observations->cv.notify_all();
+    };
+
+    auto static_sub  = sub_node_->create_subscription<tf2_msgs::msg::TFMessage>("/tf_static",
+        rclcpp::QoS(1).reliable().transient_local(),
+        [observations, capture_edge](tf2_msgs::msg::TFMessage::SharedPtr msg) {
+            capture_edge(msg, observations->static_transforms);
+        });
+    auto dynamic_sub = sub_node_->create_subscription<tf2_msgs::msg::TFMessage>("/tf",
+        rclcpp::QoS(100), [observations, capture_edge](tf2_msgs::msg::TFMessage::SharedPtr msg) {
+            capture_edge(msg, observations->dynamic_transforms);
+        });
+
+    ASSERT_TRUE([&]() {
+        const auto deadline = std::chrono::steady_clock::now() + 5s;
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (static_sub->get_publisher_count() > 0) {
+                return true;
+            }
+            std::this_thread::sleep_for(10ms);
+        }
+        return false;
+    }()) << "Static TF subscription did not discover the pipeline broadcaster";
+
+    {
+        std::unique_lock<std::mutex> lock(observations->mutex);
+        EXPECT_FALSE(observations->cv.wait_for(lock, 200ms, [&]() {
+            return !observations->static_transforms.empty()
+                || !observations->dynamic_transforms.empty();
+        })) << "map -> radar_base must not exist before registration acceptance";
+    }
+
+    ASSERT_TRUE(publish_and_await_pose(300, 0u, "scan"));
+    {
+        std::unique_lock<std::mutex> lock(observations->mutex);
+        ASSERT_TRUE(observations->cv.wait_for(lock, 5s, [&]() {
+            return observations->static_transforms.size() == 1;
+        })) << "Accepted registration did not publish map -> radar_base on /tf_static";
+    }
+
+    auto status_sub = sub_node_->create_subscription<radar_interfaces::msg::RegistrationStatus>(
+        kRegistrationStatusTopic, rclcpp::QoS(1).reliable().transient_local(),
+        [observations](radar_interfaces::msg::RegistrationStatus::SharedPtr msg) {
+            std::lock_guard<std::mutex> lock(observations->mutex);
+            observations->status = *msg;
+            observations->cv.notify_all();
+        });
+    {
+        std::unique_lock<std::mutex> lock(observations->mutex);
+        ASSERT_TRUE(observations->cv.wait_for(lock, 5s, [&]() {
+            return observations->status.has_value();
+        })) << "Late subscriber did not receive registration status";
+        EXPECT_EQ(observations->status->state, radar_interfaces::msg::RegistrationStatus::LOCKED);
+        EXPECT_TRUE(observations->status->reason.empty());
+    }
+
+    ASSERT_TRUE(publish_and_await_pose(301, 0u, "scan"));
+    std::this_thread::sleep_for(200ms);
+    {
+        std::lock_guard<std::mutex> lock(observations->mutex);
+        ASSERT_EQ(observations->static_transforms.size(), 1u) << "Later scans must not republish "
+                                                                 "or change the accepted static "
+                                                                 "transform";
+        EXPECT_TRUE(observations->dynamic_transforms.empty()) << "map -> radar_base must never be "
+                                                                 "published on /tf";
+        const auto& transform = observations->static_transforms.front();
+        EXPECT_EQ(transform.header.frame_id, kOutputFrame);
+        EXPECT_EQ(transform.child_frame_id, "radar_base");
+        EXPECT_EQ(transform.header.stamp.sec, 300);
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -592,32 +706,21 @@ TEST_F(RadarLidarSurfaceTest, PoseOutputFrameAndTimestamp) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Pose covariance — exact locked-pose value (Identity * 1e-6)
+// Pose covariance — accepted GICP result is finite
 // ═══════════════════════════════════════════════════════════════════
 
-TEST_F(RadarLidarSurfaceTest, PoseCovarianceExactLockedPoseValue) {
+TEST_F(RadarLidarSurfaceTest, PoseCovarianceFromAcceptedRegistrationIsFinite) {
     ASSERT_TRUE(publish_and_await_pose(100, 0u, "scan")) << "Pose not delivered after single scan "
                                                             "publish";
 
     std::lock_guard<std::mutex> lock(mutex_);
-    // Locked pose (initial_pose_enabled=true) → covariance = Identity * 1e-6
-    constexpr double kExpectedDiag = 1e-6;
     for (int i = 0; i < 36; ++i) {
         EXPECT_TRUE(std::isfinite(last_pose_.pose.covariance[i]))
             << "Covariance[" << i << "] is not finite";
     }
     for (int i = 0; i < 6; ++i) {
-        EXPECT_NEAR(last_pose_.pose.covariance[i * 6 + i], kExpectedDiag, 1e-15)
-            << "Covariance diagonal[" << i << "] should be 1e-6 (locked pose)";
-    }
-    // Off-diagonals should be 0.0
-    for (int row = 0; row < 6; ++row) {
-        for (int col = 0; col < 6; ++col) {
-            if (row != col) {
-                EXPECT_DOUBLE_EQ(last_pose_.pose.covariance[row * 6 + col], 0.0)
-                    << "Covariance[" << row << "][" << col << "] should be 0 (locked pose)";
-            }
-        }
+        EXPECT_GT(last_pose_.pose.covariance[i * 6 + i], 0.0)
+            << "Accepted GICP covariance diagonal[" << i << "] should be positive";
     }
 }
 
@@ -667,7 +770,8 @@ TEST_F(RadarLidarSurfaceTest, DiagnosticPublishedWithExactSemantics) {
     EXPECT_TRUE(has_converged) << "Missing 'converged' key";
 
     if (has_fitness) {
-        EXPECT_DOUBLE_EQ(fitness, 0.0) << "Locked pose fitness should be 0.0";
+        EXPECT_GT(fitness, 0.0) << "First locked pose must come from real GICP";
+        EXPECT_LE(fitness, 20.0) << "Accepted pose fitness must satisfy the configured threshold";
     }
     if (has_time) {
         EXPECT_GT(time_ms, 0.0) << "time_ms should be positive";

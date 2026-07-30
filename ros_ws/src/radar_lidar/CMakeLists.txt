@@ -65,6 +65,7 @@ ament_target_dependencies(${PROJECT_NAME}_node_lib
     sensor_msgs
     diagnostic_msgs
     geometry_msgs
+    radar_interfaces
     std_msgs
     visualization_msgs
     tf2_ros
@@ -124,6 +125,7 @@ if(BUILD_TESTING)
       test/test_radar_lidar_node.cpp
   )
   target_link_libraries(radar_surface_tests ${PROJECT_NAME}_node_lib)
+  ament_target_dependencies(radar_surface_tests radar_interfaces tf2_msgs)
 
   ament_add_gtest(radar_registration_tests
       test/test_offline_registration.cpp

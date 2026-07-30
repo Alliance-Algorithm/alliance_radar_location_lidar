@@ -6,10 +6,11 @@
 
 #include <diagnostic_msgs/msg/diagnostic_status.hpp>
 #include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
+#include <radar_interfaces/msg/registration_status.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <tf2_ros/buffer.h>
-#include <tf2_ros/transform_broadcaster.h>
+#include <tf2_ros/static_transform_broadcaster.h>
 #include <tf2_ros/transform_listener.h>
 #include <visualization_msgs/msg/marker_array.hpp>
 
@@ -29,7 +30,8 @@ public:
 private:
     void on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg);
     void publish_pose(const types::PoseEstimate& pose, types::Timestamp stamp);
-    void publish_dynamic_tf(const types::PoseEstimate& pose, types::Timestamp stamp);
+    void publish_static_tf(const types::PoseEstimate& pose, types::Timestamp stamp);
+    void publish_registration_status();
     void publish_diagnostics(const types::PoseEstimate& pose, double elapsed_ms, uint64_t frame);
     void publish_dynamic(const types::PointCloud& dynamic_points, types::Timestamp stamp);
     void publish_clusters(
@@ -63,13 +65,15 @@ private:
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_dynamic_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_clusters_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_cluster_viz_;
-    std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
+    rclcpp::Publisher<radar_interfaces::msg::RegistrationStatus>::SharedPtr
+        pub_registration_status_;
+    std::unique_ptr<tf2_ros::StaticTransformBroadcaster> tf_broadcaster_;
 
     std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
     std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
 
     uint64_t frame_count_ { 0 };
-    bool was_locked_ { false };
+    bool static_tf_published_ { false };
     bool was_odin_relocalized_ { false };
 };
 

@@ -98,7 +98,10 @@ RadarLidarNode::RadarLidarNode(const rclcpp::NodeOptions& options)
     pub_clusters_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/lidar/cluster", 10);
     pub_cluster_viz_ =
         this->create_publisher<visualization_msgs::msg::MarkerArray>("/lidar/cluster_viz", 10);
-    tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
+    pub_registration_status_ = this->create_publisher<radar_interfaces::msg::RegistrationStatus>(
+        "/localization/registration_status", rclcpp::QoS(1).reliable().transient_local());
+    tf_broadcaster_ = std::make_unique<tf2_ros::StaticTransformBroadcaster>(*this);
+    publish_registration_status();
 
     RCLCPP_INFO(get_logger(), "radar_lidar ready. Listening on %s (detection=%s)",
         scan_topic_.c_str(), detection_enabled_ ? "ON" : "OFF");
@@ -145,17 +148,28 @@ void RadarLidarNode::on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg
         const auto t1           = std::chrono::steady_clock::now();
         const double elapsed_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
         publish_diagnostics(pose.value_or(types::PoseEstimate { }), elapsed_ms, frame_count_);
+        publish_registration_status();
         return;
     }
 
-    publish_pose(*pose, frame.stamp);
-
-    if (!was_locked_ && localization_.is_locked()) {
-        was_locked_ = true;
+    if (!static_tf_published_ && localization_.is_locked()) {
+        static_tf_published_ = true;
+        publish_static_tf(*pose, frame.stamp);
+        publish_registration_status();
         RCLCPP_INFO(get_logger(),
             "Pose locked (fitness=%.4f) -- registration frozen, perception only",
             pose->fitness_score);
     }
+
+    if (!localization_.is_locked()) {
+        publish_registration_status();
+        const auto t1           = std::chrono::steady_clock::now();
+        const double elapsed_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+        publish_diagnostics(*pose, elapsed_ms, frame_count_);
+        return;
+    }
+
+    publish_pose(*pose, frame.stamp);
 
     // 检测：把扫描变换到地图坐标系后提取动态点
     if (detection_enabled_) {
@@ -227,10 +241,9 @@ void RadarLidarNode::publish_pose(const types::PoseEstimate& pose, types::Timest
         pose.covariance;
 
     pub_pose_->publish(msg);
-    publish_dynamic_tf(pose, stamp);
 }
 
-void RadarLidarNode::publish_dynamic_tf(const types::PoseEstimate& pose, types::Timestamp stamp) {
+void RadarLidarNode::publish_static_tf(const types::PoseEstimate& pose, types::Timestamp stamp) {
     geometry_msgs::msg::TransformStamped transform_msg;
     transform_msg.header.stamp    = rclcpp::Time(stamp);
     transform_msg.header.frame_id = output_frame_;
@@ -248,6 +261,26 @@ void RadarLidarNode::publish_dynamic_tf(const types::PoseEstimate& pose, types::
     transform_msg.transform.rotation.w = rotation.w();
 
     tf_broadcaster_->sendTransform(transform_msg);
+}
+
+void RadarLidarNode::publish_registration_status() {
+    radar_interfaces::msg::RegistrationStatus msg;
+    switch (localization_.state()) {
+    case localization::RegistrationState::INITIALIZING:
+        msg.state = radar_interfaces::msg::RegistrationStatus::INITIALIZING;
+        break;
+    case localization::RegistrationState::REGISTERING:
+        msg.state = radar_interfaces::msg::RegistrationStatus::REGISTERING;
+        break;
+    case localization::RegistrationState::LOCKED:
+        msg.state = radar_interfaces::msg::RegistrationStatus::LOCKED;
+        break;
+    case localization::RegistrationState::FAILED:
+        msg.state = radar_interfaces::msg::RegistrationStatus::FAILED;
+        break;
+    }
+    msg.reason = localization_.failure_reason();
+    pub_registration_status_->publish(msg);
 }
 
 void RadarLidarNode::publish_diagnostics(
