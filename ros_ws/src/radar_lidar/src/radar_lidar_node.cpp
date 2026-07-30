@@ -15,6 +15,9 @@ namespace {
 
     auto load_localization_config(rclcpp::Node& node) -> config::LocalizationConfig {
         config::LocalizationConfig cfg;
+        node.get_parameter("lock_fitness", cfg.lock_fitness);
+        node.get_parameter("max_translation_m", cfg.max_translation_m);
+        node.get_parameter("max_rotation_rad", cfg.max_rotation_rad);
         node.get_parameter("initial_pose_enabled", cfg.has_initial_pose);
         node.get_parameter("initial_pose_tx", cfg.initial_tx);
         node.get_parameter("initial_pose_ty", cfg.initial_ty);

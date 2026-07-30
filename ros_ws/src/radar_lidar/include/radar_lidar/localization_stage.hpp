@@ -16,6 +16,10 @@ class MapData;
 
 namespace radar_lidar::localization {
 
+enum class RegistrationState { INITIALIZING, REGISTERING, LOCKED, FAILED };
+
+class LocalizationStageTestPeer;
+
 /// @brief Stage 1: 点云 → 位姿 (GICP scan-to-map)
 /// 支持球面网格预处理 + 帧累积 + 一次性锁定
 class LocalizationStage {
@@ -35,14 +39,21 @@ public:
     void reset() {
         prev_pose_ = Eigen::Isometry3d::Identity();
         locked_    = false;
+        state_     = RegistrationState::REGISTERING;
+        failure_reason_.clear();
         accumulator_.clear();
     }
 
     /// @brief 是否已锁定（use_lock_strategy 启用时）
     [[nodiscard]] auto is_locked() const -> bool { return locked_; }
+    [[nodiscard]] auto state() const noexcept -> RegistrationState { return state_; }
+    [[nodiscard]] auto failure_reason() const -> const std::string& { return failure_reason_; }
 
 private:
+    friend class LocalizationStageTestPeer;
+
     auto preprocess(const types::Frame& scan) -> types::PointCloud;
+    void apply_registration_result(const types::PoseEstimate& result);
 
     std::shared_ptr<const map_data::MapData> map_;
     config::LocalizationConfig cfg_;
@@ -51,7 +62,9 @@ private:
 
     spherical_grid::SphericalGrid spherical_grid_;
     frame_accumulator::FrameAccumulator accumulator_;
-    bool locked_ = false;
+    bool locked_             = false;
+    RegistrationState state_ = RegistrationState::INITIALIZING;
+    std::string failure_reason_;
 };
 
 } // namespace radar_lidar::localization

@@ -55,6 +55,10 @@ LocalizationStage::LocalizationStage(
             * Eigen::AngleAxisd(cfg_.initial_roll, Eigen::Vector3d::UnitX()))
                                   .toRotationMatrix();
     }
+
+    if (!target_points_.empty()) {
+        state_ = RegistrationState::REGISTERING;
+    }
 }
 
 auto LocalizationStage::preprocess(const types::Frame& scan) -> types::PointCloud {
@@ -125,13 +129,6 @@ auto LocalizationStage::process(const types::Frame& scan)
 
     auto result = small_gicp::align(target_points_, source_points, prev_pose_, setting);
 
-    prev_pose_ = result.T_target_source;
-
-    // 锁定策略：fitness 足够好且收敛则锁定
-    if (cfg_.use_lock_strategy && result.converged && result.error < cfg_.lock_fitness) {
-        locked_ = true;
-    }
-
     types::PoseEstimate out;
     out.t_map_lidar   = result.T_target_source;
     out.fitness_score = result.error;
@@ -140,7 +137,43 @@ auto LocalizationStage::process(const types::Frame& scan)
     Eigen::Matrix<double, 6, 6> H_reg = result.H + Eigen::Matrix<double, 6, 6>::Identity() * 1e-6;
     out.covariance                    = H_reg.ldlt().solve(Eigen::Matrix<double, 6, 6>::Identity());
 
+    apply_registration_result(out);
+
     return out;
+}
+
+void LocalizationStage::apply_registration_result(const types::PoseEstimate& result) {
+    if (!result.converged) {
+        failure_reason_ = "Registration did not converge";
+        return;
+    }
+    if (!std::isfinite(result.fitness_score)) {
+        failure_reason_ = "Registration fitness is not finite";
+        return;
+    }
+    if (!result.t_map_lidar.matrix().allFinite()) {
+        failure_reason_ = "Registration transform is not finite";
+        return;
+    }
+    if (result.fitness_score > cfg_.lock_fitness) {
+        failure_reason_ = "Registration fitness exceeds lock threshold";
+        return;
+    }
+    if (result.t_map_lidar.translation().norm() > cfg_.max_translation_m) {
+        failure_reason_ = "Registration translation exceeds limit";
+        return;
+    }
+
+    const double rotation_angle = Eigen::AngleAxisd(result.t_map_lidar.rotation()).angle();
+    if (!std::isfinite(rotation_angle) || rotation_angle > cfg_.max_rotation_rad) {
+        failure_reason_ = "Registration rotation exceeds limit";
+        return;
+    }
+
+    prev_pose_ = result.t_map_lidar;
+    locked_    = true;
+    state_     = RegistrationState::LOCKED;
+    failure_reason_.clear();
 }
 
 } // namespace radar_lidar::localization
