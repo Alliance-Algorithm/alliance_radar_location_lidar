@@ -4,8 +4,15 @@ from pathlib import Path
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchContext
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import (
+    DeclareLaunchArgument,
+    EmitEvent,
+    IncludeLaunchDescription,
+    RegisterEventHandler,
+)
 from launch.conditions import IfCondition
+from launch.events import Shutdown
+from launch.event_handlers import OnProcessExit
 from launch.utilities import normalize_to_list_of_substitutions, perform_substitutions
 from launch_ros.actions import Node
 
@@ -49,12 +56,24 @@ def argument_defaults(description):
 
 
 def include_with_arguments(description, expected_names):
-    for entity in description.entities:
+    for entity in startup_entities(description):
         if not isinstance(entity, IncludeLaunchDescription):
             continue
         if forwarded_argument_names(entity) == expected_names:
             return entity
     raise AssertionError(f"missing include with arguments {expected_names}")
+
+
+def startup_entities(description):
+    entities = list(description.entities)
+    for entity in description.entities:
+        if not isinstance(entity, RegisterEventHandler):
+            continue
+        if not isinstance(entity.event_handler, OnProcessExit):
+            continue
+        callback = entity.event_handler._OnActionEventBase__on_event
+        entities.extend(callback(ProcessExited(0), LaunchContext()))
+    return entities
 
 
 def forwarded_argument_names(include):
@@ -117,7 +136,7 @@ def test_competition_forwards_registration_and_explicit_runtime_configs():
 
     fusion_nodes = [
         entity
-        for entity in description.entities
+        for entity in startup_entities(description)
         if isinstance(entity, Node) and entity.node_package == "radar_fusion"
     ]
     assert len(fusion_nodes) == 1
@@ -157,3 +176,46 @@ def test_all_default_runtime_configs_are_installed():
         "map_to_rm_offset_x": 14.0,
         "map_to_rm_offset_y": 7.5,
     }
+
+
+class ProcessExited:
+    def __init__(self, returncode):
+        self.returncode = returncode
+
+
+def test_registration_gate_is_the_only_top_level_consumer_process():
+    description = load_launch("radar_bringup", "competition.launch.py")
+    nodes = [entity for entity in description.entities if isinstance(entity, Node)]
+    includes = [
+        entity
+        for entity in description.entities
+        if isinstance(entity, IncludeLaunchDescription)
+    ]
+
+    assert len(nodes) == 1
+    assert nodes[0].node_package == "radar_bringup"
+    assert nodes[0].node_executable == "registration_gate"
+    assert len(includes) == 2
+
+
+def test_gate_exit_starts_all_consumers_only_on_success_and_shuts_down_on_failure():
+    description = load_launch("radar_bringup", "competition.launch.py")
+    handlers = [
+        entity.event_handler
+        for entity in description.entities
+        if isinstance(entity, RegisterEventHandler)
+        and isinstance(entity.event_handler, OnProcessExit)
+    ]
+    assert len(handlers) == 1
+    handler = handlers[0]
+    callback = handler._OnActionEventBase__on_event
+
+    success_actions = callback(ProcessExited(0), LaunchContext())
+    assert len(success_actions) == 3
+    assert sum(isinstance(action, IncludeLaunchDescription) for action in success_actions) == 2
+    assert sum(isinstance(action, Node) for action in success_actions) == 1
+
+    failure_actions = callback(ProcessExited(1), LaunchContext())
+    assert len(failure_actions) == 1
+    assert isinstance(failure_actions[0], EmitEvent)
+    assert isinstance(failure_actions[0].event, Shutdown)

@@ -8,12 +8,22 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_competition_contract
     test/test_competition_contract.py
   )
+  ament_add_pytest_test(test_registration_gate
+    test/test_registration_gate.py
+    TIMEOUT 30
+  )
 endif()
 
 install(DIRECTORY
   launch
   config
   DESTINATION share/${PROJECT_NAME}
+)
+
+install(PROGRAMS
+  scripts/registration_gate.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME registration_gate
 )
 
 ament_package()
