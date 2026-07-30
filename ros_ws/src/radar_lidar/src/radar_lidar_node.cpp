@@ -1,7 +1,9 @@
 #include "radar_lidar/radar_lidar_node.hpp"
 
 #include <chrono>
+#include <cmath>
 #include <ranges>
+#include <stdexcept>
 
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <pcl_conversions/pcl_conversions.h>
@@ -57,6 +59,10 @@ RadarLidarNode::RadarLidarNode(const rclcpp::NodeOptions& options)
     get_parameter("hardware_id", hardware_id_);
     get_parameter_or("lidar_frame", lidar_frame_, std::string("lidar_link"));
     get_parameter_or("use_odin_relocalization_tf", use_odin_relocalization_tf_, false);
+    get_parameter_or("registration_timeout_sec", registration_timeout_sec_, 30.0);
+    if (!std::isfinite(registration_timeout_sec_) || registration_timeout_sec_ <= 0.0) {
+        throw std::invalid_argument("registration_timeout_sec must be positive");
+    }
 
     tf_buffer_   = std::make_unique<tf2_ros::Buffer>(get_clock());
     tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
@@ -101,6 +107,9 @@ RadarLidarNode::RadarLidarNode(const rclcpp::NodeOptions& options)
         "/localization/registration_status", rclcpp::QoS(1).reliable().transient_local());
     tf_broadcaster_ = std::make_unique<tf2_ros::StaticTransformBroadcaster>(*this);
     publish_registration_status();
+    registration_timeout_timer_ = create_wall_timer(
+        std::chrono::duration<double>(registration_timeout_sec_),
+        [this]() { on_registration_timeout(); });
 
     RCLCPP_INFO(get_logger(), "radar_lidar ready. Listening on %s (detection=%s)",
         scan_topic_.c_str(), detection_enabled_ ? "ON" : "OFF");
@@ -120,6 +129,7 @@ void RadarLidarNode::on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg
     }
 
     if (frame.points.size() < 100) {
+        last_rejection_reason_ = "Too few points: " + std::to_string(frame.points.size());
         RCLCPP_WARN_THROTTLE(
             get_logger(), *get_clock(), 2000, "Too few points: %zu", frame.points.size());
         return;
@@ -138,6 +148,7 @@ void RadarLidarNode::on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg
     auto pose = localization_.process(frame);
 
     if (!pose) {
+        last_rejection_reason_ = pose.error();
         RCLCPP_WARN_THROTTLE(
             get_logger(), *get_clock(), 2000, "Localization failed: %s", pose.error().c_str());
         const auto t1           = std::chrono::steady_clock::now();
@@ -145,6 +156,9 @@ void RadarLidarNode::on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg
         publish_diagnostics(pose.value_or(types::PoseEstimate { }), elapsed_ms, frame_count_);
         publish_registration_status();
         return;
+    }
+    if (!localization_.failure_reason().empty()) {
+        last_rejection_reason_ = localization_.failure_reason();
     }
 
     auto t_map_radar_base = radar_base_pose(pose->t_map_lidar);
@@ -155,6 +169,7 @@ void RadarLidarNode::on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg
     }
 
     if (!static_tf_published_ && localization_.is_locked()) {
+        registration_timeout_timer_->cancel();
         static_tf_published_ = true;
         publish_static_tf(*t_map_radar_base, frame.stamp);
         publish_registration_status();
@@ -292,6 +307,12 @@ void RadarLidarNode::publish_static_tf(
 
 void RadarLidarNode::publish_registration_status() {
     radar_interfaces::msg::RegistrationStatus msg;
+    if (failure_requested_) {
+        msg.state  = radar_interfaces::msg::RegistrationStatus::FAILED;
+        msg.reason = registration_failure_reason_;
+        pub_registration_status_->publish(msg);
+        return;
+    }
     switch (localization_.state()) {
     case localization::RegistrationState::INITIALIZING:
         msg.state = radar_interfaces::msg::RegistrationStatus::INITIALIZING;
@@ -308,6 +329,21 @@ void RadarLidarNode::publish_registration_status() {
     }
     msg.reason = localization_.failure_reason();
     pub_registration_status_->publish(msg);
+}
+
+void RadarLidarNode::on_registration_timeout() {
+    registration_timeout_timer_->cancel();
+    if (localization_.is_locked() || failure_requested_) return;
+
+    failure_requested_ = true;
+    registration_failure_reason_ =
+        "Registration timeout: " + last_rejection_reason_;
+    RCLCPP_FATAL(get_logger(), "%s", registration_failure_reason_.c_str());
+    publish_registration_status();
+    failure_shutdown_timer_ = create_wall_timer(std::chrono::milliseconds(100), [this]() {
+        failure_shutdown_timer_->cancel();
+        rclcpp::shutdown();
+    });
 }
 
 void RadarLidarNode::publish_diagnostics(

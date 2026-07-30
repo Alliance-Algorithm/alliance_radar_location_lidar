@@ -16,3 +16,4 @@ radar_lidar_node:
     initial_pose_pitch: 0.0
     initial_pose_yaw: 0.0
     use_odin_relocalization_tf: false
+    registration_timeout_sec: 30.0

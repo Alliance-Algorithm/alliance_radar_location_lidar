@@ -794,6 +794,114 @@ TEST_F(RadarLidarSurfaceTest, RejectedRegistrationPublishesNoPoseOrDetectionBefo
     ASSERT_TRUE(publish_and_await_pose(501, 0u, "scan"));
 }
 
+TEST(RadarLidarTimeoutTest, RegistrationTimeoutAfterInsufficientScanFailsWithoutPoseOrStaticTf) {
+    const auto temp_dir = make_temp_dir();
+    const auto map_path = temp_dir + "/map.pcd";
+    pcl::PointCloud<pcl::PointXYZ> map_cloud;
+    for (double x = 0.0; x < 20.0; x += 0.5) {
+        for (double y = -7.0; y < 7.0; y += 0.5) {
+            map_cloud.emplace_back(static_cast<float>(x), static_cast<float>(y), 1.0f);
+        }
+    }
+    map_cloud.width = map_cloud.size();
+    map_cloud.height = 1;
+    map_cloud.is_dense = true;
+    ASSERT_EQ(pcl::io::savePCDFileBinary(map_path, map_cloud), 0);
+
+    if (!rclcpp::ok()) {
+        int argc = 0;
+        rclcpp::init(argc, nullptr);
+    }
+    rclcpp::NodeOptions options;
+    options.automatically_declare_parameters_from_overrides(true);
+    const auto scan_topic = make_scan_topic(g_fixture_seq.fetch_add(1));
+    options.append_parameter_override("map_path", map_path);
+    options.append_parameter_override("scan_topic", scan_topic);
+    options.append_parameter_override("registration_timeout_sec", 0.2);
+
+    auto pipeline = std::make_shared<radar_lidar::node::RadarLidarNode>(options);
+    auto observer = std::make_shared<rclcpp::Node>("timeout_observer", options);
+    auto scan_pub = observer->create_publisher<sensor_msgs::msg::PointCloud2>(
+        scan_topic, rclcpp::SensorDataQoS());
+
+    std::mutex mutex;
+    std::condition_variable cv;
+    std::optional<radar_interfaces::msg::RegistrationStatus> failed_status;
+    std::atomic<int> pose_count { 0 };
+    std::atomic<int> static_tf_count { 0 };
+    auto status_sub = observer->create_subscription<radar_interfaces::msg::RegistrationStatus>(
+        kRegistrationStatusTopic, rclcpp::QoS(1).reliable().transient_local(),
+        [&](radar_interfaces::msg::RegistrationStatus::SharedPtr msg) {
+            if (msg->state != radar_interfaces::msg::RegistrationStatus::FAILED) return;
+            std::lock_guard<std::mutex> lock(mutex);
+            failed_status = *msg;
+            cv.notify_all();
+        });
+    auto pose_sub = observer->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
+        kPoseTopic, 10,
+        [&](geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr) { ++pose_count; });
+    auto static_tf_sub = observer->create_subscription<tf2_msgs::msg::TFMessage>("/tf_static",
+        rclcpp::QoS(1).reliable().transient_local(), [&](tf2_msgs::msg::TFMessage::SharedPtr msg) {
+            for (const auto& transform : msg->transforms) {
+                if (transform.header.frame_id == kOutputFrame
+                    && transform.child_frame_id == "radar_base") {
+                    ++static_tf_count;
+                }
+            }
+        });
+
+    rclcpp::executors::SingleThreadedExecutor executor;
+    executor.add_node(pipeline);
+    executor.add_node(observer);
+    std::thread spin_thread([&]() { executor.spin(); });
+
+    const auto discovery_deadline = std::chrono::steady_clock::now() + 5s;
+    while (scan_pub->get_subscription_count() == 0
+        && std::chrono::steady_clock::now() < discovery_deadline) {
+        std::this_thread::sleep_for(10ms);
+    }
+    const bool discovered = scan_pub->get_subscription_count() > 0;
+
+    pcl::PointCloud<pcl::PointXYZ> insufficient_cloud;
+    for (int i = 0; i < 10; ++i) {
+        insufficient_cloud.emplace_back(static_cast<float>(i), 0.0f, 0.5f);
+    }
+    insufficient_cloud.width = insufficient_cloud.size();
+    insufficient_cloud.height = 1;
+    insufficient_cloud.is_dense = true;
+    sensor_msgs::msg::PointCloud2 insufficient_scan;
+    pcl::toROSMsg(insufficient_cloud, insufficient_scan);
+    insufficient_scan.header.frame_id = "lidar_link";
+    if (discovered) scan_pub->publish(insufficient_scan);
+
+    bool received_failed_status = false;
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        received_failed_status =
+            cv.wait_for(lock, 2s, [&]() { return failed_status.has_value(); });
+        if (received_failed_status) {
+            EXPECT_FALSE(failed_status->reason.empty());
+            EXPECT_NE(failed_status->reason.find("timeout"), std::string::npos);
+            EXPECT_NE(failed_status->reason.find("Too few points: 10"), std::string::npos);
+        }
+    }
+
+    const auto shutdown_deadline = std::chrono::steady_clock::now() + 2s;
+    while (rclcpp::ok() && std::chrono::steady_clock::now() < shutdown_deadline) {
+        std::this_thread::sleep_for(10ms);
+    }
+    EXPECT_FALSE(rclcpp::ok()) << "Timeout must request process context shutdown";
+    EXPECT_EQ(pose_count.load(), 0);
+    EXPECT_EQ(static_tf_count.load(), 0);
+
+    executor.cancel();
+    if (spin_thread.joinable()) spin_thread.join();
+    if (rclcpp::ok()) rclcpp::shutdown();
+    std::filesystem::remove_all(temp_dir);
+    EXPECT_TRUE(discovered);
+    EXPECT_TRUE(received_failed_status);
+}
+
 TEST(RadarLidarTransformTest, ComposesNonIdentityRadarBaseToLidarExtrinsic) {
     Eigen::Isometry3d t_map_lidar = Eigen::Isometry3d::Identity();
     t_map_lidar.translation()     = Eigen::Vector3d(4.0, 3.0, 2.0);
