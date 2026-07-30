@@ -29,6 +29,27 @@ if(BUILD_TESTING)
   set(ament_cmake_copyright_FOUND TRUE)
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
+
+  find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(radar_bridge_config_tests
+      test/test_radar_bridge_config.cpp
+      src/radar_bridge_node.cpp
+      src/zmq_bridge.cpp
+      src/videostream_bridge.cpp
+  )
+  target_include_directories(radar_bridge_config_tests PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/include
+  )
+  ament_target_dependencies(radar_bridge_config_tests
+      rclcpp
+      radar_interfaces
+  )
+  target_link_libraries(radar_bridge_config_tests
+      hikcamera::hikcamera
+      cppzmq
+      ${OpenCV_LIBRARIES}
+      nlohmann_json::nlohmann_json
+  )
 endif()
 
 target_include_directories(${PROJECT_NAME}_node PRIVATE
