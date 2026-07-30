@@ -55,12 +55,11 @@ RadarLidarNode::RadarLidarNode(const rclcpp::NodeOptions& options)
     // ── node params ────────────────────────────────────────────────
     get_parameter("scan_topic", scan_topic_);
     get_parameter("hardware_id", hardware_id_);
+    get_parameter_or("lidar_frame", lidar_frame_, std::string("lidar_link"));
     get_parameter_or("use_odin_relocalization_tf", use_odin_relocalization_tf_, false);
 
-    if (use_odin_relocalization_tf_) {
-        tf_buffer_   = std::make_unique<tf2_ros::Buffer>(get_clock());
-        tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
-    }
+    tf_buffer_   = std::make_unique<tf2_ros::Buffer>(get_clock());
+    tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
     // ── map ────────────────────────────────────────────────────────
     std::string map_path;
@@ -126,21 +125,17 @@ void RadarLidarNode::on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg
         return;
     }
 
-    std::expected<types::PoseEstimate, std::string> pose;
+    // Odin is an estimate only. It must never suppress the GICP call required to lock.
     if (use_odin_relocalization_tf_) {
-        if (auto odin_pose =
-                try_odin_relocalization_pose(frame.frame_id, rclcpp::Time(frame.stamp))) {
-            pose = *odin_pose;
+        if (try_odin_relocalization_pose(frame.frame_id, rclcpp::Time(frame.stamp))) {
             if (!was_odin_relocalized_) {
                 was_odin_relocalized_ = true;
-                RCLCPP_INFO(get_logger(), "Odin1 relocalization TF acquired -- GICP fallback idle");
+                RCLCPP_INFO(
+                    get_logger(), "Odin1 relocalization estimate acquired; GICP still required");
             }
-        } else {
-            pose = localization_.process(frame);
         }
-    } else {
-        pose = localization_.process(frame);
     }
+    auto pose = localization_.process(frame);
 
     if (!pose) {
         RCLCPP_WARN_THROTTLE(
@@ -152,9 +147,16 @@ void RadarLidarNode::on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg
         return;
     }
 
+    auto t_map_radar_base = radar_base_pose(pose->t_map_lidar);
+    if (!t_map_radar_base) {
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+            "Waiting for static extrinsic radar_base -> %s", lidar_frame_.c_str());
+        return;
+    }
+
     if (!static_tf_published_ && localization_.is_locked()) {
         static_tf_published_ = true;
-        publish_static_tf(*pose, frame.stamp);
+        publish_static_tf(*t_map_radar_base, frame.stamp);
         publish_registration_status();
         RCLCPP_INFO(get_logger(),
             "Pose locked (fitness=%.4f) -- registration frozen, perception only",
@@ -169,7 +171,7 @@ void RadarLidarNode::on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg
         return;
     }
 
-    publish_pose(*pose, frame.stamp);
+    publish_pose(*pose, *t_map_radar_base, frame.stamp);
 
     // 检测：把扫描变换到地图坐标系后提取动态点
     if (detection_enabled_) {
@@ -190,6 +192,29 @@ void RadarLidarNode::on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg
     const auto t1           = std::chrono::steady_clock::now();
     const double elapsed_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
     publish_diagnostics(*pose, elapsed_ms, frame_count_);
+}
+
+auto RadarLidarNode::radar_base_pose(const Eigen::Isometry3d& t_map_lidar)
+    -> std::optional<Eigen::Isometry3d> {
+    if (!t_radar_base_lidar_) {
+        try {
+            const auto transform = tf_buffer_->lookupTransform(
+                "radar_base", lidar_frame_, tf2::TimePointZero, tf2::durationFromSec(1.0));
+            Eigen::Isometry3d t_radar_base_lidar = Eigen::Isometry3d::Identity();
+            t_radar_base_lidar.translation() = Eigen::Vector3d(transform.transform.translation.x,
+                transform.transform.translation.y, transform.transform.translation.z);
+            t_radar_base_lidar.linear() =
+                Eigen::Quaterniond(transform.transform.rotation.w, transform.transform.rotation.x,
+                    transform.transform.rotation.y, transform.transform.rotation.z)
+                    .toRotationMatrix();
+            t_radar_base_lidar_ = t_radar_base_lidar;
+        } catch (const tf2::TransformException&) {
+            return std::nullopt;
+        }
+    }
+
+    // T_map_radar_base = T_map_lidar * inverse(T_radar_base_lidar).
+    return geom::map_radar_base_pose(t_map_lidar, *t_radar_base_lidar_);
 }
 
 void RadarLidarNode::transform_scan_to_map(const types::PointCloud& scan,
@@ -222,12 +247,13 @@ auto RadarLidarNode::try_odin_relocalization_pose(const std::string& source_fram
     return out;
 }
 
-void RadarLidarNode::publish_pose(const types::PoseEstimate& pose, types::Timestamp stamp) {
+void RadarLidarNode::publish_pose(const types::PoseEstimate& lidar_pose,
+    const Eigen::Isometry3d& t_map_radar_base, types::Timestamp stamp) {
     geometry_msgs::msg::PoseWithCovarianceStamped msg;
     msg.header.stamp    = rclcpp::Time(stamp);
     msg.header.frame_id = output_frame_;
 
-    const auto& T            = pose.t_map_lidar;
+    const auto& T            = t_map_radar_base;
     msg.pose.pose.position.x = T.translation().x();
     msg.pose.pose.position.y = T.translation().y();
     msg.pose.pose.position.z = T.translation().z();
@@ -238,18 +264,19 @@ void RadarLidarNode::publish_pose(const types::PoseEstimate& pose, types::Timest
     msg.pose.pose.orientation.w = q.w();
 
     Eigen::Map<Eigen::Matrix<double, 6, 6, Eigen::RowMajor>>(msg.pose.covariance.data()) =
-        pose.covariance;
+        lidar_pose.covariance;
 
     pub_pose_->publish(msg);
 }
 
-void RadarLidarNode::publish_static_tf(const types::PoseEstimate& pose, types::Timestamp stamp) {
+void RadarLidarNode::publish_static_tf(
+    const Eigen::Isometry3d& t_map_radar_base, types::Timestamp stamp) {
     geometry_msgs::msg::TransformStamped transform_msg;
     transform_msg.header.stamp    = rclcpp::Time(stamp);
     transform_msg.header.frame_id = output_frame_;
     transform_msg.child_frame_id  = "radar_base";
 
-    const auto& transform                 = pose.t_map_lidar;
+    const auto& transform                 = t_map_radar_base;
     transform_msg.transform.translation.x = transform.translation().x();
     transform_msg.transform.translation.y = transform.translation().y();
     transform_msg.transform.translation.z = transform.translation().z();

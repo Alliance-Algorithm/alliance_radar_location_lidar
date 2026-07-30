@@ -24,8 +24,9 @@ The focused surface test was first run before the node implementation. It failed
 All ROS build and test commands ran in `radar:develop` with the worktree mounted at `/workspace`.
 
 ```text
-colcon build --packages-select radar_interfaces radar_lidar --cmake-args -DBUILD_TESTING=ON
-colcon test --packages-select radar_interfaces radar_lidar --event-handlers console_direct+ --return-code-on-test-failure
+clang-format --dry-run --Werror ros_ws/src/radar_lidar/include/radar_lidar/geometry_utils.hpp ros_ws/src/radar_lidar/include/radar_lidar/radar_lidar_node.hpp ros_ws/src/radar_lidar/src/radar_lidar_node.cpp ros_ws/src/radar_lidar/test/test_radar_lidar_node.cpp
+colcon build --packages-select radar_interfaces radar_lidar radar_bringup --cmake-args -DBUILD_TESTING=ON
+colcon test --packages-select radar_interfaces radar_lidar radar_bringup --event-handlers console_direct+ --return-code-on-test-failure
 colcon test-result --all --verbose
 
 Summary: 53 tests, 0 errors, 0 failures, 0 skipped
@@ -42,4 +43,37 @@ Summary: 53 tests, 0 errors, 0 failures, 0 skipped
 ## Concerns
 
 - Existing PCL/CMake policy warnings remain during configure; they predate this task and do not affect the successful build or tests.
-- The optional Odin relocalization path does not transition `LocalizationStage` to `LOCKED`, so with Task 3 gating it remains on GICP fallback until a real GICP result is accepted. This matches the stated requirement that initial/external estimates are not proof of registration.
+- The optional Odin relocalization path does not transition `LocalizationStage` to `LOCKED`; a real GICP result must still be accepted. This matches the stated requirement that initial/external estimates are not proof of registration.
+
+## Round 1/5 Fix
+
+### Findings Addressed
+
+- Odin relocalization is now estimate-only and can never suppress `LocalizationStage::process()`. Every usable scan still executes GICP until accepted lock; after lock, pose output remains equal to the frozen static transform.
+- The GICP result remains `T_map_lidar`. The node consumes the bringup-owned `radar_base -> lidar_link` static TF as `T_radar_base_lidar` and computes exactly `T_map_radar_base = T_map_lidar * inverse(T_radar_base_lidar)` before publishing `/lidar/pose` and `map -> radar_base`.
+- Added a non-identity `T_radar_base_lidar` regression. The test publishes the same `radar_base -> lidar_link` TF convention used by `radar_bringup/config/common/extrinsics.yaml`; no duplicate calibration parameters or second TF authority were introduced.
+- Added a rejected scan that remains `REGISTERING` and asserts zero pose, dynamic cloud, cluster cloud, and cluster visualization output before a subsequent accepted scan.
+
+### TDD Evidence
+
+- `OdinEstimateCannotBypassOrChangeFrozenGicpRegistration` failed before the fix because the Odin branch skipped GICP and no locked pose arrived.
+- `ComposesNonIdentityRadarBaseToLidarExtrinsic` was added before the composition helper and initially failed to build because `map_radar_base_pose` did not exist.
+- `RejectedRegistrationPublishesNoPoseOrDetectionBeforeAcceptance` exercises the real ROS node and remains green because Task 3 already gated the rejected path correctly; it now explicitly protects that required behavior and `REGISTERING` state.
+
+### Exact Verification
+
+All commands ran in `radar:develop` with the worktree mounted at `/workspace`:
+
+```text
+clang-format --dry-run --Werror ros_ws/src/radar_lidar/include/radar_lidar/geometry_utils.hpp ros_ws/src/radar_lidar/include/radar_lidar/radar_lidar_node.hpp ros_ws/src/radar_lidar/src/radar_lidar_node.cpp ros_ws/src/radar_lidar/test/test_radar_lidar_node.cpp
+colcon build --packages-select radar_interfaces radar_lidar radar_bringup --cmake-args -DBUILD_TESTING=ON
+colcon test --packages-select radar_interfaces radar_lidar radar_bringup --event-handlers console_direct+ --return-code-on-test-failure
+colcon test-result --all --verbose
+
+Summary: 56 tests, 0 errors, 0 failures, 0 skipped
+```
+
+### Round 1 Concerns
+
+- The node waits up to one second on first use for the bringup static `radar_base -> lidar_link` extrinsic, then caches it as immutable calibration. If that TF is absent, pose/static-TF publication remains gated and the node retries on the next scan.
+- Existing PCL/CMake policy warnings remain unrelated to this fix.

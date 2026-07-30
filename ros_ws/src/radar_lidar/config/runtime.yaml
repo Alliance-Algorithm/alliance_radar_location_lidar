@@ -3,6 +3,7 @@ radar_lidar_node:
     map_path: ""
     scan_topic: "/odin1/cloud_raw"
     hardware_id: "odin1"
+    lidar_frame: "lidar_link"
     dynamic_distance_threshold: 0.1
     lock_fitness: 0.2
     max_translation_m: 40.0
