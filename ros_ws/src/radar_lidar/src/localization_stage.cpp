@@ -54,7 +54,6 @@ LocalizationStage::LocalizationStage(
             * Eigen::AngleAxisd(cfg_.initial_pitch, Eigen::Vector3d::UnitY())
             * Eigen::AngleAxisd(cfg_.initial_roll, Eigen::Vector3d::UnitX()))
                                   .toRotationMatrix();
-        locked_             = true;
     }
 }
 

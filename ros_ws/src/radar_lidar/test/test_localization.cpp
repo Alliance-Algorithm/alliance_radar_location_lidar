@@ -122,6 +122,37 @@ TEST_F(LocalizationTest, KnownTranslation) {
     EXPECT_NEAR(trans.z(), 0.0, 0.1) << "Expected T.z ~  0.0, got " << trans.z();
 }
 
+TEST_F(LocalizationTest, ConfiguredInitialPoseDoesNotLockBeforeRegistration) {
+    auto map_result = radar_lidar::map_data::MapData::load(map_pcd_, 0.1);
+    ASSERT_TRUE(map_result.has_value()) << map_result.error();
+    auto map = *map_result;
+
+    radar_lidar::config::LocalizationConfig cfg;
+    cfg.num_threads        = 2;
+    cfg.max_iterations     = 100;
+    cfg.max_corr_distance  = 2.0;
+    cfg.use_spherical_grid = false;
+    cfg.accumulate_frames  = 0;
+    cfg.has_initial_pose   = true;
+    cfg.initial_tx         = -0.5;
+    cfg.initial_ty         = -0.3;
+
+    auto localization = radar_lidar::localization::LocalizationStage(map, cfg);
+    EXPECT_FALSE(localization.is_locked());
+
+    const Eigen::Vector3d shift(0.5, 0.3, 0.0);
+    std::vector<Eigen::Vector3d> points;
+    const auto& pts = map->pcl_cloud().points;
+    points.reserve(pts.size());
+    for (const auto& pt : pts) {
+        points.emplace_back(pt.x + shift.x(), pt.y + shift.y(), pt.z + shift.z());
+    }
+
+    auto result = localization.process(radar_lidar::types::Frame { .points = std::move(points) });
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_NE(result->fitness_score, 0.0);
+}
+
 TEST_F(LocalizationTest, KnownRotation) {
     auto map_result = radar_lidar::map_data::MapData::load(map_pcd_, 0.1);
     ASSERT_TRUE(map_result.has_value()) << map_result.error();
