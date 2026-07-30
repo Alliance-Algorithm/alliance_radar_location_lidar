@@ -1,18 +1,22 @@
 import importlib.util
 from pathlib import Path
+import sys
 
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchContext
+from launch import LaunchDescription, LaunchService
 from launch.actions import (
     DeclareLaunchArgument,
     EmitEvent,
     IncludeLaunchDescription,
     RegisterEventHandler,
+    ExecuteProcess,
 )
 from launch.conditions import IfCondition
 from launch.events import Shutdown
 from launch.event_handlers import OnProcessExit
+from launch.events.process import ProcessExited as LaunchProcessExited
 from launch.utilities import normalize_to_list_of_substitutions, perform_substitutions
 from launch_ros.actions import Node
 
@@ -36,6 +40,14 @@ def load_launch(package: str, filename: str):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module.generate_launch_description()
+
+
+def load_launch_module(package: str, filename: str):
+    launch_path = Path(get_package_share_directory(package)) / "launch" / filename
+    spec = importlib.util.spec_from_file_location(filename, launch_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def argument_names(description):
@@ -183,6 +195,24 @@ class ProcessExited:
         self.returncode = returncode
 
 
+class ImmediatelyExitingProcess(ExecuteProcess):
+    def __init__(self):
+        super().__init__(cmd=[sys.executable, "-c", "pass"])
+
+    def execute(self, context):
+        event = LaunchProcessExited(
+            action=self,
+            name="immediate_gate",
+            cmd=[sys.executable, "-c", "pass"],
+            cwd=None,
+            env=None,
+            pid=1,
+            returncode=0,
+        )
+        if context.would_handle_event(event):
+            context.emit_event_sync(event)
+
+
 def test_registration_gate_is_the_only_top_level_consumer_process():
     description = load_launch("radar_bringup", "competition.launch.py")
     nodes = [entity for entity in description.entities if isinstance(entity, Node)]
@@ -219,3 +249,19 @@ def test_gate_exit_starts_all_consumers_only_on_success_and_shuts_down_on_failur
     assert len(failure_actions) == 1
     assert isinstance(failure_actions[0], EmitEvent)
     assert isinstance(failure_actions[0].event, Shutdown)
+
+
+def test_immediately_exiting_gate_starts_consumer(tmp_path):
+    module = load_launch_module("radar_bringup", "competition.launch.py")
+    marker = tmp_path / "consumer-started"
+    gate = ImmediatelyExitingProcess()
+    consumer = ExecuteProcess(
+        cmd=[sys.executable, "-c", f"from pathlib import Path; Path({str(marker)!r}).touch()"]
+    )
+    service = LaunchService()
+    service.include_launch_description(LaunchDescription(
+        module.gated_consumers(gate, [consumer])
+    ))
+
+    assert service.run() == 0
+    assert marker.is_file()

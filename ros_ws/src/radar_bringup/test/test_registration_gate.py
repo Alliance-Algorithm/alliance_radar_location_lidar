@@ -58,4 +58,11 @@ def test_gate_exits_nonzero_and_reports_latched_failure(status_publisher):
     )
 
     assert result.returncode != 0
-    assert "registration quality below threshold" in result.stderr
+    assert result.stderr == "registration quality below threshold\n"
+
+
+def test_gate_preserves_empty_latched_failure_reason(status_publisher):
+    result = run_gate(status_publisher, RegistrationStatus.FAILED, "")
+
+    assert result.returncode != 0
+    assert result.stderr == "\n"

@@ -25,6 +25,22 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
+def gated_consumers(gate, consumers):
+    def on_gate_exit(event, _context):
+        if event.returncode == 0:
+            return consumers
+        return [EmitEvent(event=Shutdown(
+            reason=f"registration gate failed with exit code {event.returncode}"))]
+
+    return [
+        RegisterEventHandler(OnProcessExit(
+            target_action=gate,
+            on_exit=on_gate_exit,
+        )),
+        gate,
+    ]
+
+
 def generate_launch_description():
     bringup_dir = get_package_share_directory("radar_bringup")
     fusion_dir  = get_package_share_directory("radar_fusion")
@@ -53,12 +69,6 @@ def generate_launch_description():
         }.items())
     gate = Node(package="radar_bringup", executable="registration_gate",
         name="registration_gate", output="screen")
-
-    def on_gate_exit(event, _context):
-        if event.returncode == 0:
-            return [camera, fusion, bridge]
-        return [EmitEvent(event=Shutdown(
-            reason=f"registration gate failed with exit code {event.returncode}"))]
 
     return LaunchDescription([
         DeclareLaunchArgument("side", default_value="red",
@@ -99,9 +109,5 @@ def generate_launch_description():
             }.items()),
 
         # 3. 配准完成后启动视觉检测、传感器融合和 ZMQ 桥接
-        gate,
-        RegisterEventHandler(OnProcessExit(
-            target_action=gate,
-            on_exit=on_gate_exit,
-        )),
+        *gated_consumers(gate, [camera, fusion, bridge]),
     ])

@@ -94,3 +94,44 @@ complete because the pre-existing dirty `radar_camera`/camera-driver state lacks
 `radar_bringup`, and is unrelated to Task 3. Per the preserve-dirt constraint,
 the third-party camera submodules were not changed. The package-scoped build and
 all Task 3 tests pass using the existing installed dependency overlay.
+
+## Review Round 1/5
+
+### Findings Addressed
+
+- Moved registration of the gate's `OnProcessExit` handler before the gate
+  action. A transient-local terminal status can now make the gate exit
+  immediately without racing handler registration.
+- Preserved `RegistrationStatus.reason` exactly on `FAILED`. An empty reason
+  now writes only the terminating newline to stderr rather than substituting
+  `registration failed`.
+
+### TDD Evidence
+
+- Added a public-LaunchService regression using the production
+  `gated_consumers()` orchestration boundary. Its test gate exits synchronously
+  at execution time and emits its event only if a handler is already present.
+- Mutation-checked the launch regression by temporarily restoring unsafe
+  `[gate, handler]` ordering. The test failed because the success consumer did
+  not start; restoring `[handler, gate]` made it pass.
+- Tightened the nonempty failure test to require exact stderr
+  `registration quality below threshold\n`.
+- Added an empty-reason failure test. It failed against the substitution with
+  `registration failed\n` and passed after exact propagation was restored.
+
+### Round Verification
+
+All commands ran in `radar:develop` with the worktree mounted at `/workspace`.
+
+- `radar_bringup` package build passed.
+- 2 CTest targets passed.
+- 10 task-specific pytest cases passed: 7 launch contract and 3 gate process
+  tests.
+- Aggregate result: 97 tests, 0 errors, 0 failures, 0 skipped.
+- No production timer, timeout, or sleep was added.
+
+### Round Concerns
+
+The pre-existing camera overlay warning and clean dependency-build limitation
+described above remain unchanged. Round 1 does not modify camera submodules or
+their generated/install state.

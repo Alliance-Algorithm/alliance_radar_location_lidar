@@ -26,7 +26,7 @@ class RegistrationGate(Node):
         if status.state == RegistrationStatus.LOCKED:
             self.exit_code = 0
         elif status.state == RegistrationStatus.FAILED:
-            print(status.reason or "registration failed", file=sys.stderr)
+            print(status.reason, file=sys.stderr)
             self.exit_code = 1
 
 
