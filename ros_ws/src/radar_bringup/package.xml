@@ -19,6 +19,11 @@
   <exec_depend>odin_ros_driver</exec_depend>
   <exec_depend>tf2_ros</exec_depend>
   <exec_depend>hikcamera_ros_driver</exec_depend>
+  <exec_depend>radar_bridge</exec_depend>
+  <exec_depend>radar_camera</exec_depend>
+  <exec_depend>radar_fusion</exec_depend>
+
+  <test_depend>ament_cmake_pytest</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>
