@@ -171,9 +171,11 @@ void LocalizationStage::apply_registration_result(const types::PoseEstimate& res
     }
 
     prev_pose_ = result.t_map_lidar;
-    locked_    = true;
-    state_     = RegistrationState::LOCKED;
     failure_reason_.clear();
+    if (cfg_.use_lock_strategy) {
+        locked_ = true;
+        state_  = RegistrationState::LOCKED;
+    }
 }
 
 } // namespace radar_lidar::localization

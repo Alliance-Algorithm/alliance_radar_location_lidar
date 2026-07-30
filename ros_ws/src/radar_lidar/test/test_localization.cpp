@@ -188,6 +188,97 @@ TEST_F(LocalizationTest, FitnessEqualToThresholdLocks) {
     EXPECT_TRUE(localization.failure_reason().empty());
 }
 
+TEST_F(LocalizationTest, SetInitialPoseAfterLockRequiresRealRegistration) {
+    auto map_result = radar_lidar::map_data::MapData::load(map_pcd_, 0.1);
+    ASSERT_TRUE(map_result.has_value()) << map_result.error();
+
+    radar_lidar::config::LocalizationConfig cfg;
+    cfg.num_threads        = 2;
+    cfg.max_iterations     = 100;
+    cfg.max_corr_distance  = 2.0;
+    cfg.use_spherical_grid = false;
+    cfg.accumulate_frames  = 0;
+    auto localization      = radar_lidar::localization::LocalizationStage(*map_result, cfg);
+
+    radar_lidar::types::PoseEstimate accepted;
+    accepted.converged = true;
+    radar_lidar::localization::LocalizationStageTestPeer::apply_result(localization, accepted);
+    ASSERT_TRUE(localization.is_locked());
+
+    Eigen::Isometry3d initial_pose = Eigen::Isometry3d::Identity();
+    initial_pose.translation()     = Eigen::Vector3d(-0.5, -0.3, 0.0);
+    localization.set_initial_pose(initial_pose);
+
+    EXPECT_FALSE(localization.is_locked());
+    EXPECT_EQ(localization.state(), radar_lidar::localization::RegistrationState::REGISTERING);
+    EXPECT_TRUE(localization.failure_reason().empty());
+
+    auto frame = make_frame_from_cloud(map_result.value()->pcl_cloud());
+    for (auto& point : frame.points) {
+        point += Eigen::Vector3d(0.5, 0.3, 0.0);
+    }
+    auto result = localization.process(frame);
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_NE(result->fitness_score, 0.0);
+}
+
+TEST_F(LocalizationTest, SetInitialPoseClearsPreviousRejectionReason) {
+    auto map_result = radar_lidar::map_data::MapData::load(map_pcd_, 0.1);
+    ASSERT_TRUE(map_result.has_value()) << map_result.error();
+    auto localization = radar_lidar::localization::LocalizationStage(*map_result, { });
+
+    radar_lidar::types::PoseEstimate rejected;
+    rejected.converged = false;
+    radar_lidar::localization::LocalizationStageTestPeer::apply_result(localization, rejected);
+    ASSERT_FALSE(localization.failure_reason().empty());
+
+    localization.set_initial_pose(Eigen::Isometry3d::Identity());
+
+    EXPECT_FALSE(localization.is_locked());
+    EXPECT_EQ(localization.state(), radar_lidar::localization::RegistrationState::REGISTERING);
+    EXPECT_TRUE(localization.failure_reason().empty());
+}
+
+TEST_F(LocalizationTest, AcceptedResultKeepsRegisteringWhenLockStrategyDisabled) {
+    auto map_result = radar_lidar::map_data::MapData::load(map_pcd_, 0.1);
+    ASSERT_TRUE(map_result.has_value()) << map_result.error();
+    radar_lidar::config::LocalizationConfig cfg;
+    cfg.use_lock_strategy = false;
+    auto localization     = radar_lidar::localization::LocalizationStage(*map_result, cfg);
+
+    radar_lidar::types::PoseEstimate accepted;
+    accepted.converged                 = true;
+    accepted.t_map_lidar.translation() = Eigen::Vector3d(2.0, 0.0, 0.0);
+    radar_lidar::localization::LocalizationStageTestPeer::apply_result(localization, accepted);
+
+    EXPECT_FALSE(localization.is_locked());
+    EXPECT_EQ(localization.state(), radar_lidar::localization::RegistrationState::REGISTERING);
+    EXPECT_TRUE(localization.failure_reason().empty());
+    EXPECT_TRUE(radar_lidar::localization::LocalizationStageTestPeer::previous_pose(localization)
+            .isApprox(accepted.t_map_lidar));
+}
+
+TEST_F(LocalizationTest, RejectedResultKeepsPreviousEstimateWhenLockStrategyDisabled) {
+    auto map_result = radar_lidar::map_data::MapData::load(map_pcd_, 0.1);
+    ASSERT_TRUE(map_result.has_value()) << map_result.error();
+    radar_lidar::config::LocalizationConfig cfg;
+    cfg.use_lock_strategy = false;
+    auto localization     = radar_lidar::localization::LocalizationStage(*map_result, cfg);
+
+    Eigen::Isometry3d initial_pose = Eigen::Isometry3d::Identity();
+    initial_pose.translation()     = Eigen::Vector3d(1.0, 0.0, 0.0);
+    localization.set_initial_pose(initial_pose);
+    radar_lidar::types::PoseEstimate rejected;
+    rejected.converged = false;
+    radar_lidar::localization::LocalizationStageTestPeer::apply_result(localization, rejected);
+
+    EXPECT_FALSE(localization.is_locked());
+    EXPECT_EQ(localization.state(), radar_lidar::localization::RegistrationState::REGISTERING);
+    EXPECT_FALSE(localization.failure_reason().empty());
+    EXPECT_TRUE(radar_lidar::localization::LocalizationStageTestPeer::previous_pose(localization)
+            .isApprox(initial_pose));
+}
+
 TEST_F(LocalizationTest, InvalidRegistrationResultsDoNotLockOrReplaceInitialEstimate) {
     struct RejectedResult {
         const char* name;
@@ -295,7 +386,7 @@ TEST_F(LocalizationTest, EmptyScanReturnsError) {
     EXPECT_NE(result.error().find("Empty scan"), std::string::npos);
 }
 
-TEST_F(LocalizationTest, SetInitialPoseAndReset) {
+TEST_F(LocalizationTest, ResetStateReflectsMapAvailability) {
     auto map_result = radar_lidar::map_data::MapData::load(map_pcd_, 0.1);
     ASSERT_TRUE(map_result.has_value());
     auto map = *map_result;
@@ -307,5 +398,12 @@ TEST_F(LocalizationTest, SetInitialPoseAndReset) {
     pose.translation()     = Eigen::Vector3d(1.0, 2.0, 3.0);
     localization.set_initial_pose(pose);
 
-    EXPECT_NO_THROW(localization.reset());
+    localization.reset();
+    EXPECT_FALSE(localization.is_locked());
+    EXPECT_EQ(localization.state(), radar_lidar::localization::RegistrationState::REGISTERING);
+
+    auto mapless = radar_lidar::localization::LocalizationStage(nullptr, cfg);
+    mapless.reset();
+    EXPECT_FALSE(mapless.is_locked());
+    EXPECT_EQ(mapless.state(), radar_lidar::localization::RegistrationState::INITIALIZING);
 }

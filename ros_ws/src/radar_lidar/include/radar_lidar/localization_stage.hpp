@@ -33,13 +33,20 @@ public:
 
     /// @brief 设置下一次配准的初始位姿猜测
     /// @brief 离线工具和重定位场景需要外部提供初始猜测
-    void set_initial_pose(const Eigen::Isometry3d& pose) { prev_pose_ = pose; }
+    void set_initial_pose(const Eigen::Isometry3d& pose) {
+        prev_pose_ = pose;
+        locked_    = false;
+        state_     = target_points_.empty() ? RegistrationState::INITIALIZING
+                                            : RegistrationState::REGISTERING;
+        failure_reason_.clear();
+    }
 
     /// @brief 重置为单位位姿（重新开始跟踪）
     void reset() {
         prev_pose_ = Eigen::Isometry3d::Identity();
         locked_    = false;
-        state_     = RegistrationState::REGISTERING;
+        state_     = target_points_.empty() ? RegistrationState::INITIALIZING
+                                            : RegistrationState::REGISTERING;
         failure_reason_.clear();
         accumulator_.clear();
     }
