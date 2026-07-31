@@ -17,7 +17,7 @@ Implemented loosely coupled semantic fusion:
 - Expired slots are removed and publish zero in their official fields.
 - Unknown LiDAR never creates semantic official slots.
 
-The typed `CameraDetectionArray` contract, `/lidar/location` message, radar bridge, and ZMQ protocol were unchanged. H264 was not implemented. Architecture documentation was not changed.
+The typed `CameraDetectionArray` contract, `/lidar/location` message, radar bridge, and ZMQ protocol were unchanged. H264 was not implemented. The architecture document now reflects the independent-node topology, GICP registration/static TF handoff, and fusion ownership of `/lidar/location`.
 
 ## Configuration
 
@@ -110,11 +110,13 @@ test_registration_gate: 3/3 passed
 test_competition_launch: 14/14 passed
 ```
 
-Replay collection failed before its test body:
+The first replay attempt was blocked by the container missing Python `zmq`:
 
 ```text
 ModuleNotFoundError: No module named 'zmq'
 ```
+
+After installing `python3-zmq` in the container, the replay source collected but exposed two startup-message races. The harness was updated to ignore initial zero-valued `/lidar/location` messages and wait for the expected semantic payload. A subsequent run without the temporary package install again failed at collection because the package is not present in the base image; therefore end-to-end replay is not claimed as passed.
 
 The replay source passed:
 
@@ -122,7 +124,7 @@ The replay source passed:
 python3 -m py_compile src/radar_bringup/test/test_fusion_bridge_csv_replay.py
 ```
 
-The replay harness now explicitly covers camera-only publication and a far-LiDAR update after an empty camera frame. It retains the blue fixture mounts and environment variables shown above. No replay oracle output can be claimed until the container provides Python `zmq` and the mounted files exist.
+The replay harness now explicitly covers camera-only publication and a far-LiDAR update after an empty camera frame. It retains the blue fixture mounts and environment variables shown above. The core `radar_fusion` tests and all non-replay bringup tests pass; replay requires a container image with Python `zmq` installed.
 
 ## T-DT_Radar Comparison
 
@@ -136,6 +138,6 @@ Conceptually this follows the T-DT_Radar direction of treating vision semantics 
 
 ## Concerns
 
-- End-to-end CSV/ZMQ replay remains unexecuted because `radar:develop` lacks the Python `zmq` module at collection time. The harness is syntax-checked and keeps `/testdata` blue CSV/image mounts.
+- End-to-end CSV/ZMQ replay remains unverified in the base `radar:develop` image because it lacks the Python `zmq` module at collection time. The harness is syntax-checked and keeps `/testdata` blue CSV/image mounts.
 - Existing tests emit the pre-existing ROS warning about repeated `radar_fusion_node` names; assertions pass.
 - The worktree contains unrelated modified Hikcamera submodules and untracked startup plans; they were not staged or changed.

@@ -196,7 +196,16 @@ def test_csv_replay_fusion_and_bridge_transport():
             assert node.cluster_pub.get_subscription_count() >= 1
 
             node.publish_frame(rows, node.get_clock().now(), lidar_points=[])
-            rclpy.spin_once(node, timeout_sec=0.2)
+            camera_deadline = time.monotonic() + 5.0
+            while time.monotonic() < camera_deadline:
+                rclpy.spin_once(node, timeout_sec=0.1)
+                if node.location is not None:
+                    camera_candidate = lidar_location_fields(node.location)
+                    if (
+                        camera_candidate["opponent_hero_x"],
+                        camera_candidate["opponent_hero_y"],
+                    ) == (int(expected_cm["hero_b"][0]), int(expected_cm["hero_b"][1])):
+                        break
             assert node.location is not None, "camera-only replay did not publish a location"
             camera_only = lidar_location_fields(node.location)
             assert camera_only["opponent_hero_x"] == int(expected_cm["hero_b"][0])
@@ -218,12 +227,34 @@ def test_csv_replay_fusion_and_bridge_transport():
 
             deadline = time.monotonic() + 10.0
             payload = None
+            expected_fields = {
+                "opponent_hero": tuple(int(value) for value in expected_cm["hero_b"]),
+                "opponent_infantry_3": tuple(int(value) for value in expected_cm["inf3_b"]),
+                "ally_engineer": tuple(int(value) for value in expected_cm["eng_r"]),
+            }
             while time.monotonic() < deadline:
                 rclpy.spin_once(node, timeout_sec=0.1)
                 if node.location is not None:
                     try:
-                        payload = json.loads(subscriber.recv_string(flags=zmq.NOBLOCK))
-                        break
+                        candidate = json.loads(subscriber.recv_string(flags=zmq.NOBLOCK))
+                        candidate_fields = bridge_fields(candidate)
+                        if (
+                            candidate_fields.get("opponent_hero_x"),
+                            candidate_fields.get("opponent_hero_y"),
+                            candidate_fields.get("opponent_infantry_3_x"),
+                            candidate_fields.get("opponent_infantry_3_y"),
+                            candidate_fields.get("ally_engineer_x"),
+                            candidate_fields.get("ally_engineer_y"),
+                        ) == (
+                            expected_fields["opponent_hero"][0],
+                            expected_fields["opponent_hero"][1],
+                            expected_fields["opponent_infantry_3"][0],
+                            expected_fields["opponent_infantry_3"][1],
+                            expected_fields["ally_engineer"][0],
+                            expected_fields["ally_engineer"][1],
+                        ):
+                            payload = candidate
+                            break
                     except zmq.Again:
                         pass
             assert node.location is not None, "fusion did not publish /lidar/location"
@@ -251,11 +282,6 @@ def test_csv_replay_fusion_and_bridge_transport():
                 "opponent_hero": (ros_fields["opponent_hero_x"], ros_fields["opponent_hero_y"]),
                 "opponent_infantry_3": (ros_fields["opponent_infantry_3_x"], ros_fields["opponent_infantry_3_y"]),
                 "ally_engineer": (ros_fields["ally_engineer_x"], ros_fields["ally_engineer_y"]),
-            }
-            expected_fields = {
-                "opponent_hero": tuple(int(value) for value in expected_cm["hero_b"]),
-                "opponent_infantry_3": tuple(int(value) for value in expected_cm["inf3_b"]),
-                "ally_engineer": tuple(int(value) for value in expected_cm["eng_r"]),
             }
             assert observed == expected_fields, (
                 f"semantic centimeter mismatch: expected={expected_fields} observed={observed}"
