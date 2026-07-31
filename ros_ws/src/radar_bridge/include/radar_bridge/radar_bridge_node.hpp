@@ -19,6 +19,7 @@ struct BridgeConfig {
     std::string image_topic;
     int video_width  = 4096;
     int video_height = 3000;
+    bool enable_video_stream = true;
 };
 
 auto ConfigsLoader(rclcpp::Node& node, BridgeConfig& config) -> std::expected<void, std::string>;

@@ -8,7 +8,8 @@ namespace radar_camera::node {
 
 RadarCameraNode::RadarCameraNode()
     : Node("radar_camera_node") {
-    auto ret = ConfigsLoader(*this, camera_config_, inference_config_, projection_config_);
+    auto ret = ConfigsLoader(*this, camera_config_, inference_config_, projection_config_,
+        armor_refine_config_, number_refine_config_);
     if (!ret) {
         RCLCPP_ERROR(get_logger(), "ConfigsLoader failed: %s", ret.error().c_str());
         throw std::runtime_error("ConfigsLoader failed: " + ret.error());
@@ -24,13 +25,28 @@ RadarCameraNode::RadarCameraNode()
     RCLCPP_INFO(get_logger(), "ModelInference initialized: backend=%s model=%s",
         inference_config_.backend.c_str(), inference_config_.model_path.c_str());
 
+    if (!armor_refine_config_.armor_model_path.empty()
+        && !number_refine_config_.number_model_path.empty()) {
+        auto refine_ret = armor_refiner_.init(armor_refine_config_, number_refine_config_);
+        if (!refine_ret) {
+            RCLCPP_WARN(get_logger(), "ArmorRefiner init skipped: %s", refine_ret.error().c_str());
+        } else {
+            armor_refine_enabled_ = true;
+            RCLCPP_INFO(get_logger(), "ArmorRefiner initialized: L2=%s L3=%s",
+                armor_refine_config_.armor_model_path.c_str(),
+                number_refine_config_.number_model_path.c_str());
+        }
+    } else {
+        RCLCPP_INFO(get_logger(), "ArmorRefiner disabled: L2/L3 model paths not set");
+    }
+
     auto cam_ret = projector_.proj_init_camera(camera_config_);
     if (!cam_ret) RCLCPP_WARN(get_logger(), "Projector camera init skipped: %s", cam_ret.error().c_str());
 
     auto map_ret = projector_.proj_init_map(projection_config_);
     if (!map_ret) RCLCPP_WARN(get_logger(), "Projector map init skipped: %s", map_ret.error().c_str());
 
-    pose_publisher_ = this->create_publisher<radar_interfaces::msg::CameraDetectionPose>(
+    pose_publisher_ = this->create_publisher<radar_interfaces::msg::CameraDetectionArray>(
         camera_config_.pub_topic_name, 10);
     RCLCPP_INFO(get_logger(), "Publisher created");
 
@@ -63,8 +79,6 @@ auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 continue;
             }
-            capture_timestamp_ = ts;
-
             auto tensor = model_inference_->infer_preprocess(frame,
                 static_cast<size_t>(inference_config_.model_input_width),
                 static_cast<size_t>(inference_config_.model_input_height));
@@ -90,19 +104,26 @@ auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
                 continue;
             }
 
-            auto projected = projector_.proj_preprocess(dets->get());
-            auto pose = std::expected<robot_pose::RobotPose, std::string>(
+            std::vector<detection::Detection> refined(dets->get());
+            if (armor_refine_enabled_) {
+                for (auto& det : refined) {
+                    armor_refiner_.refine(frame, det, inference_config_.drone_class_ids);
+                }
+            }
+
+            auto projected = projector_.proj_preprocess(refined);
+            auto semantic = std::expected<std::vector<detection::SemanticDetection>, std::string>(
                 std::unexpected("projection preprocess failed"));
             if (!projected) {
                 RCLCPP_WARN(get_logger(), "Projection preprocess failed: %s", projected.error().c_str());
             } else {
-                pose = projector_.proj_postprocess(*projected, dets->get());
-                if (!pose) {
-                    RCLCPP_WARN(get_logger(), "Projection postprocess failed: %s", pose.error().c_str());
+                semantic = projector_.proj_semantic_postprocess(*projected, refined);
+                if (!semantic) {
+                    RCLCPP_WARN(get_logger(), "Projection postprocess failed: %s", semantic.error().c_str());
                 }
             }
 
-            if (pose) PublishCallback(*pose);
+            if (semantic) PublishCallback(*semantic);
         }
     });
     return { };
@@ -117,33 +138,27 @@ auto RadarCameraNode::infer_thread_stop() -> void {
     }
 }
 
-auto RadarCameraNode::PublishCallback(const robot_pose::RobotPose& robot_poses) -> void {
-    auto pose_msg                  = radar_interfaces::msg::CameraDetectionPose();
-    pose_msg.header.stamp          = rclcpp::Time(capture_timestamp_.time_since_epoch().count());
-    pose_msg.header.frame_id       = "map";
-    pose_msg.hero_position.x       = robot_poses.hero_position.x;
-    pose_msg.hero_position.y       = robot_poses.hero_position.y;
-    pose_msg.engine_position.x     = robot_poses.engine_position.x;
-    pose_msg.engine_position.y     = robot_poses.engine_position.y;
-    pose_msg.infantry_3_position.x = robot_poses.infantry_3_position.x;
-    pose_msg.infantry_3_position.y = robot_poses.infantry_3_position.y;
-    pose_msg.infantry_4_position.x = robot_poses.infantry_4_position.x;
-    pose_msg.infantry_4_position.y = robot_poses.infantry_4_position.y;
-    pose_msg.sentry_position.x     = robot_poses.sentry_position.x;
-    pose_msg.sentry_position.y     = robot_poses.sentry_position.y;
-    pose_msg.drone_position.x      = robot_poses.drone_position.x;
-    pose_msg.drone_position.y      = robot_poses.drone_position.y;
-    pose_msg.hero_confidence       = robot_poses.hero_confidence;
-    pose_msg.engine_confidence     = robot_poses.engine_confidence;
-    pose_msg.infantry_3_confidence = robot_poses.infantry_3_confidence;
-    pose_msg.infantry_4_confidence = robot_poses.infantry_4_confidence;
-    pose_msg.sentry_confidence     = robot_poses.sentry_confidence;
-    pose_msg.drone_confidence      = robot_poses.drone_confidence;
-    pose_publisher_->publish(pose_msg);
+auto RadarCameraNode::PublishCallback(
+    const std::vector<detection::SemanticDetection>& detections) -> void {
+    auto array_msg = radar_interfaces::msg::CameraDetectionArray();
+    array_msg.header.stamp = this->now();
+    array_msg.header.frame_id = "map";
+    array_msg.detections.reserve(detections.size());
+    for (const auto& detection : detections) {
+        radar_interfaces::msg::CameraDetection msg;
+        msg.team = static_cast<std::uint8_t>(detection.team);
+        msg.semantic_class = static_cast<std::uint8_t>(detection.semantic_class);
+        msg.position.x = detection.position.x;
+        msg.position.y = detection.position.y;
+        msg.confidence = detection.confidence;
+        array_msg.detections.push_back(msg);
+    }
+    pose_publisher_->publish(array_msg);
 }
 
 auto ConfigsLoader(rclcpp::Node& node, camera_config::CameraConfig& camera,
-    inference_config::InferenceConfig& inference, projection_config::ProjectionConfig& projection)
+    inference_config::InferenceConfig& inference, projection_config::ProjectionConfig& projection,
+    armor_refine::ArmorRefineConfig& armor, armor_refine::NumberRefineConfig& number)
     -> std::expected<void, std::string> {
     try {
         node.declare_parameter("enemy_color", std::string("blue"));
@@ -163,7 +178,7 @@ auto ConfigsLoader(rclcpp::Node& node, camera_config::CameraConfig& camera,
         node.declare_parameter("distortion_coefficients", std::vector<double> { 0, 0, 0, 0, 0 });
         node.declare_parameter("rotation", std::vector<double> { 0, 0, 0 });
         node.declare_parameter("translation", std::vector<double> { 0, 0, 0 });
-        node.declare_parameter("pub_topic_name", std::string("/radar_camera/robot_pose"));
+        node.declare_parameter("pub_topic_name", std::string("/camera/detection"));
         node.declare_parameter("shm_name", std::string("/hikcamera_shm"));
         node.declare_parameter("width", 5472);
         node.declare_parameter("height", 3648);
@@ -181,6 +196,11 @@ auto ConfigsLoader(rclcpp::Node& node, camera_config::CameraConfig& camera,
         node.declare_parameter("model_input_width", 1280);
         node.declare_parameter("model_input_height", 1280);
         node.declare_parameter("mesh_path", std::string(""));
+        node.declare_parameter("armor_model_path", std::string(""));
+        node.declare_parameter("armor_score_threshold", 0.8);
+        node.declare_parameter("armor_nms_threshold", 0.3);
+        node.declare_parameter("number_model_path", std::string(""));
+        node.declare_parameter("number_conf_threshold", 0.8);
 
         node.get_parameter("enemy_color", camera.enemy_color);
         node.get_parameter("hero_" + camera.enemy_color, camera.hero_class_id);
@@ -212,6 +232,19 @@ auto ConfigsLoader(rclcpp::Node& node, camera_config::CameraConfig& camera,
         node.get_parameter("model_input_height", inference.model_input_height);
 
         node.get_parameter("mesh_path", projection.mesh_path);
+
+        node.get_parameter("armor_model_path", armor.armor_model_path);
+        double armor_score = armor.score_threshold;
+        double armor_nms   = armor.nms_threshold;
+        node.get_parameter("armor_score_threshold", armor_score);
+        node.get_parameter("armor_nms_threshold", armor_nms);
+        armor.score_threshold = static_cast<float>(armor_score);
+        armor.nms_threshold   = static_cast<float>(armor_nms);
+
+        node.get_parameter("number_model_path", number.number_model_path);
+        double number_conf = number.conf_threshold;
+        node.get_parameter("number_conf_threshold", number_conf);
+        number.conf_threshold = static_cast<float>(number_conf);
     } catch (const std::exception& e) {
         return std::unexpected(std::string("Error loading configuration: ") + e.what());
     }

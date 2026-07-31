@@ -2,21 +2,21 @@
 
 ## Overview
 
-Alliance Radar 采用 **ROS2 component + 独立驱动进程 + YAML bringup** 的分层架构。
+Alliance Radar 采用 **独立 ROS2 节点 + 独立驱动进程 + YAML bringup** 的分层架构。
 以 LiDAR 为主链路（`radar_lidar` → `radar_fusion` → `/localization/pose`），
 视觉观测（`radar_camera`）作为补充观测源，`radar_bridge` 做 ROS2 ↔ ZMQ 双向桥接，
 `radar_calibration` 负责离线相机-雷达标定。系统对外统一输出 `/localization/pose`。
 
 - 主链路传感器：Odin 为主，Mid-70 通过 `sensor:=mid70` 切换。
-- 进程拓扑：`radar_lidar` + `radar_fusion` 合并进单一 component 容器（intra-process 零拷贝）。
+- 进程拓扑：`radar_lidar`、`radar_camera`、`radar_fusion`、`radar_bridge` 当前均以独立进程运行。
 
 ## Design Principles
 
 - 雷达驱动（Odin / Livox / WS-30）保持独立进程，不并入算法容器。
-- `radar_fusion` 独占 `/localization/pose` 出口。
+- `radar_fusion` 独占 `/localization/pose` 和 `/lidar/location` 出口。
 - 离线模型转换由 `tools/model_to_map/` 负责，模型文件存放于 `model/`。
 - `radar_bringup` 只负责 launch、参数、remap 和组件编排，不写业务 C++。
-- `radar_camera` 作为补充观测源，不绑死 LiDAR 主链路。
+- `radar_camera` 发布带 team/class 语义的 `CameraDetectionArray`，作为独立观测源，不绑死 LiDAR 主链路。
 - 命名统一收敛到 `radar::` 顶层命名空间（`radar::fusion::` / `radar::camera::` 等子命名空间）。
 - **自定义消息最小化**：通用模块（radar_lidar / radar_fusion / radar_camera）使用标准消息；
   跨语言 ZMQ 桥接所需的定制数据契约集中到 `radar_interfaces` 包，不扩散到其他模块。
@@ -55,19 +55,17 @@ GICP 配准定位，并在配准结果基础上做动态点提取与欧氏聚类
 | `radar::config::` | `config.hpp` | `LocalizationConfig` / `RoiBounds` 参数结构 |
 | `radar::types::` | `types.hpp` | `Point` / `Frame` / `PoseEstimate` 核心数据类型 |
 
-ROS 组件 `radar::LidarPipeline`（`rclcpp_components`，进入 `radar_algorithm_container`）。
+ROS 节点 `radar_lidar_node` 运行 `radar_lidar` 算法库。
 同包离线工具：`registration_tool`（CLI PCD-to-PCD 配准）、`offline_test_node`（Foxglove 可视化）。
 
-可选位姿源：Odin1 内置重定位（`custom_map_mode=2`）。`use_odin_relocalization_tf`
-参数启用后，`LidarPipeline` 每帧优先查 `map -> <scan frame_id>` TF（Odin1 重定位
-成功后发布），查不到（重定位未收敛/未开启）则回退到上方的 GICP scan-to-map，
-两条路径共用同一套锁定策略与下游感知链路。当前比赛运行时统一收敛到
-`radar_lidar/config/runtime.yaml`，不同传感器与重定位模式由 bringup launch 覆盖少量差异参数。
+Odin1 内置重定位只能作为 GICP 初始估计；比赛运行时仍必须完成一次真实 GICP
+注册。注册成功后 `radar_lidar_node` 发布一次静态 `map -> radar_base`，后续输出使用
+锁定结果，避免 Odin 估计与对外 TF 分叉。
 
 ### radar_fusion
 
-系统唯一的 `/localization/pose` 出口。订阅 LiDAR 观测，做数据关联 + 多目标卡尔曼跟踪。
-不做感知，不做 IO 桥接。
+系统唯一的 `/localization/pose` 和 `/lidar/location` 出口。订阅 LiDAR 聚类与视觉语义观测，
+做视觉优先的松耦合数据关联和多目标卡尔曼跟踪。不做感知，不做 IO 桥接。
 
 | 类 | 文件 | 职责 |
 |---|---|---|
@@ -76,7 +74,12 @@ ROS 组件 `radar::LidarPipeline`（`rclcpp_components`，进入 `radar_algorith
 | `radar::fusion::KalmanState` | `kalman_tracker.hpp` | KF 状态 + 轨迹元数据（color/number/lifecycle） |
 | `radar::fusion::FusionConfig` | `fusion_node.hpp` | 门限/超时/确认命中数等参数 |
 
-ROS 组件，与 `radar_lidar` 同容器零拷贝。
+ROS 独立节点 `radar_fusion_node`。
+
+视觉有效时立即建立语义槽位并输出官方坐标；LiDAR 只有在有限且与视觉位置的距离不超过
+`camera_lidar_consistency_distance` 时才更新槽位。LiDAR 缺失或偏差过大不能覆盖可信视觉
+位置。视觉短时丢失时，历史语义身份可在 `identity_retention_sec` 内由一致的 LiDAR 维持；
+两类观测都过期后清空官方槽位。
 
 ### radar_camera
 
@@ -137,7 +140,9 @@ ROS 组件，与 `radar_lidar` 同容器零拷贝。
 
 | 文件 | 职责 |
 |---|---|
-| `msg/LidarLocation.msg` | 24 字段对手/我方 6 种机器人 x/y 坐标 + `cmd_id` |
+| `msg/LidarLocation.msg` | 官方字段顺序的对手/我方 6 种机器人 x/y 坐标，单位 cm + `cmd_id` |
+| `msg/CameraDetection.msg` | team / semantic class / map position / confidence |
+| `msg/CameraDetectionArray.msg` | 同一帧的带语义视觉观测数组 |
 | `msg/GameState.msg` | 5 字段比赛状态：`cmd_id` / `game_type` / `game_progress` / `stage_remain_time` / `sync_timestamp` |
 | `CMakeLists.txt` | `rosidl_generate_interfaces` 导出消息 |
 
@@ -175,9 +180,10 @@ JPEG 编码后通过 ZMQ PUB (conflate=1) 推流到 egui（实现通过 `hikcame
 系统唯一编排入口。负责 launch、参数装配、topic remap、不同传感器机型配置、组件编排。
 纯 YAML + launch，无业务 C++。
 
-TF 职责（最终架构）：
+TF 职责（当前实现）：
 
-- **只负责 static tf**，不负责任何运行时动态位姿。
+- `radar_bringup` 负责固定传感器外参的 static TF；`radar_lidar_node` 在 GICP
+  成功后负责一次性发布 `map -> radar_base` static TF。
 - static tf 表达**已知且固定的刚体安装关系 / 外参**，如
   `radar_base -> lidar_link`、`radar_base -> camera_link`、
   `camera_link -> camera_optical_frame`。
@@ -201,8 +207,8 @@ launch/
 └── full_system.launch.py        ← 完整系统入口
 ```
 
-`ComposableNodeContainer` 承载 `radar_lidar` + `radar_fusion`（intra-process），
-`IncludeLaunchDescription` 拉起独立驱动进程。
+`IncludeLaunchDescription` 拉起 `radar_lidar_node`、`radar_camera_node`、
+`radar_fusion_node` 和 `radar_bridge_node` 等独立进程。
 
 ### TF Tree & Authorities
 
@@ -210,7 +216,7 @@ launch/
 
 ```text
 map
-└── radar_base                (dynamic)
+└── radar_base                (static after GICP lock)
     ├── lidar_link            (static)
     └── camera_link           (static)
         └── camera_optical_frame   (static, optional)
@@ -222,13 +228,9 @@ map
   非刚体数据。
 - **目标观测 / 聚类 / 轨迹继续走 topic**：`/lidar/dynamic`、`/lidar/cluster`、
   `/fusion/tracks`、未来的 `/camera/detection` 都是数据流，不应塞进 TF tree。
-- **当前阶段**：`radar::LidarPipeline` 持有 `t_map_lidar`，因此可作为临时的
-  dynamic tf authority，发布 `map -> radar_base`（若 `radar_base` 尚未显式建模，
-  可先退化为 `map -> lidar_link`）。
-- **最终阶段**：`radar::fusion::FusionNode` 作为系统唯一 `/localization/pose`
-  出口，应接管 **唯一系统级 dynamic tf authority**，发布最终的
-  `map -> radar_base`。一旦 `FusionNode` 真正融合多源位姿，`LidarPipeline` 不再
-  发布系统最终 dynamic tf，只保留 `/lidar/pose` 作为原始 LiDAR 位姿观测。
+- **当前阶段**：`radar_lidar_node` 完成 GICP 后发布一次 `map -> radar_base` static TF；
+  `T_map_radar_base = T_map_lidar * inverse(T_radar_base_lidar)`。
+- `radar_fusion_node` 不发布 TF，只消费已经转换到 map frame 的 LiDAR/视觉观测。
 - **算法核心库**（`radar_lidar_core`、未来相机几何核心等）继续只维护
   `Eigen::Isometry3d t_*_*` 变换，不直接依赖 `tf2_ros`。
 
@@ -236,8 +238,7 @@ TF 输出规范（当前建议）：
 
 | TF | 类型 | 当前发布者 | 最终发布者 | 来源 | 说明 |
 |---|---|---|---|---|---|
-| `map -> lidar_link` | dynamic（过渡方案） | `radar::LidarPipeline` | 无（若显式建模 `radar_base` 后应废弃） | `t_map_lidar` | 当 `radar_base` 尚未在代码里显式建模时的最小正确方案；可直接满足 Foxglove 点云/聚类/姿态统一可视化 |
-| `map -> radar_base` | dynamic（最终方案） | `radar::LidarPipeline`（当前阶段） | `radar::fusion::FusionNode`（最终阶段） | 当前阶段由 `t_map_lidar` 与固定安装关系换算；最终阶段由融合后的系统主位姿给出 | 系统自身刚体位姿的唯一权威关系；一旦 `FusionNode` 真正融合多源位姿，它应成为唯一 dynamic tf authority |
+| `map -> radar_base` | static（GICP 成功后） | `radar_lidar_node` | `radar_lidar_node` | `T_map_lidar` 与固定 `radar_base -> lidar_link` 外参组合 | 注册失败不发布；成功后保持不变 |
 | `radar_base -> lidar_link` | static | `radar_bringup` | `radar_bringup` | 固定安装关系 / 配置 | 若 LiDAR 视作基准传感器、暂不显式建模 `radar_base`，则该条可临时省略；一旦引入 `radar_base`，它应由 launch/static publisher 提供 |
 | `radar_base -> camera_link` | static | `radar_bringup` | `radar_bringup` | 相机与雷达的固定机械外参（标定结果） | 推荐由 `radar_calibration` 导出的 `radar_camera/config/extrinsic.yaml` 作为唯一事实源，launch 只引用该文件 |
 | `camera_link -> camera_optical_frame` | static | `radar_bringup` | `radar_bringup` | 相机坐标约定 | 主要服务于相机视锥、投影、标准视觉工具链；若当前阶段不需要 optical frame，可暂缓 |
@@ -260,7 +261,7 @@ TF 输出规范（当前建议）：
 | 相机正式外参 | 固定（运行时事实源） | `radar_bringup/config/common/extrinsics.yaml`（当前 static tf 发布源） / `radar_camera/config/extrinsic.yaml`（未来相机节点输入） | `radar_calibration` 导出后同步到 bringup/static tf 配置 | `radar_camera`、`radar_bringup` | 当前 launch 直接读取 bringup 的 static tf 配置；未来若相机节点单独消费外参，应保持两者来源一致 |
 | LiDAR / Odin 启动先验 | 固定（启动参数） | `radar_bringup/config/lidar/*.yaml` | 部署配置 / 红蓝方场次参数 | `radar_lidar` / `odin_ros_driver` | 启动时的位姿猜测，不是固定外参 |
 | LiDAR 离线配准调试参数 | 固定（工具配置） | `radar_lidar/config/offline_registration.yaml` | 工具调试参数 | `offline_test_node` 等离线工具 | 只供离线验证 / 调试使用 |
-| LiDAR 对地图的最终位姿 (`t_map_lidar`) | 动态（运行时结果） | 不落 YAML；经 topic / dynamic tf 发布 | `radar_lidar`（当前）/ `radar_fusion`（最终） | Foxglove、`radar_fusion`、`radar_bridge` 等 | 若使用 GICP 或 Odin1 重定位，则它属于运行时定位结果，不是 calibration 风格外参文件 |
+| LiDAR 对地图的最终位姿 (`t_map_lidar`) | 动态（运行时结果） | 不落 YAML；经 topic 发布 | `radar_lidar_node` | `radar_fusion`、Foxglove 等 | GICP 求出的运行时定位结果，不是 calibration 风格外参文件 |
 | 固定安装关系（如 `radar_base -> lidar_link`） | 固定（static tf） | `radar_bringup` launch / config | 部署配置 | 全系统 TF 消费者 | 属于系统装配关系，不归 `radar_calibration` |
 
 - **相机标定前粗略初始位姿**：放在 `radar_calibration/config/initial_guess.yaml`。
@@ -278,7 +279,7 @@ TF 输出规范（当前建议）：
   这是工具级配置，仅供 `offline_test_node` / 离线配准调试使用，不是主进程启动参数。
 - **LiDAR 对地图的最终位姿**（如 `t_map_lidar`、最终的 `map -> radar_base`）是
   **运行时动态结果**：若使用 GICP 或 Odin1 内置重定位，则由定位链路实时求出并
-  通过 topic / dynamic tf 发布，**不落成 calibration 风格的外参 YAML**。
+  通过 `/lidar/pose` topic 发布，**不落成 calibration 风格的外参 YAML**。
 - **固定安装关系**（如 `radar_base -> lidar_link`、`radar_base -> camera_link`）是
   **static tf**：归 `radar_bringup` 管理，不归 `radar_calibration`。
 
@@ -319,17 +320,18 @@ radar_bringup (launch / YAML / static tf)
 │   └── livox_ros_driver2
 ├── radar_lidar_node
 │   ├── 读取 map.pcd + 启动先验
-│   ├── 运行 GICP / Odin TF 回退
+│   ├── 运行真实 GICP（Odin 仅提供初始估计）
 │   ├── 发布 /lidar/pose
 │   ├── 发布 /lidar/dynamic / /lidar/cluster / /diagnostics
-│   └── 发布 dynamic tf（当前阶段 authority）
+│   ├── 注册成功后发布一次 static map -> radar_base
+│   └── 发布锁定后的 /lidar/pose、/lidar/cluster
 ├── radar_camera_node
 │   ├── 读取 radar_camera/config/extrinsic.yaml
-│   └── 发布 /camera/detection 或 /camera/pose
+│   └── 发布 /camera/detection（CameraDetectionArray）
 ├── radar_fusion_node
 │   ├── 订阅 /lidar/pose + /lidar/cluster + camera observation
-│   ├── 发布 /localization/pose
-│   └── 最终接管 dynamic tf（长期 authority）
+│   ├── 发布 /localization/pose 和 /lidar/location
+│   └── 视觉优先松耦合：异常 LiDAR 不覆盖可信视觉
 └── radar_bridge_node
     ├── 订阅 /lidar/location（LidarLocation）→ ZMQ PUB → radar-egui
     ├── ZMQ SUB ← radar-egui → /bridge/game_state（GameState）
@@ -340,8 +342,8 @@ radar_bringup (launch / YAML / static tf)
 
 - **主进程读取的 YAML** 仅包括：固定机械外参、启动先验、节点参数。
 - **主进程不依赖“先运行 GICP 再生成 pose YAML”** 才能启动。
-- GICP / Odin 内置重定位求出的 `t_map_lidar` 是运行期动态状态，应直接作为
-  `/lidar/pose` 和 dynamic tf 被下游消费。
+- GICP 求出的 `t_map_lidar` 是运行期动态状态，应直接作为 `/lidar/pose` 被下游消费；
+  注册成功后由 `radar_lidar_node` 另外发布一次由固定安装关系换算出的 static TF。
 - 若未来确有“重启后加速收敛”的需求，可另做 `last_pose_cache.yaml` 一类的
   **运行时缓存**，但它的语义必须是“启动先验缓存”，不能命名或归类为外参文件。
 
@@ -373,9 +375,9 @@ topics/
 │   └── role: AABB + 质心可视化
 ├── /lidar/location
 │   ├── type: radar_interfaces::msg::LidarLocation
-│   ├── producer: radar_lidar
+│   ├── producer: radar_fusion
 │   ├── consumer: radar_bridge
-│   └── role: 24 字段对手/我方机器人坐标，经 ZMQ 转发到 radar-egui
+│   └── role: fusion 输出的官方 cm 坐标，经 ZMQ 转发到 radar-egui
 ├── /diagnostics
 │   ├── type: diagnostic_msgs/msg/DiagnosticStatus
 │   ├── producer: radar_lidar
@@ -384,8 +386,8 @@ topics/
 │   ├── type: sensor_msgs/msg/Image, sensor_msgs/msg/CameraInfo
 │   ├── producer: 相机驱动 (ros2-hikcamera)
 │   └── consumer: radar_camera
-├── /camera/pose  或  /camera/detection
-│   ├── type: geometry_msgs/msg/PoseWithCovarianceStamped  或  vision_msgs/msg/Detection3DArray
+├── /camera/detection
+│   ├── type: radar_interfaces::msg::CameraDetectionArray
 │   ├── producer: radar_camera
 │   └── consumer: radar_fusion
 ├── /localization/pose
@@ -434,19 +436,19 @@ VideoBridge SHM 读取侧引用 `hikcamera_sdk` 的 `imageSHM` 结构体（`/hik
 ```text
 驱动进程 (odin_ros_driver / livox_ros_driver2)
   └─ /odin1/cloud_raw | /livox/lidar : PointCloud2
-       └─> radar_lidar (LidarPipeline)
+       └─> radar_lidar_node
              ├─ /lidar/pose      : PoseWithCovarianceStamped ─┐
              ├─ /lidar/cluster   : PointCloud2 (质心) ────────┤
              ├─ /lidar/dynamic   : PointCloud2                │
              ├─ /lidar/cluster_viz : MarkerArray              │
-             ├─ /lidar/location  : LidarLocation ───────────┐ │
-             └─ /diagnostics     : DiagnosticStatus           │ │
+              └─ /diagnostics     : DiagnosticStatus           │ │
                                                               │ │
-        /camera/pose|detection ────────────────> radar_fusion (FusionNode)
+         /camera/detection ────────────────────> radar_fusion (FusionNode)
         (radar_camera)                             ├─ /localization/pose   : PoseWithCovarianceStamped
                                                    ├─ /localization/status : DiagnosticStatus
                                                    ├─ /fusion/tracks       : MarkerArray
-                                                   └─ /fusion/fused_tracks : MarkerArray
+                                                    ├─ /fusion/fused_tracks : MarkerArray
+                                                    └─ /lidar/location      : LidarLocation
                                                               │
                                                               v
                                                           radar_bridge
@@ -464,19 +466,20 @@ VideoBridge SHM 读取侧引用 `hikcamera_sdk` 的 `imageSHM` 结构体（`/hik
 runtime/
 ├── 雷达驱动 (odin_ros_driver / livox_ros_driver2)   独立进程, 发布点云 topic
 ├── hikcamera_ros_driver                                独立进程, 写 /hikcamera_shm
-├── radar_algorithm_container                           component container
-│   ├── radar_lidar   (component)
-│   └── radar_fusion  (component)                       intra-process 零拷贝
-├── radar_bridge                                         独立进程, /lidar/location ↔ ZMQ ↔ radar-egui
+├── radar_lidar_node                                      独立进程
+├── radar_camera_node                                     独立进程
+├── radar_fusion_node                                     独立进程
+├── radar_bridge_node                                    独立进程, /lidar/location ↔ ZMQ ↔ radar-egui
 ├── radar-egui                                           非 ROS 进程, ZMQ 接收位置 + 图像
 └── radar_camera                                         独立视觉观测进程
 ```
 
 ## Assumptions & Defaults
 
-- 系统以 LiDAR 时间戳为主时钟。
-- 标定精度（相机外参）为准，点云动态目标检测是辅助手段。
-- `/lidar/pose` 表示 LiDAR 原始位姿观测，`/localization/pose` 表示系统最终主位姿契约；长期统一为 `PoseWithCovarianceStamped`。
+- 系统以观测消息时间戳为主；fusion 对 camera 与 LiDAR 使用各自消息时间。
+- 视觉语义是官方槽位的优先身份和位置来源；LiDAR 是一致性通过后的几何增强。
+- `/lidar/pose` 表示 LiDAR 原始位姿观测，`/localization/pose` 表示系统最终主位姿契约；两者均为 `PoseWithCovarianceStamped`。
+- `/lidar/location` 是 `radar_fusion` 生成的官方 cm 坐标消息；bridge 只做原样转发。
 - 主链路默认 Odin；Mid-70 通过 `sensor:=mid70` 切换。
 
 ## Fusion Track Contract & TF Handoff
@@ -486,33 +489,22 @@ runtime/
 - `/fusion/tracks`：融合前基线输出，表示 radar-only 轨迹集合。当前来源是 `/lidar/cluster`
   驱动的 2D Kalman tracking，用于保留纯雷达模式兼容性，也是未来多源融合效果的对比基线。
 - `/fusion/fused_tracks`：融合后最终输出，表示 camera + radar（以及未来其他观测源）
-  融合后的轨迹集合。相机观测尚未接入时，该话题可以缺省，但契约应预留。
+  融合后的轨迹集合。
 
 | 话题 | 当前状态 | 长期语义 | 发布条件 |
 |---|---|---|---|
 | `/fusion/tracks` | 已有 | radar-only confirmed tracks | `radar_fusion` 运行时持续发布 |
-| `/fusion/fused_tracks` | 待实现 | final fused tracks | 至少存在两类观测源并完成融合后发布 |
+| `/fusion/fused_tracks` | 已有 | final fused tracks | `radar_fusion` 运行时发布 |
 
 ### Dynamic TF Authority 接管条件
 
-当前阶段：
+当前实现：
 
-- `radar_lidar` 发布系统运行时 dynamic tf，作为临时 authority。
-- 当前实现关系为 `map -> radar_base`，与 `radar_bringup` 提供的 static tf 共同组成完整 frame tree。
+- `radar_lidar_node` 完成 GICP 后发布一次 `map -> radar_base` static TF。
+- `radar_fusion_node` 不发布 TF；它消费已经在 map frame 的观测并发布官方位置消息。
+- `radar_bringup` 只发布固定传感器外参 static TF，并通过注册状态门控启动下游消费者。
 
-最终阶段：
-
-- `radar_fusion` 在不再只是 `/lidar/pose` relay、而是产出真正多源融合主位姿后，
-  接管唯一系统级 dynamic tf authority，发布最终 `map -> radar_base`。
-
-接管前提：
-
-1. `radar_fusion` 已消费至少两类观测源（如 LiDAR + camera）
-2. `/localization/pose` 不再是 LiDAR pose passthrough
-3. 融合主位姿具备稳定性判断（如 covariance / converged / source-health）
-4. `radar_lidar` 保留 `/lidar/pose` 作为原始 LiDAR 位姿观测，但不再发布系统最终 dynamic tf
-
-**易混淆点澄清：dynamic tf 广播 ≠ 传感器坐标变换依赖。**
+**易混淆点澄清：TF 广播 ≠ 传感器坐标变换依赖。**
 两者是完全独立的机制，不要把它们当成同一件事：
 
 - **传感器坐标变换（各传感器自理，不依赖 TF 查询）**：
@@ -522,9 +514,7 @@ runtime/
   `/camera/detection`。`radar_fusion` 订阅到的都已经是 map frame 坐标，**不需要、
   也不应该**通过 `tf2_ros::Buffer::lookupTransform` 去查任何 TF 才能完成融合。
   这一条决定了模块解耦程度，和下面的 TF authority 无关。
-- **dynamic tf 广播（`map -> radar_base`）**：
-  这是系统对外播报"雷达站刚体当前在哪"的机制，服务对象是 Foxglove/RViz 等
-  可视化工具和其他可能需要系统自身位姿的下游消费者，**不是** `radar_fusion`
-  或 `radar_camera` 完成自己坐标变换的依赖项。谁是 dynamic tf authority
-  （当前 `radar_lidar`，最终 `radar_fusion`），只影响"对外播报者是谁"，
-  不影响任何模块内部怎么把数据转到 map frame。
+- **TF 广播（`map -> radar_base`）**：
+  这是系统对外播报雷达站刚体位姿的机制，服务 Foxglove/RViz 等可视化工具，
+  不是 `radar_fusion` 或 `radar_camera` 完成自己坐标变换的依赖项。各模块先自行
+  将观测转换到 map frame，再通过 topic 传递给 fusion。

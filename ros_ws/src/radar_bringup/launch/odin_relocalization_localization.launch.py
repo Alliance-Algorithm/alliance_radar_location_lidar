@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Odin 重定位 + radar_lidar 联合启动文件。
 
-Odin1 以 custom_map_mode=2 运行内置重定位，radar_lidar 订阅其 map->odin1_base_link
-TF 作为主位姿源；重定位未成功前，radar_lidar 自动回退到自身的 GICP scan-to-map。
+Odin1 以 custom_map_mode=2 运行内置重定位。其 map -> odin1_base_link TF 仅作为估计；
+radar_lidar 始终执行 GICP scan-to-map，只有通过校验的 GICP 结果才能锁定定位。
 
 用法:
     ros2 launch radar_bringup odin_relocalization_localization.launch.py \
@@ -28,7 +28,7 @@ def generate_launch_description():
     map_path_arg = DeclareLaunchArgument(
         "map_path",
         default_value="/workspace/model/generated/map_zup.pcd",
-        description="GICP 回退用的地图 PCD 绝对路径",
+        description="GICP 配准使用的地图 PCD 绝对路径",
     )
     relocalization_map_path_arg = DeclareLaunchArgument(
         "relocalization_map_path",

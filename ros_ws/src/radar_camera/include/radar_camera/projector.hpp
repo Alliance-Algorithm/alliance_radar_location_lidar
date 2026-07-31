@@ -41,6 +41,10 @@ public:
         const std::vector<detection::Detection>& detections)
         -> std::expected<robot_pose::RobotPose, std::string>;
 
+    auto proj_semantic_postprocess(const std::vector<std::optional<cv::Point2d>>& projected,
+        const std::vector<detection::Detection>& detections)
+        -> std::expected<std::vector<detection::SemanticDetection>, std::string>;
+
 private:
     std::vector<cv::Point2f> undistort_src_;
     std::vector<cv::Point2f> undistort_dst_;

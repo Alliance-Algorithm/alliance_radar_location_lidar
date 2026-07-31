@@ -4,15 +4,47 @@ namespace radar_bridge::node {
 
 auto ConfigsLoader(rclcpp::Node& node, BridgeConfig& config) -> std::expected<void, std::string> {
     try {
+        node.declare_parameter("zmq_pub_address", std::string("tcp://*:5555"));
+        node.declare_parameter(
+            "zmq_sub_addresses", std::vector<std::string> { "tcp://localhost:5556" });
+        node.declare_parameter("shm_name", std::string("/hikcamera_shm"));
+        node.declare_parameter("video_pub_address", std::string("tcp://*:5557"));
+        node.declare_parameter("image_topic", std::string("/hikcamera_image"));
+        node.declare_parameter("video_width", 4096);
+        node.declare_parameter("video_height", 3000);
+        node.declare_parameter("enable_video_stream", true);
+
         config.zmq_pub_address   = node.get_parameter("zmq_pub_address").as_string();
         config.zmq_sub_addresses = node.get_parameter("zmq_sub_addresses").as_string_array();
         config.shm_name          = node.get_parameter("shm_name").as_string();
         config.video_pub_address = node.get_parameter("video_pub_address").as_string();
         config.image_topic       = node.get_parameter("image_topic").as_string();
-        config.video_width       = node.get_parameter("video_width").as_int();
-        config.video_height      = node.get_parameter("video_height").as_int();
+        config.video_width         = node.get_parameter("video_width").as_int();
+        config.video_height        = node.get_parameter("video_height").as_int();
+        config.enable_video_stream = node.get_parameter("enable_video_stream").as_bool();
     } catch (const std::exception& e) {
         return std::unexpected(std::string("ConfigsLoader failed: ") + e.what());
+    }
+
+    if (config.zmq_pub_address.empty()) {
+        return std::unexpected("zmq_pub_address must not be empty");
+    }
+    if (config.zmq_sub_addresses.empty()) {
+        return std::unexpected("zmq_sub_addresses must not be empty");
+    }
+    for (const auto& address : config.zmq_sub_addresses) {
+        if (address.empty()) {
+            return std::unexpected("zmq_sub_addresses must not contain empty values");
+        }
+    }
+    if (config.enable_video_stream) {
+        if (config.shm_name.empty()) return std::unexpected("shm_name must not be empty");
+        if (config.video_pub_address.empty()) {
+            return std::unexpected("video_pub_address must not be empty");
+        }
+        if (config.image_topic.empty()) return std::unexpected("image_topic must not be empty");
+        if (config.video_width <= 0) return std::unexpected("video_width must be positive");
+        if (config.video_height <= 0) return std::unexpected("video_height must be positive");
     }
     return { };
 }
@@ -63,20 +95,22 @@ RadarBridgeNode::RadarBridgeNode()
         }
     });
 
-    auto init_ret = video_bridge_.video_init(
-        config_.shm_name, config_.video_pub_address, config_.video_width, config_.video_height);
-    if (!init_ret.has_value()) {
-        RCLCPP_ERROR(this->get_logger(), "video_init failed: %s", init_ret.error().c_str());
-        throw std::runtime_error("video_init failed: " + init_ret.error());
-    }
-    RCLCPP_INFO(this->get_logger(), "video_init succeeded");
+    if (config_.enable_video_stream) {
+        auto init_ret = video_bridge_.video_init(
+            config_.shm_name, config_.video_pub_address, config_.video_width, config_.video_height);
+        if (!init_ret.has_value()) {
+            RCLCPP_ERROR(this->get_logger(), "video_init failed: %s", init_ret.error().c_str());
+            throw std::runtime_error("video_init failed: " + init_ret.error());
+        }
+        RCLCPP_INFO(this->get_logger(), "video_init succeeded");
 
-    auto video_ret = video_bridge_.video_thread();
-    if (!video_ret.has_value()) {
-        RCLCPP_ERROR(this->get_logger(), "video_thread failed: %s", video_ret.error().c_str());
-        throw std::runtime_error("video_thread failed: " + video_ret.error());
+        auto video_ret = video_bridge_.video_thread();
+        if (!video_ret.has_value()) {
+            RCLCPP_ERROR(this->get_logger(), "video_thread failed: %s", video_ret.error().c_str());
+            throw std::runtime_error("video_thread failed: " + video_ret.error());
+        }
+        RCLCPP_INFO(this->get_logger(), "video_thread started");
     }
-    RCLCPP_INFO(this->get_logger(), "video_thread started");
 }
 RadarBridgeNode::~RadarBridgeNode() { video_bridge_.video_thread_stop(); }
 auto RadarBridgeNode::sub_lidar_pose_callback(const radar_interfaces::msg::LidarLocation& msg)

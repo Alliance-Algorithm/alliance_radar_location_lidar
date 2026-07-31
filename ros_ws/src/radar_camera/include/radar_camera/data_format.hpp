@@ -6,10 +6,34 @@
 
 namespace radar_camera::detection {
 
+enum class Team : std::uint8_t {
+    UNKNOWN = 0,
+    RED = 1,
+    BLUE = 2,
+};
+
+enum class SemanticClass : std::uint8_t {
+    UNKNOWN = 0,
+    HERO = 1,
+    ENGINEER = 2,
+    INFANTRY_3 = 3,
+    INFANTRY_4 = 4,
+    AERIAL = 5,
+    SENTRY = 6,
+};
+
 struct Detection {
     cv::Point2d center;
     int id;
     float confidence;
+    cv::Rect2f bbox; // bounding box in src-image pixel coordinates
+};
+
+struct SemanticDetection {
+    Team team = Team::UNKNOWN;
+    SemanticClass semantic_class = SemanticClass::UNKNOWN;
+    cv::Point2d position;
+    float confidence = 0.0f;
 };
 
 } // namespace radar_camera::detection

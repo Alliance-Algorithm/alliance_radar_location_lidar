@@ -1,6 +1,8 @@
 #include "radar_fusion/kalman_tracker.hpp"
 
 #include <Eigen/Cholesky>
+#include <cmath>
+#include <limits>
 
 namespace radar_fusion::kalman_tracker {
 
@@ -57,6 +59,20 @@ void KalmanTracker::update(
     }
 }
 
+void KalmanTracker::update_identity(const Eigen::Vector2d& measurement, int64_t now_ns,
+    int min_hits_to_confirm, camera_observation::Team team,
+    camera_observation::SemanticClass semantic_class) {
+    set_identity(team, semantic_class);
+    update(measurement, now_ns, min_hits_to_confirm);
+    state_.lifecycle = TrackLifecycle::CONFIRMED;
+}
+
+void KalmanTracker::set_identity(
+    camera_observation::Team team, camera_observation::SemanticClass semantic_class) {
+    state_.team = team;
+    state_.semantic_class = semantic_class;
+}
+
 void KalmanTracker::mark_missed(int max_misses_before_delete) {
     state_.miss_count++;
     if (state_.lifecycle == TrackLifecycle::TENTATIVE
@@ -75,3 +91,15 @@ auto KalmanState::is_stale(int64_t now_ns, double timeout_sec) const -> bool {
 }
 
 } // namespace radar_fusion::kalman_tracker
+
+namespace radar_fusion::location {
+
+auto meters_to_cm(double meters, double offset_m) -> std::uint16_t {
+    const double cm = (meters + offset_m) * 100.0;
+    if (!std::isfinite(cm) || cm < 0.0 || cm > std::numeric_limits<std::uint16_t>::max()) {
+        return 0;
+    }
+    return static_cast<std::uint16_t>(cm);
+}
+
+} // namespace radar_fusion::location

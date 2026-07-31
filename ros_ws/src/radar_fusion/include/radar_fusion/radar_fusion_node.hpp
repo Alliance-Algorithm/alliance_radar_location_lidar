@@ -1,6 +1,6 @@
 #pragma once
 
-#include "radar_interfaces/msg/camera_detection_pose.hpp"
+#include "radar_interfaces/msg/camera_detection_array.hpp"
 #include "radar_interfaces/msg/lidar_location.hpp"
 #include <chrono>
 #include <cstdint>
@@ -8,10 +8,12 @@
 #include <geometry_msgs/msg/point.hpp>
 #include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
 #include <memory>
+#include <optional>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <string>
 #include <vector>
+#include <optional>
 #include <visualization_msgs/msg/marker_array.hpp>
 
 #include "radar_fusion/data_format.hpp"
@@ -25,7 +27,7 @@ public:
 
 private:
     void on_lidar_pose(geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg);
-    void on_camera_detection(radar_interfaces::msg::CameraDetectionPose::SharedPtr msg);
+    void on_camera_detection(radar_interfaces::msg::CameraDetectionArray::SharedPtr msg);
 
     void on_cluster(sensor_msgs::msg::PointCloud2::SharedPtr msg);
 
@@ -35,11 +37,16 @@ private:
         const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& tracks,
         const rclcpp::Time& stamp);
     void publish_lidar_location(
-        const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& tracks);
+        const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& tracks,
+        int64_t stamp_ns);
     void publish_localization_pose(const geometry_msgs::msg::PoseWithCovarianceStamped& pose);
     void publish_status(const rclcpp::Time& stamp) const;
     void update_fusion_mode(int64_t reference_stamp_ns);
-
+    void expire_semantic_slots(int64_t now_ns);
+    auto find_semantic_slot(camera_observation::Team team,
+        camera_observation::SemanticClass semantic_class) -> std::optional<std::size_t>;
+    void update_semantic_slots_from_lidar(const std::vector<Eigen::Vector2d>& measurements,
+        int64_t stamp_ns);
     void process_measurements(const std::vector<Eigen::Vector2d>& measurements, int64_t now_ns,
         bool mark_unmatched_tracks);
 
@@ -51,10 +58,17 @@ private:
     int64_t latest_camera_stamp_ns_ = 0;
     int next_track_id_              = 0;
 
+    struct SemanticSlot {
+        camera_observation::Team team = camera_observation::Team::UNKNOWN;
+        camera_observation::SemanticClass semantic_class = camera_observation::SemanticClass::UNKNOWN;
+        Eigen::Vector2d position = Eigen::Vector2d::Zero();
+        int64_t last_update_ns = 0;
+    };
+    std::vector<SemanticSlot> semantic_slots_;
+
     rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr sub_lidar_pose_;
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr sub_cluster_;
-    rclcpp::Subscription<radar_interfaces::msg::CameraDetectionPose>::SharedPtr
-        sub_camera_detection_;
+    rclcpp::Subscription<radar_interfaces::msg::CameraDetectionArray>::SharedPtr sub_camera_detection_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_tracks_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_fused_tracks_;
     rclcpp::Publisher<radar_interfaces::msg::LidarLocation>::SharedPtr pub_lidar_location_;
