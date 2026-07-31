@@ -15,7 +15,11 @@
 #include <visualization_msgs/msg/marker_array.hpp>
 
 #include "radar_fusion/data_format.hpp"
+#include "radar_fusion/default_positions.hpp"
+#include "radar_fusion/default_slots.hpp"
 #include "radar_fusion/kalman_tracker.hpp"
+#include "radar_fusion/match_timer.hpp"
+#include "radar_interfaces/msg/game_state.hpp"
 
 namespace radar_fusion::node {
 
@@ -26,6 +30,7 @@ public:
 private:
     void on_lidar_pose(geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg);
     void on_camera_detection(radar_interfaces::msg::CameraDetectionPose::SharedPtr msg);
+    void on_game_state(radar_interfaces::msg::GameState::SharedPtr msg);
 
     void on_cluster(sensor_msgs::msg::PointCloud2::SharedPtr msg);
 
@@ -36,6 +41,7 @@ private:
         const rclcpp::Time& stamp);
     void publish_lidar_location(
         const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& tracks);
+    void fill_default_positions(radar_interfaces::msg::LidarLocation& msg, int64_t now_ns);
     void publish_localization_pose(const geometry_msgs::msg::PoseWithCovarianceStamped& pose);
     void publish_status(const rclcpp::Time& stamp) const;
     void update_fusion_mode(int64_t reference_stamp_ns);
@@ -46,6 +52,9 @@ private:
     radar_fusion::fusion_config::FusionConfig cfg_;
     radar_fusion::fusion_config::FusionMode fusion_mode_ =
         radar_fusion::fusion_config::FusionMode::RADAR_ONLY;
+    radar_fusion::match_timer::MatchTimer match_timer_;
+    std::string default_positions_path_;
+    std::string enemy_color_ = "blue";
     std::vector<radar_fusion::kalman_tracker::KalmanTracker> tracks_;
     std::vector<radar_fusion::camera_observation::CameraObservation> latest_camera_observations_;
     int64_t latest_camera_stamp_ns_ = 0;
@@ -55,6 +64,7 @@ private:
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr sub_cluster_;
     rclcpp::Subscription<radar_interfaces::msg::CameraDetectionPose>::SharedPtr
         sub_camera_detection_;
+    rclcpp::Subscription<radar_interfaces::msg::GameState>::SharedPtr sub_game_state_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_tracks_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_fused_tracks_;
     rclcpp::Publisher<radar_interfaces::msg::LidarLocation>::SharedPtr pub_lidar_location_;

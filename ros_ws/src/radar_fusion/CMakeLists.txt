@@ -62,6 +62,7 @@ ament_target_dependencies(${PROJECT_NAME}_node_lib
 )
 target_link_libraries(${PROJECT_NAME}_node_lib
     ${PROJECT_NAME}_core
+    ${PROJECT_NAME}_default_positions
 )
 
 # Executable: runtime only
@@ -101,6 +102,7 @@ if(BUILD_TESTING)
   target_link_libraries(radar_fusion_tests
       ${PROJECT_NAME}_node_lib
       ${PROJECT_NAME}_core
+      ${PROJECT_NAME}_default_positions
       ${PCL_LIBRARIES}
       Eigen3::Eigen
   )

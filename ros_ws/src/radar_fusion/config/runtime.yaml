@@ -17,3 +17,7 @@ radar_fusion_node:
     # 地图坐标系 → 裁判系统坐标系偏移 (m)
     map_to_rm_offset_x: 14.0
     map_to_rm_offset_y: 7.5
+    # 默认位置数据库路径 (空字符串 = 关闭该功能)
+    default_positions_path: ""
+    # 敌方颜色: "red" / "blue" (决定敌方阵营 ID 0/1)
+    enemy_color: "blue"

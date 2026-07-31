@@ -20,7 +20,9 @@ void make_db(std::string& path) {
     ASSERT_EQ(sqlite3_exec(db, schema, nullptr, nullptr, nullptr), SQLITE_OK);
     ASSERT_EQ(sqlite3_exec(db, "INSERT INTO default_positions VALUES "
         "('红',1,'hero',1,5.5,2.25,5.0,6.0,2.0,2.5,20),"
-        "('蓝',101,'hero',1,22.5,12.75,22.0,23.0,12.5,13.0,18);",
+        "('蓝',101,'hero',1,22.5,12.75,22.0,23.0,12.5,13.0,18),"
+        "('红',1,'hero',5,6.0,2.5,5.5,6.5,2.25,2.75,25),"
+        "('蓝',101,'hero',5,23.0,13.0,22.5,23.5,12.75,13.25,22);",
         nullptr, nullptr, nullptr), SQLITE_OK);
     sqlite3_close(db);
 }
@@ -46,6 +48,31 @@ TEST(DefaultPositions, LoadAndQuery) {
 
 TEST(DefaultPositions, MissingFileReturnsFalse) {
     EXPECT_FALSE(radar_fusion::default_positions::load("/nonexistent/default_positions.sqlite"));
+}
+
+TEST(DefaultPositions, QueryClampedClampsToLastAvailableSecond) {
+    std::string db;
+    make_db(db);
+    ASSERT_TRUE(radar_fusion::default_positions::load(db));
+
+    radar_fusion::default_positions::DefaultPosition p;
+
+    // In-range exact hit.
+    ASSERT_TRUE(radar_fusion::default_positions::query_clamped(0, "hero", 1, p));
+    EXPECT_DOUBLE_EQ(p.x_med, 5.5);
+
+    // t beyond the last row per (camp, class): clamp to the t=5 row.
+    ASSERT_TRUE(radar_fusion::default_positions::query_clamped(0, "hero", 500, p));
+    EXPECT_DOUBLE_EQ(p.x_med, 6.0);
+    EXPECT_DOUBLE_EQ(p.y_med, 2.5);
+    ASSERT_TRUE(radar_fusion::default_positions::query_clamped(1, "hero", 500, p));
+    EXPECT_DOUBLE_EQ(p.x_med, 23.0);
+
+    // Gaps inside the covered range are not filled: t=3 does not exist.
+    EXPECT_FALSE(radar_fusion::default_positions::query_clamped(0, "hero", 3, p));
+
+    // Missing (camp, class): no max-t row, so false.
+    EXPECT_FALSE(radar_fusion::default_positions::query_clamped(0, "sentry", 500, p));
 }
 
 // Builds a multi-page DB (500 rows -> several leaf pages), then corrupts the

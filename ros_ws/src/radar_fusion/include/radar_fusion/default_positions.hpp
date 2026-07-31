@@ -14,5 +14,9 @@ struct DefaultPosition {
 
 auto load(const std::string& db_path) -> bool;
 auto query(int camp, const std::string& robot_class, int t, DefaultPosition& out) -> bool;
+// Like query, but when t exceeds the largest second available for
+// (camp, robot_class), clamps t to that last row instead of failing.
+auto query_clamped(int camp, const std::string& robot_class, int t, DefaultPosition& out)
+    -> bool;
 
 } // namespace radar_fusion::default_positions
