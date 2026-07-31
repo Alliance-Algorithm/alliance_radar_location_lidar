@@ -25,6 +25,7 @@ def _make_camera_node(context: LaunchContext):
     side_val   = LaunchConfiguration("side").perform(context)
     bringup_dir = get_package_share_directory("radar_bringup")
     fusion_dir  = get_package_share_directory("radar_fusion")
+    camera_config = os.path.join(bringup_dir, "config", "camera", "radar_camera.yaml")
 
     # enemy_color: 我方红→打蓝, 我方蓝→打红
     enemy_color = "red" if side_val == "blue" else "blue"
@@ -33,6 +34,20 @@ def _make_camera_node(context: LaunchContext):
     camera_pose_yaml = os.path.join(
         bringup_dir, "config", "camera", f"{side_val}_camera_pose.yaml"
     )
+    recording_parameters = {
+        "enable_raw_recording": LaunchConfiguration("enable_raw_recording"),
+        "recording_output_dir": LaunchConfiguration("recording_output_dir"),
+        "recording_width": LaunchConfiguration("recording_width"),
+        "recording_height": LaunchConfiguration("recording_height"),
+        "recording_fps": LaunchConfiguration("recording_fps"),
+        "recording_bitrate": LaunchConfiguration("recording_bitrate"),
+        "recording_gop": LaunchConfiguration("recording_gop"),
+        "recording_encoder": LaunchConfiguration("recording_encoder"),
+        "recording_segment_duration_sec": LaunchConfiguration(
+            "recording_segment_duration_sec"),
+        "recording_buffer_pool_frames": LaunchConfiguration("recording_buffer_pool_frames"),
+        "recording_max_buffer_bytes": LaunchConfiguration("recording_max_buffer_bytes"),
+    }
 
     return [
         # 3. 视觉检测 (L1/L2/L3 TensorRT)
@@ -42,10 +57,11 @@ def _make_camera_node(context: LaunchContext):
             name="radar_camera_node",
             output="screen",
             parameters=[
-                os.path.join(bringup_dir, "config", "camera", "radar_camera.yaml"),
-                camera_pose_yaml,                           # 覆盖 rotation / translation
-                {"pub_topic_name": "/camera/detection"},    # 与 fusion 订阅对齐
+                camera_config,
+                camera_pose_yaml,
+                {"pub_topic_name": "/camera/detection"},
                 {"enemy_color": enemy_color},
+                recording_parameters,
             ],
         ),
 
@@ -66,7 +82,6 @@ def generate_launch_description():
     side_lc     = LaunchConfiguration("side")
     map_path_lc = LaunchConfiguration("map_path")
     sensor_lc   = LaunchConfiguration("sensor")
-
     return LaunchDescription([
         DeclareLaunchArgument("side", default_value="red",
             description="场地侧: red | blue"),
@@ -75,6 +90,18 @@ def generate_launch_description():
             description="地图 PCD 路径"),
         DeclareLaunchArgument("sensor", default_value="odin",
             description="雷达型号: odin | mid70"),
+        DeclareLaunchArgument("enable_raw_recording", default_value="false",
+            description="启用原始相机录制"),
+        DeclareLaunchArgument("recording_output_dir", default_value="/data/competition/recordings"),
+        DeclareLaunchArgument("recording_width", default_value="5472"),
+        DeclareLaunchArgument("recording_height", default_value="3648"),
+        DeclareLaunchArgument("recording_fps", default_value="20"),
+        DeclareLaunchArgument("recording_bitrate", default_value="40000000"),
+        DeclareLaunchArgument("recording_gop", default_value="20"),
+        DeclareLaunchArgument("recording_encoder", default_value="h264_nvenc"),
+        DeclareLaunchArgument("recording_segment_duration_sec", default_value="60"),
+        DeclareLaunchArgument("recording_buffer_pool_frames", default_value="8"),
+        DeclareLaunchArgument("recording_max_buffer_bytes", default_value="480000000"),
 
         # 1. 相机驱动 (SHM 写 /hikcamera_shm)
         IncludeLaunchDescription(PythonLaunchDescriptionSource(
