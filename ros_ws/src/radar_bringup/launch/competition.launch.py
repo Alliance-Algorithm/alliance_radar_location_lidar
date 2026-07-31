@@ -71,7 +71,12 @@ def _make_camera_node(context: LaunchContext):
             executable="radar_fusion_node",
             name="radar_fusion_node",
             output="screen",
-            parameters=[os.path.join(fusion_dir, "config", "runtime.yaml")],
+            parameters=[
+                os.path.join(fusion_dir, "config", "runtime.yaml"),
+                # 未观测到的目标槽位按比赛时间填充官方数据众数格默认位置
+                {"default_positions_path": "/workspace/model/default_positions.sqlite"},
+                {"enemy_color": enemy_color},
+            ],
         ),
     ]
 
