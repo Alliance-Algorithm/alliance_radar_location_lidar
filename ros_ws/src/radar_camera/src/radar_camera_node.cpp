@@ -8,7 +8,8 @@ namespace radar_camera::node {
 
 RadarCameraNode::RadarCameraNode()
     : Node("radar_camera_node") {
-    auto ret = ConfigsLoader(*this, camera_config_, inference_config_, projection_config_);
+    auto ret = ConfigsLoader(*this, camera_config_, inference_config_, projection_config_,
+        armor_refine_config_, number_refine_config_);
     if (!ret) {
         RCLCPP_ERROR(get_logger(), "ConfigsLoader failed: %s", ret.error().c_str());
         throw std::runtime_error("ConfigsLoader failed: " + ret.error());
@@ -23,6 +24,21 @@ RadarCameraNode::RadarCameraNode()
     }
     RCLCPP_INFO(get_logger(), "ModelInference initialized: backend=%s model=%s",
         inference_config_.backend.c_str(), inference_config_.model_path.c_str());
+
+    if (!armor_refine_config_.armor_model_path.empty()
+        && !number_refine_config_.number_model_path.empty()) {
+        auto refine_ret = armor_refiner_.init(armor_refine_config_, number_refine_config_);
+        if (!refine_ret) {
+            RCLCPP_WARN(get_logger(), "ArmorRefiner init skipped: %s", refine_ret.error().c_str());
+        } else {
+            armor_refine_enabled_ = true;
+            RCLCPP_INFO(get_logger(), "ArmorRefiner initialized: L2=%s L3=%s",
+                armor_refine_config_.armor_model_path.c_str(),
+                number_refine_config_.number_model_path.c_str());
+        }
+    } else {
+        RCLCPP_INFO(get_logger(), "ArmorRefiner disabled: L2/L3 model paths not set");
+    }
 
     auto cam_ret = projector_.proj_init_camera(camera_config_);
     if (!cam_ret) RCLCPP_WARN(get_logger(), "Projector camera init skipped: %s", cam_ret.error().c_str());
@@ -88,13 +104,20 @@ auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
                 continue;
             }
 
-            auto projected = projector_.proj_preprocess(dets->get());
+            std::vector<detection::Detection> refined(dets->get());
+            if (armor_refine_enabled_) {
+                for (auto& det : refined) {
+                    armor_refiner_.refine(frame, det, inference_config_.drone_class_ids);
+                }
+            }
+
+            auto projected = projector_.proj_preprocess(refined);
             auto semantic = std::expected<std::vector<detection::SemanticDetection>, std::string>(
                 std::unexpected("projection preprocess failed"));
             if (!projected) {
                 RCLCPP_WARN(get_logger(), "Projection preprocess failed: %s", projected.error().c_str());
             } else {
-                semantic = projector_.proj_semantic_postprocess(*projected, dets->get());
+                semantic = projector_.proj_semantic_postprocess(*projected, refined);
                 if (!semantic) {
                     RCLCPP_WARN(get_logger(), "Projection postprocess failed: %s", semantic.error().c_str());
                 }
@@ -134,7 +157,8 @@ auto RadarCameraNode::PublishCallback(
 }
 
 auto ConfigsLoader(rclcpp::Node& node, camera_config::CameraConfig& camera,
-    inference_config::InferenceConfig& inference, projection_config::ProjectionConfig& projection)
+    inference_config::InferenceConfig& inference, projection_config::ProjectionConfig& projection,
+    armor_refine::ArmorRefineConfig& armor, armor_refine::NumberRefineConfig& number)
     -> std::expected<void, std::string> {
     try {
         node.declare_parameter("enemy_color", std::string("blue"));
@@ -172,6 +196,11 @@ auto ConfigsLoader(rclcpp::Node& node, camera_config::CameraConfig& camera,
         node.declare_parameter("model_input_width", 1280);
         node.declare_parameter("model_input_height", 1280);
         node.declare_parameter("mesh_path", std::string(""));
+        node.declare_parameter("armor_model_path", std::string(""));
+        node.declare_parameter("armor_score_threshold", 0.8);
+        node.declare_parameter("armor_nms_threshold", 0.3);
+        node.declare_parameter("number_model_path", std::string(""));
+        node.declare_parameter("number_conf_threshold", 0.8);
 
         node.get_parameter("enemy_color", camera.enemy_color);
         node.get_parameter("hero_" + camera.enemy_color, camera.hero_class_id);
@@ -203,6 +232,19 @@ auto ConfigsLoader(rclcpp::Node& node, camera_config::CameraConfig& camera,
         node.get_parameter("model_input_height", inference.model_input_height);
 
         node.get_parameter("mesh_path", projection.mesh_path);
+
+        node.get_parameter("armor_model_path", armor.armor_model_path);
+        double armor_score = armor.score_threshold;
+        double armor_nms   = armor.nms_threshold;
+        node.get_parameter("armor_score_threshold", armor_score);
+        node.get_parameter("armor_nms_threshold", armor_nms);
+        armor.score_threshold = static_cast<float>(armor_score);
+        armor.nms_threshold   = static_cast<float>(armor_nms);
+
+        node.get_parameter("number_model_path", number.number_model_path);
+        double number_conf = number.conf_threshold;
+        node.get_parameter("number_conf_threshold", number_conf);
+        number.conf_threshold = static_cast<float>(number_conf);
     } catch (const std::exception& e) {
         return std::unexpected(std::string("Error loading configuration: ") + e.what());
     }
