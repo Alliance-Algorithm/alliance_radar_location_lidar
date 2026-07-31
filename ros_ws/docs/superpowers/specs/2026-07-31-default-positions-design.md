@@ -67,11 +67,13 @@ CREATE TABLE default_positions (
   - if the slot has a confirmed track, publish the measured position (existing
     behavior);
   - otherwise fill with `(x_med, y_med)` for that `(camp, robot_class, t)`.
-- Unit conversion: official data is in meters; `LidarLocation` is in millimeters
-  (existing slots use `(x + offset) * 1000`). Default values use the same
-  convention: `(x_med + map_to_rm_offset_x) * 1000`, `(y_med + map_to_rm_offset_y) * 1000`.
-  The official field origin (0,0) maps to the same arena origin as the existing
-  `map_to_rm_offset` convention.
+- Unit conversion: official data is already in the referee frame and in meters;
+  `LidarLocation` is in millimeters. Default values convert with a plain
+  `(x_med * 1000)`, `(y_med * 1000)` — WITHOUT `map_to_rm_offset`, which only
+  applies to the localization-map track path. Negative medians (the build clip
+  allows x, y down to -2 m) clamp to 0 so they cannot wrap in `uint16_t`. The
+  official referee frame (0,0) is the red corner and differs from the
+  localization-map origin by (14.0, 7.5); defaults are never translated.
 - If `t` exceeds the last available second, clamp to the last row. If a row for
   `(camp, robot_class, t)` has no data (e.g. `n == 0`), fall back to the last
   non-empty row.

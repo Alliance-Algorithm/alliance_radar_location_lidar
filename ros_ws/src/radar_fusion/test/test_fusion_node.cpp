@@ -700,21 +700,41 @@ TEST(FusionNode, MatchTimerDoesNotRestartOnRoundEndingMessage) {
 TEST(FusionNode, SlotFilledWhenNoTrack) {
     radar_interfaces::msg::LidarLocation msg;
     const std::array<bool, 6> occupied = { false, false, false, false, false, false };
-    constexpr double offset_x = 14.0;
-    constexpr double offset_y = 7.5;
 
     radar_fusion::default_positions::fill_empty_slots(msg,
         radar_fusion::default_positions::kOpponentSlots, occupied, /*camp=*/0, /*t=*/0,
-        offset_x, offset_y, make_fake_query());
+        make_fake_query());
 
-    EXPECT_EQ(msg.opponent_hero_x, static_cast<uint16_t>((5.5 + offset_x) * 1000.0));
-    EXPECT_EQ(msg.opponent_hero_y, static_cast<uint16_t>((2.25 + offset_y) * 1000.0));
-    EXPECT_EQ(msg.opponent_engineer_x, static_cast<uint16_t>((1.0 + offset_x) * 1000.0));
-    EXPECT_EQ(msg.opponent_infantry_3_x, static_cast<uint16_t>((2.0 + offset_x) * 1000.0));
-    EXPECT_EQ(msg.opponent_infantry_4_x, static_cast<uint16_t>((3.0 + offset_x) * 1000.0));
-    EXPECT_EQ(msg.opponent_aerial_x, static_cast<uint16_t>((4.0 + offset_x) * 1000.0));
-    EXPECT_EQ(msg.opponent_sentry_x, static_cast<uint16_t>((6.0 + offset_x) * 1000.0));
-    EXPECT_EQ(msg.opponent_sentry_y, static_cast<uint16_t>((6.0 + offset_y) * 1000.0));
+    // Defaults are in the official referee frame: plain (med * 1000), with NO
+    // map_to_rm_offset. A regression here (adding 14/7.5) shifts positions by
+    // half a field.
+    EXPECT_EQ(msg.opponent_hero_x, static_cast<uint16_t>(5.5 * 1000.0));
+    EXPECT_EQ(msg.opponent_hero_y, static_cast<uint16_t>(2.25 * 1000.0));
+    EXPECT_EQ(msg.opponent_engineer_x, static_cast<uint16_t>(1.0 * 1000.0));
+    EXPECT_EQ(msg.opponent_infantry_3_x, static_cast<uint16_t>(2.0 * 1000.0));
+    EXPECT_EQ(msg.opponent_infantry_4_x, static_cast<uint16_t>(3.0 * 1000.0));
+    EXPECT_EQ(msg.opponent_aerial_x, static_cast<uint16_t>(4.0 * 1000.0));
+    EXPECT_EQ(msg.opponent_sentry_x, static_cast<uint16_t>(6.0 * 1000.0));
+    EXPECT_EQ(msg.opponent_sentry_y, static_cast<uint16_t>(6.0 * 1000.0));
+}
+
+TEST(FusionNode, NegativeDefaultMediansClampToZero) {
+    radar_interfaces::msg::LidarLocation msg;
+    const std::array<bool, 6> occupied = { false, false, false, false, false, false };
+    const auto negative_query =
+        [](int, const std::string&, int, DefaultPosition& out) -> bool {
+        out = DefaultPosition { -2.0, -0.5, 10 }; // padded-field clip allows -2 m
+        return true;
+    };
+
+    radar_fusion::default_positions::fill_empty_slots(msg,
+        radar_fusion::default_positions::kOpponentSlots, occupied, /*camp=*/0, /*t=*/0,
+        negative_query);
+
+    // Negative medians must clamp to 0, not wrap in uint16_t.
+    EXPECT_EQ(msg.opponent_hero_x, 0);
+    EXPECT_EQ(msg.opponent_hero_y, 0);
+    EXPECT_EQ(msg.opponent_sentry_x, 0);
 }
 
 TEST(FusionNode, OccupiedSlotsAreNotOverwritten) {
@@ -722,16 +742,14 @@ TEST(FusionNode, OccupiedSlotsAreNotOverwritten) {
     msg.opponent_hero_x = 111; // occupied -> preserved
     msg.opponent_hero_y = 222;
     const std::array<bool, 6> occupied = { true, false, false, false, false, false };
-    constexpr double offset_x          = 14.0;
-    constexpr double offset_y          = 7.5;
 
     radar_fusion::default_positions::fill_empty_slots(msg,
         radar_fusion::default_positions::kOpponentSlots, occupied, /*camp=*/0, /*t=*/0,
-        offset_x, offset_y, make_fake_query());
+        make_fake_query());
 
     EXPECT_EQ(msg.opponent_hero_x, 111);
     EXPECT_EQ(msg.opponent_hero_y, 222);
-    EXPECT_EQ(msg.opponent_engineer_x, static_cast<uint16_t>((1.0 + offset_x) * 1000.0));
+    EXPECT_EQ(msg.opponent_engineer_x, static_cast<uint16_t>(1.0 * 1000.0));
 }
 
 TEST(FusionNode, QueryFailureLeavesSlotZero) {
@@ -742,7 +760,7 @@ TEST(FusionNode, QueryFailureLeavesSlotZero) {
 
     radar_fusion::default_positions::fill_empty_slots(msg,
         radar_fusion::default_positions::kOpponentSlots, occupied, /*camp=*/0, /*t=*/0,
-        14.0, 7.5, failing_query);
+        failing_query);
 
     EXPECT_EQ(msg.opponent_hero_x, 0);
     EXPECT_EQ(msg.opponent_hero_y, 0);
@@ -752,8 +770,6 @@ TEST(FusionNode, QueryFailureLeavesSlotZero) {
 TEST(FusionNode, AllySlotsFilledWithCampInjectedQuery) {
     radar_interfaces::msg::LidarLocation msg;
     const std::array<bool, 6> occupied = { false, false, false, false, false, false };
-    constexpr double offset_x          = 14.0;
-    constexpr double offset_y          = 7.5;
 
     const auto ally_query = [](int camp, const std::string& robot_class, int t,
                                DefaultPosition& out) -> bool {
@@ -766,10 +782,10 @@ TEST(FusionNode, AllySlotsFilledWithCampInjectedQuery) {
 
     radar_fusion::default_positions::fill_empty_slots(msg,
         radar_fusion::default_positions::kAllySlots, occupied, /*camp=*/1, /*t=*/0,
-        offset_x, offset_y, ally_query);
+        ally_query);
 
-    EXPECT_EQ(msg.ally_hero_x, static_cast<uint16_t>((20.0 + offset_x) * 1000.0));
-    EXPECT_EQ(msg.ally_hero_y, static_cast<uint16_t>((12.0 + offset_y) * 1000.0));
-    EXPECT_EQ(msg.ally_sentry_x, static_cast<uint16_t>((20.0 + offset_x) * 1000.0));
+    EXPECT_EQ(msg.ally_hero_x, static_cast<uint16_t>(20.0 * 1000.0));
+    EXPECT_EQ(msg.ally_hero_y, static_cast<uint16_t>(12.0 * 1000.0));
+    EXPECT_EQ(msg.ally_sentry_x, static_cast<uint16_t>(20.0 * 1000.0));
     EXPECT_EQ(msg.opponent_hero_x, 0);
 }

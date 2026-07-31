@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <functional>
@@ -52,17 +53,19 @@ using SlotQuery = std::function<bool(int camp, const std::string& robot_class, i
     DefaultPosition& out)>;
 
 // Fill every unoccupied slot with the default position for its robot class.
-// Occupied slots are left untouched. Conversion matches the track path in
-// publish_lidar_location: (meters + offset) * 1000 -> uint16 mm.
+// Occupied slots are left untouched. Defaults are already in the official
+// referee frame (corner-origin, meters), so the m -> mm conversion is a plain
+// x1000 with no map_to_rm_offset; negative medians (padded-field clip allows
+// down to -2 m) clamp to 0 so they cannot wrap in uint16_t.
 inline void fill_empty_slots(radar_interfaces::msg::LidarLocation& msg,
     const std::array<SlotSpec, 6>& slots, const std::array<bool, 6>& occupied, int camp, int t,
-    double offset_x, double offset_y, const SlotQuery& query) {
+    const SlotQuery& query) {
     for (std::size_t i = 0; i < slots.size(); ++i) {
         if (occupied[i]) continue;
         DefaultPosition p;
         if (!query(camp, slots[i].robot_class, t, p)) continue;
-        msg.*(slots[i].x) = static_cast<std::uint16_t>((p.x_med + offset_x) * 1000.0);
-        msg.*(slots[i].y) = static_cast<std::uint16_t>((p.y_med + offset_y) * 1000.0);
+        msg.*(slots[i].x) = static_cast<std::uint16_t>(std::max(0.0, p.x_med) * 1000.0);
+        msg.*(slots[i].y) = static_cast<std::uint16_t>(std::max(0.0, p.y_med) * 1000.0);
     }
 }
 

@@ -14,7 +14,10 @@
 - `robot_id`: red 1 hero / 2 engineer / 3 infantry3 / 4 infantry4 / 6 aerial / 7 sentry; blue = +100. Buildings (10, 11, 110, 111) excluded.
 - Drop lost-tracking rows (`x == 0 AND y == 0`).
 - Clip coordinates into padded field box: x ∈ [-2, 30], y ∈ [-2, 17].
-- Runtime converts meters → millimeters: `(med + map_to_rm_offset) * 1000`, matching `radar_fusion_node.cpp:383` convention.
+- Runtime converts meters → millimeters: `max(0, med) * 1000` — defaults are
+  already in the official referee frame, so `map_to_rm_offset` is NOT applied
+  (track path in `radar_fusion_node.cpp:383` is a different frame: localization
+  map center-origin). Negative medians clamp to 0 to avoid `uint16_t` wrap.
 - Match time `t0` = ROS time at first observation of `game_progress == 4`; defaults disabled before that.
 - Empty `default_positions_path` param disables the feature entirely (existing behavior preserved).
 
@@ -484,7 +487,7 @@ In `radar_fusion_node.cpp`:
 - declare params: `default_positions_path` (std::string, default `""`), `enemy_color` (std::string, default `"blue"`)
 - if path non-empty: `default_positions::load(path)`; subscribe `/bridge/game_state`
 - `on_game_state`: `match_timer_.on_game_state(msg->game_progress, msg->stage_remain_time, now_ns())`
-- `fill_default_positions`: slot → class map (opponent_hero→hero, opponent_engineer→engineer, opponent_infantry_3→infantry3, opponent_infantry_4→infantry4, opponent_aerial→aerial, opponent_sentry→sentry; same for ally_*), enemy camp id = (enemy_color=="red")?0:1, ally camp = 1-enemy; when track missing and `match_timer_.started()` and `query` succeeds, write `(x_med + offset_x) * 1000` into slot
+- `fill_default_positions`: slot → class map (opponent_hero→hero, opponent_engineer→engineer, opponent_infantry_3→infantry3, opponent_infantry_4→infantry4, opponent_aerial→aerial, opponent_sentry→sentry; same for ally_*), enemy camp id = (enemy_color=="red")?0:1, ally camp = 1-enemy; when track missing and `match_timer_.started()` and `query` succeeds, write `max(0, x_med) * 1000` into slot (defaults are already in the referee frame — no `map_to_rm_offset`)
 - call `fill_default_positions(msg, now_ns())` in `publish_lidar_location` before publishing
 
 - [ ] **Step 4: Update yaml**
@@ -541,6 +544,6 @@ git commit -m "docs(default_positions): record real-data verification"
 
 - Spec coverage: offline build (Task 1), runtime load/query (Task 2), match timer + slot fill (Task 3), real-data verification (Task 4). All spec sections mapped.
 - Median + IQR aggregation per spec; original coordinates; buildings excluded; (0,0) dropped; clipped to padded field.
-- Unit conversion (m→mm ×1000 with map_to_rm_offset) applied in Task 3 step 3, matching `radar_fusion_node.cpp:383`.
+- Unit conversion (m→mm ×1000 with negative clamp) applied in Task 3 step 3; defaults are already in the official referee frame, so `map_to_rm_offset` is intentionally NOT applied (applying it would shift defaults by half a field).
 - Fallback policy: if a (camp, class, t) row is missing, slot stays 0 (no default) — acceptable; documented.
 - Open question resolved: both opponent and ally slots get defaults (data exists for both camps).

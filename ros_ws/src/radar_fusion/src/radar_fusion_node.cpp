@@ -407,12 +407,13 @@ void RadarFusionNode::fill_default_positions(
     }
 
     const auto& query = radar_fusion::default_positions::query_clamped;
+    // Defaults are already in the official referee frame; no map_to_rm_offset.
     radar_fusion::default_positions::fill_empty_slots(msg,
         radar_fusion::default_positions::kOpponentSlots, occupied_opponent, enemy_camp,
-        static_cast<int>(t), cfg_.map_to_rm_offset_x, cfg_.map_to_rm_offset_y, query);
+        static_cast<int>(t), query);
     radar_fusion::default_positions::fill_empty_slots(msg,
         radar_fusion::default_positions::kAllySlots, occupied_ally, ally_camp,
-        static_cast<int>(t), cfg_.map_to_rm_offset_x, cfg_.map_to_rm_offset_y, query);
+        static_cast<int>(t), query);
 }
 
 void RadarFusionNode::publish_lidar_location(
