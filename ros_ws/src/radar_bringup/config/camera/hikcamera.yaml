@@ -29,6 +29,3 @@ hikcamera_ros_driver_node:
 
     # 共享内存名
     shm_name: "/hikcamera_shm"
-
-    # 相机序列号 SN（多相机时按序列号选设备；留空=仅1台相机时自动选用）
-    device_serial: ""
