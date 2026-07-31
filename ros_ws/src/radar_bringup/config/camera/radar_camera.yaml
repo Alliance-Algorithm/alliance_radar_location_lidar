@@ -28,7 +28,7 @@ radar_camera_node:
     use_openvino: false
     num_classes: 12
     # Set this to the deployment map mesh when projection is enabled.
-    mesh_path: ""
+    mesh_path: "/workspace/model/generated/field_zup.obj"
     # L2 plate detector + L3 number classifier. Leave paths empty to disable.
     armor_model_path: "/workspace/ros_ws/src/radar_camera/model/shenzhen-0708_fp16.engine"
     armor_score_threshold: 0.8
