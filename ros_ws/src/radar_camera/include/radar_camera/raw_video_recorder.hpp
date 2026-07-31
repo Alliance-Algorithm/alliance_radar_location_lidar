@@ -1,0 +1,73 @@
+#pragma once
+
+#include <cstddef>
+#include <expected>
+#include <limits>
+#include <string>
+
+namespace radar_camera::recording {
+
+struct RecordingConfig {
+    bool enabled;
+    std::string output_dir;
+    int width;
+    int height;
+    int fps;
+    int bitrate;
+    int gop;
+    std::string encoder;
+    int segment_duration_sec;
+    std::size_t buffer_pool_frames;
+    std::size_t max_buffer_bytes;
+};
+
+inline auto validate_config(const RecordingConfig& config) -> std::expected<void, std::string> {
+    if (config.output_dir.empty()) {
+        return std::unexpected("output_dir must not be empty");
+    }
+    if (config.width <= 0 || config.width % 2 != 0) {
+        return std::unexpected("width must be a positive even number");
+    }
+    if (config.height <= 0 || config.height % 2 != 0) {
+        return std::unexpected("height must be a positive even number");
+    }
+    if (config.fps <= 0) {
+        return std::unexpected("fps must be positive");
+    }
+    if (config.bitrate <= 0) {
+        return std::unexpected("bitrate must be positive");
+    }
+    if (config.gop <= 0) {
+        return std::unexpected("gop must be positive");
+    }
+    if (config.encoder != "h264_nvenc") {
+        return std::unexpected("encoder must be h264_nvenc");
+    }
+    if (config.segment_duration_sec <= 0) {
+        return std::unexpected("segment_duration_sec must be positive");
+    }
+    if (config.buffer_pool_frames == 0) {
+        return std::unexpected("buffer_pool_frames must be positive");
+    }
+
+    constexpr auto max_size = std::numeric_limits<std::size_t>::max();
+    const auto width = static_cast<std::size_t>(config.width);
+    const auto height = static_cast<std::size_t>(config.height);
+    if (width > max_size / height) {
+        return std::unexpected("buffer size calculation overflows");
+    }
+    auto bytes = width * height;
+    if (bytes > max_size / 3) {
+        return std::unexpected("buffer size calculation overflows");
+    }
+    bytes *= 3;
+    if (bytes > max_size / config.buffer_pool_frames) {
+        return std::unexpected("buffer size calculation overflows");
+    }
+    if (bytes * config.buffer_pool_frames > config.max_buffer_bytes) {
+        return std::unexpected("max_buffer_bytes is too small for the buffer pool");
+    }
+    return {};
+}
+
+} // namespace radar_camera::recording

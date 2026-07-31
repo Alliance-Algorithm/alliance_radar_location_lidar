@@ -99,6 +99,7 @@ if(BUILD_TESTING)
   ament_add_gtest(radar_camera_tests
       test/test_model_inference.cpp
       test/test_projector.cpp
+      test/test_recording_fifo.cpp
   )
   target_link_libraries(radar_camera_tests ${PROJECT_NAME}_core)
   target_compile_definitions(radar_camera_tests PRIVATE
