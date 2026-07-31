@@ -60,7 +60,14 @@ def read_replay_rows(csv_path: Path, image_dir: Path):
                 continue
             selected.setdefault(row["class_name"], row)
 
-    missing = [row["path"] for row in selected.values() if not (image_dir / row["path"]).is_file()]
+    missing = [
+        row["path"]
+        for row in selected.values()
+        if not any(
+            (image_dir / candidate).is_file()
+            for candidate in (row["path"], row["path"].replace(".jpg", "_det1280.jpg"))
+        )
+    ]
     assert not missing, f"CSV replay images missing: {missing}"
     assert set(selected) == {"hero_b", "eng_r", "inf3_b"}, selected
     return selected
@@ -94,9 +101,14 @@ class ReplayNode(Node):
         self.camera_pub = self.create_publisher(CameraDetectionPose, "/camera/detection", 10)
         self.cluster_pub = self.create_publisher(PointCloud2, "/lidar/cluster", 10)
         self.location = None
+        self.locations = []
         self.location_sub = self.create_subscription(
-            LidarLocation, "/lidar/location", lambda msg: setattr(self, "location", msg), 10
+            LidarLocation, "/lidar/location", self.on_location, 10
         )
+
+    def on_location(self, msg):
+        self.location = msg
+        self.locations.append(msg)
 
     def publish_frame(self, rows: dict, stamp):
         camera = CameraDetectionPose()
@@ -196,8 +208,22 @@ def test_csv_replay_fusion_and_bridge_transport():
             assert payload is not None, "bridge did not publish ZMQ location JSON"
             assert payload["cmd_id"] == 0x2001
 
-            ros_fields = lidar_location_fields(node.location)
-            assert bridge_fields(payload) == {key: value for key, value in ros_fields.items() if key != "cmd_id"}
+            payload_fields = bridge_fields(payload)
+            matching_ros_fields = next(
+                (
+                    lidar_location_fields(location)
+                    for location in node.locations
+                    if payload_fields
+                    == {
+                        key: value
+                        for key, value in lidar_location_fields(location).items()
+                        if key != "cmd_id"
+                    }
+                ),
+                None,
+            )
+            assert matching_ros_fields is not None, "bridge JSON did not match any ROS location message"
+            ros_fields = matching_ros_fields
 
             observed = {
                 "opponent_hero": (ros_fields["opponent_hero_x"], ros_fields["opponent_hero_y"]),

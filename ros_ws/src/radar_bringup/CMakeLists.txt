@@ -16,6 +16,10 @@ if(BUILD_TESTING)
     test/test_competition_launch.py
     TIMEOUT 30
   )
+  ament_add_pytest_test(test_fusion_bridge_csv_replay
+    test/test_fusion_bridge_csv_replay.py
+    TIMEOUT 60
+  )
 endif()
 
 install(DIRECTORY
