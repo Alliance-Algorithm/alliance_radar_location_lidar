@@ -35,7 +35,12 @@ radar_camera_node:
     armor_nms_threshold: 0.3
     number_model_path: "/workspace/ros_ws/src/radar_camera/model/armor-number_fp16.engine"
     number_conf_threshold: 0.8
-    camera_matrix: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+    # 内参来源: odin_livo2.yaml camera_calib.json @5472x3648 全分辨率
+    # fx = 3376.849308×2, fy = 3368.725055×2, cx = 1310.374137×2, cy = 962.031135×2
+    camera_matrix: [6753.698616, 0.0, 2620.748274,
+                    0.0, 6737.450110, 1924.062270,
+                    0.0, 0.0, 1.0]
+    # TODO: 畸变系数未入库。重跑 .script/calibrate-camera 取结果填入 [k1, k2, p1, p2, k3]
     distortion_coefficients: [0.0, 0.0, 0.0, 0.0, 0.0]
     rotation: [0.0, 0.0, 0.0]
     translation: [0.0, 0.0, 0.0]
