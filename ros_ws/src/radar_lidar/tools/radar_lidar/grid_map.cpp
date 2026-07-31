@@ -29,6 +29,8 @@ auto rasterize(const pcl::PointCloud<pcl::PointXYZ>& cloud, const GridMapParams&
     if (params.resolution <= 0.0) return std::unexpected("resolution must be > 0");
     if (params.min_points < 1) return std::unexpected("min_points must be >= 1");
     if (params.dilate < 0) return std::unexpected("dilate must be >= 0");
+    if (params.height_threshold < 0.0)
+        return std::unexpected("height_threshold must be >= 0");
     if (cloud.empty() && !bounds.has_value())
         return std::unexpected("empty cloud and no bounds provided");
 
@@ -44,11 +46,23 @@ auto rasterize(const pcl::PointCloud<pcl::PointXYZ>& cloud, const GridMapParams&
         x_max = b.x_max;
         y_max = b.y_max;
     } else {
-        x_min = floor_to_resolution(cloud.points.front().x, res);
-        x_max = ceil_to_resolution(cloud.points.front().x, res);
-        y_min = floor_to_resolution(cloud.points.front().y, res);
-        y_max = ceil_to_resolution(cloud.points.front().y, res);
+        double first_x = 0.0, first_y = 0.0;
+        bool have_finite = false;
         for (const auto& pt : cloud.points) {
+            if (!std::isfinite(pt.x) || !std::isfinite(pt.y)) continue;
+            first_x    = pt.x;
+            first_y    = pt.y;
+            have_finite = true;
+            break;
+        }
+        if (!have_finite)
+            return std::unexpected("no finite points and no bounds provided");
+        x_min = floor_to_resolution(first_x, res);
+        x_max = ceil_to_resolution(first_x, res);
+        y_min = floor_to_resolution(first_y, res);
+        y_max = ceil_to_resolution(first_y, res);
+        for (const auto& pt : cloud.points) {
+            if (!std::isfinite(pt.x) || !std::isfinite(pt.y)) continue;
             x_min = std::min(x_min, floor_to_resolution(pt.x, res));
             x_max = std::max(x_max, ceil_to_resolution(pt.x, res));
             y_min = std::min(y_min, floor_to_resolution(pt.y, res));
@@ -71,6 +85,7 @@ auto rasterize(const pcl::PointCloud<pcl::PointXYZ>& cloud, const GridMapParams&
     };
 
     for (const auto& pt : cloud.points) {
+        if (!std::isfinite(pt.x) || !std::isfinite(pt.y) || !std::isfinite(pt.z)) continue;
         const auto idx = index_of(pt.x, pt.y);
         if (idx == static_cast<std::size_t>(-1)) continue;
         auto& cell      = cells[idx];

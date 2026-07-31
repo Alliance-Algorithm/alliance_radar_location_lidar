@@ -33,6 +33,8 @@ struct GridMapResult {
 
 // 将稠密全局点云栅格化为 2D 占用网格。
 // bounds 为空时使用点云 bbox (扩到分辨率整数倍); 点云为空且无 bounds 时报错。
+// 每个轴的边界均为半开区间 [min, max): 恰好在 max 边上的点被丢弃。
+// NaN/无穷等非有限坐标点一律跳过。
 auto rasterize(const pcl::PointCloud<pcl::PointXYZ>& cloud, const GridMapParams& params,
     const std::optional<Bounds>& bounds) -> std::expected<GridMapResult, std::string>;
 

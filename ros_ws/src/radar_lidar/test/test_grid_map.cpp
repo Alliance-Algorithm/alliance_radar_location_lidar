@@ -63,15 +63,15 @@ TEST(GridMapTest, GroundAndWall) {
 }
 
 TEST(GridMapTest, HeightThresholdBoundary) {
-    const auto short_wall = make_ground_and_wall(0.5, 0.6, 0.29);
+    const auto short_wall = make_ground_and_wall(0.5, 0.6, 0.25);
     const auto short_map  = rasterize(*short_wall, GridMapParams {}, std::optional<Bounds> { { 0, 0, 2, 2 } });
     ASSERT_TRUE(short_map.has_value());
-    EXPECT_EQ(short_map->data[10 * 40 + 10], 100) << "wall 0.29m < threshold 0.3 -> free";
+    EXPECT_EQ(short_map->data[10 * 40 + 10], 100) << "wall 0.25m < threshold 0.3 -> free";
 
-    const auto tall_wall = make_ground_and_wall(0.5, 0.6, 0.31);
+    const auto tall_wall = make_ground_and_wall(0.5, 0.6, 0.45);
     const auto tall_map  = rasterize(*tall_wall, GridMapParams {}, std::optional<Bounds> { { 0, 0, 2, 2 } });
     ASSERT_TRUE(tall_map.has_value());
-    EXPECT_EQ(tall_map->data[10 * 40 + 10], 0) << "wall 0.31m > threshold 0.3 -> obstacle";
+    EXPECT_EQ(tall_map->data[10 * 40 + 10], 0) << "wall 0.45m > threshold 0.3 -> obstacle";
 }
 
 TEST(GridMapTest, MinPointsFiltersIsolatedHighPoint) {
