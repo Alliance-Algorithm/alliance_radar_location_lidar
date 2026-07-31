@@ -23,7 +23,7 @@ auto base_key(int camp, const std::string& robot_class) -> std::string {
 auto load(const std::string& db_path) -> bool {
     sqlite3* db = nullptr;
     if (sqlite3_open(db_path.c_str(), &db) != SQLITE_OK) return false;
-    const char* sql = "SELECT camp, robot_class, t, x_med, y_med, n FROM default_positions";
+    const char* sql = "SELECT camp, robot_class, t, x_mode, y_mode, n FROM default_positions";
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
         sqlite3_close(db);

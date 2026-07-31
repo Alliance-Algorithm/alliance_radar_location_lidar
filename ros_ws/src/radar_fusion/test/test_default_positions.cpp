@@ -15,14 +15,16 @@ void make_db(std::string& path) {
     const char* schema = "CREATE TABLE default_positions ("
         "camp TEXT NOT NULL, robot_id INTEGER NOT NULL, robot_class TEXT NOT NULL,"
         "t INTEGER NOT NULL, x_med REAL NOT NULL, y_med REAL NOT NULL,"
+        "cell_gx INTEGER NOT NULL, cell_gy INTEGER NOT NULL,"
+        "x_mode REAL NOT NULL, y_mode REAL NOT NULL,"
         "x_p25 REAL, x_p75 REAL, y_p25 REAL, y_p75 REAL, n INTEGER NOT NULL,"
         "PRIMARY KEY (camp, robot_id, t));";
     ASSERT_EQ(sqlite3_exec(db, schema, nullptr, nullptr, nullptr), SQLITE_OK);
     ASSERT_EQ(sqlite3_exec(db, "INSERT INTO default_positions VALUES "
-        "('红',1,'hero',1,5.5,2.25,5.0,6.0,2.0,2.5,20),"
-        "('蓝',101,'hero',1,22.5,12.75,22.0,23.0,12.5,13.0,18),"
-        "('红',1,'hero',5,6.0,2.5,5.5,6.5,2.25,2.75,25),"
-        "('蓝',101,'hero',5,23.0,13.0,22.5,23.5,12.75,13.25,22);",
+        "('红',1,'hero',1,5.5,2.25,5,2,5.5,2.5,5.0,6.0,2.0,2.5,20),"
+        "('蓝',101,'hero',1,22.5,12.75,22,12,22.5,12.5,22.0,23.0,12.5,13.0,18),"
+        "('红',1,'hero',5,6.0,2.5,6,2,6.5,2.5,5.5,6.5,2.25,2.75,25),"
+        "('蓝',101,'hero',5,23.0,13.0,23,12,23.5,12.5,22.5,23.5,12.75,13.25,22);",
         nullptr, nullptr, nullptr), SQLITE_OK);
     sqlite3_close(db);
 }
@@ -36,7 +38,7 @@ TEST(DefaultPositions, LoadAndQuery) {
     DefaultPosition p;
     ASSERT_TRUE(radar_fusion::default_positions::query(0, "hero", 1, p));
     EXPECT_DOUBLE_EQ(p.x_med, 5.5);
-    EXPECT_DOUBLE_EQ(p.y_med, 2.25);
+    EXPECT_DOUBLE_EQ(p.y_med, 2.5);
     EXPECT_EQ(p.n, 20);
 
     ASSERT_TRUE(radar_fusion::default_positions::query(1, "hero", 1, p));
@@ -63,10 +65,10 @@ TEST(DefaultPositions, QueryClampedClampsToLastAvailableSecond) {
 
     // t beyond the last row per (camp, class): clamp to the t=5 row.
     ASSERT_TRUE(radar_fusion::default_positions::query_clamped(0, "hero", 500, p));
-    EXPECT_DOUBLE_EQ(p.x_med, 6.0);
+    EXPECT_DOUBLE_EQ(p.x_med, 6.5);
     EXPECT_DOUBLE_EQ(p.y_med, 2.5);
     ASSERT_TRUE(radar_fusion::default_positions::query_clamped(1, "hero", 500, p));
-    EXPECT_DOUBLE_EQ(p.x_med, 23.0);
+    EXPECT_DOUBLE_EQ(p.x_med, 23.5);
 
     // Gaps inside the covered range are not filled: t=3 does not exist.
     EXPECT_FALSE(radar_fusion::default_positions::query_clamped(0, "hero", 3, p));
@@ -90,13 +92,15 @@ bool make_corrupt_db(std::string& path) {
     const char* schema = "CREATE TABLE default_positions ("
         "camp TEXT NOT NULL, robot_id INTEGER NOT NULL, robot_class TEXT NOT NULL,"
         "t INTEGER NOT NULL, x_med REAL NOT NULL, y_med REAL NOT NULL,"
+        "cell_gx INTEGER NOT NULL, cell_gy INTEGER NOT NULL,"
+        "x_mode REAL NOT NULL, y_mode REAL NOT NULL,"
         "x_p25 REAL, x_p75 REAL, y_p25 REAL, y_p75 REAL, n INTEGER NOT NULL,"
         "PRIMARY KEY (camp, robot_id, t)) WITHOUT ROWID;";
     if (sqlite3_exec(db, schema, nullptr, nullptr, nullptr) != SQLITE_OK) { sqlite3_close(db); return false; }
     if (sqlite3_exec(db,
         "INSERT INTO default_positions "
         "WITH RECURSIVE cnt(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM cnt WHERE x < 500) "
-        "SELECT '红', x, 'hero', 1, 5.5, 2.25, NULL, NULL, NULL, NULL, 20 FROM cnt;",
+        "SELECT '红', x, 'hero', 1, 5.5, 2.25, 5, 2, 5.5, 2.5, NULL, NULL, NULL, NULL, 20 FROM cnt;",
         nullptr, nullptr, nullptr) != SQLITE_OK) { sqlite3_close(db); return false; }
     if (sqlite3_close(db) != SQLITE_OK) return false;
 

@@ -7,8 +7,8 @@
 namespace radar_fusion::default_positions {
 
 struct DefaultPosition {
-    double x_med = 0.0;
-    double y_med = 0.0;
+    double x_med = 0.0;  // mode-cell center (referee frame metres)
+    double y_med = 0.0;  // mode-cell center (referee frame metres)
     int n        = 0;
 };
 
