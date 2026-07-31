@@ -44,3 +44,6 @@ learnlog.md
 
 # Script backups
 *.bak
+
+# Local agent worktrees
+/.worktrees/
