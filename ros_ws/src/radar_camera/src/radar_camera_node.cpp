@@ -259,17 +259,23 @@ auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
     infer_running_ = true;
     infer_thread_  = std::thread([this]() {
         while (infer_running_.load(std::memory_order_acquire)) {
-            cv::Mat frame;
+            cv::Mat orig_frame;
             std::chrono::steady_clock::time_point ts;
-            auto ret =
-                hikcamera::SHMRead(shm_fd_, frame, ts, camera_config_.width, camera_config_.height,
-                    inference_config_.model_input_width, inference_config_.model_input_height);
+            // Read at full sensor resolution (dst_w=0 → no internal resize).
+            auto ret = hikcamera::SHMRead(shm_fd_, orig_frame, ts,
+                camera_config_.width, camera_config_.height, 0, 0);
             if (!ret.has_value()) {
                 RCLCPP_WARN(get_logger(), "SHMRead failed: %s", ret.error().c_str());
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 continue;
             }
             capture_timestamp_ = ts;
+
+            // Resize to L1 model input separately; L2/L3 will crop from orig_frame.
+            cv::Mat frame;
+            cv::resize(orig_frame, frame,
+                cv::Size(inference_config_.model_input_width,
+                    inference_config_.model_input_height));
 
             auto tensor = model_inference_->infer_preprocess(frame,
                 static_cast<size_t>(inference_config_.model_input_width),
@@ -299,8 +305,13 @@ auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
 
             std::vector<detection::Detection> refined(dets->get());
             if (armor_refine_enabled_) {
+                const float scale_x =
+                    static_cast<float>(orig_frame.cols) / static_cast<float>(frame.cols);
+                const float scale_y =
+                    static_cast<float>(orig_frame.rows) / static_cast<float>(frame.rows);
                 for (auto& det : refined) {
-                    armor_refiner_.refine(frame, det, inference_config_.drone_class_ids);
+                    armor_refiner_.refine(
+                        orig_frame, det, inference_config_.drone_class_ids, scale_x, scale_y);
                 }
             }
 
@@ -368,18 +379,18 @@ auto ConfigsLoader(rclcpp::Node& node, camera_config::CameraConfig& camera,
     armor_refine::NumberRefineConfig& number) -> std::expected<void, std::string> {
     try {
         node.declare_parameter("enemy_color", std::string("blue"));
-        node.declare_parameter("hero_blue", 0);
-        node.declare_parameter("engineer_blue", 1);
-        node.declare_parameter("infantry3_blue", 2);
-        node.declare_parameter("infantry4_blue", 3);
-        node.declare_parameter("sentry_blue", 4);
-        node.declare_parameter("drone_blue", 5);
-        node.declare_parameter("hero_red", 6);
-        node.declare_parameter("engineer_red", 7);
-        node.declare_parameter("infantry3_red", 8);
-        node.declare_parameter("infantry4_red", 9);
-        node.declare_parameter("sentry_red", 10);
-        node.declare_parameter("drone_red", 11);
+        node.declare_parameter("hero_blue", 6);
+        node.declare_parameter("engineer_blue", 7);
+        node.declare_parameter("infantry3_blue", 8);
+        node.declare_parameter("infantry4_blue", 9);
+        node.declare_parameter("sentry_blue", 10);
+        node.declare_parameter("drone_blue", 11);
+        node.declare_parameter("hero_red", 0);
+        node.declare_parameter("engineer_red", 1);
+        node.declare_parameter("infantry3_red", 2);
+        node.declare_parameter("infantry4_red", 3);
+        node.declare_parameter("sentry_red", 4);
+        node.declare_parameter("drone_red", 5);
         node.declare_parameter("camera_matrix", std::vector<double> { 1, 0, 0, 0, 1, 0, 0, 0, 1 });
         node.declare_parameter("distortion_coefficients", std::vector<double> { 0, 0, 0, 0, 0 });
         node.declare_parameter("rotation", std::vector<double> { 0, 0, 0 });

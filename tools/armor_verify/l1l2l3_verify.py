@@ -147,9 +147,8 @@ def run_l3(sess, frame_rgb, box):
     t = time.perf_counter()
     out = sess.run(None, {sess.get_inputs()[0].name: blob(lb, side)})[0]
     dt = (time.perf_counter() - t) * 1000
-    logits = out[0]
-    e = np.exp(logits - logits.max())
-    p = e / e.sum()
+    # Model output is already softmax probabilities — use directly.
+    p = out[0]
     idx = int(p.argmax())
     return (idx, float(p[idx])), dt
 

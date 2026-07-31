@@ -51,9 +51,11 @@ public:
         -> std::expected<void, std::string>;
 
     // Refines det.id in place. drone_class_ids are skipped (id untouched).
-    // frame is the model-input-sized RGB frame that produced det.bbox.
-    auto refine(const cv::Mat& frame, detection::Detection& det,
-        const std::vector<std::int64_t>& drone_class_ids) -> void;
+    // orig_frame is the full-resolution RGB source frame (e.g. 5472×3648).
+    // det.bbox is in L1 model-input space; scale_x/scale_y map it to orig_frame.
+    auto refine(const cv::Mat& orig_frame, detection::Detection& det,
+        const std::vector<std::int64_t>& drone_class_ids,
+        float scale_x, float scale_y) -> void;
 
     // Maps an L2 (genre, color) pair to an absolute L1 class id (0-11).
     // Returns nullopt for unmappable genres/colors.
