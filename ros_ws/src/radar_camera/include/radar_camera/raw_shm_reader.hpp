@@ -44,7 +44,8 @@ struct ReaderStats {
 [[nodiscard]] auto completed_slot(std::uint64_t counter, unsigned int slot_num) -> unsigned int;
 [[nodiscard]] auto is_stable(std::uint64_t before, std::uint64_t after) -> bool;
 [[nodiscard]] auto is_contiguous_counter(std::uint64_t last_seen,
-                                         std::uint64_t current) -> bool;
+                                          std::uint64_t current) -> bool;
+[[nodiscard]] auto is_counter_reset(std::uint64_t last_seen, std::uint64_t current) -> bool;
 [[nodiscard]] auto validate_raw_frame_dimensions(int width, int height) -> bool;
 [[nodiscard]] auto raw_frame_byte_count(int width, int height) -> std::optional<std::size_t>;
 

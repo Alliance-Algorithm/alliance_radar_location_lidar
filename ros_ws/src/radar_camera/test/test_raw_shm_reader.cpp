@@ -34,6 +34,12 @@ TEST(RawShmReader, CounterMustAdvanceExactlyOneAfterStartupBaseline) {
     EXPECT_FALSE(is_contiguous_counter(std::numeric_limits<std::uint64_t>::max(), 1));
 }
 
+TEST(RawShmReader, CounterZeroResetsOnlyAfterAEstablishedBaseline) {
+    EXPECT_FALSE(is_counter_reset(0, 0));
+    EXPECT_TRUE(is_counter_reset(7, 0));
+    EXPECT_FALSE(is_counter_reset(7, 8));
+}
+
 TEST(RawShmReader, StopIsIdempotentBeforeAndAfterFailedStart) {
     RecordingFifo fifo(1);
     RawShmReader reader("", 4, 2, fifo);

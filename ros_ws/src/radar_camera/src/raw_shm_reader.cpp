@@ -30,6 +30,10 @@ auto is_contiguous_counter(std::uint64_t last_seen, std::uint64_t current) -> bo
     return current == last_seen + 1;
 }
 
+auto is_counter_reset(std::uint64_t last_seen, std::uint64_t current) -> bool {
+    return last_seen != 0 && current == 0;
+}
+
 auto validate_raw_frame_dimensions(int width, int height) -> bool {
     if (width <= 0 || height <= 0) {
         return false;
@@ -174,6 +178,13 @@ void RawShmReader::loop() {
 
     while (running_.load(std::memory_order_acquire)) {
         const auto counter = shm_ptr_->frame_counter.load(std::memory_order_acquire);
+        if (is_counter_reset(last_seen, counter)) {
+            fifo_.request_overrun("raw SHM frame counter reset after baseline");
+            running_.store(false, std::memory_order_release);
+            std::lock_guard lock(mutex_);
+            state_ = ReaderState::overrun;
+            break;
+        }
         if (!valid_frame_counter(counter) || counter == last_seen) {
             std::this_thread::sleep_for(poll_interval);
             continue;
@@ -188,9 +199,18 @@ void RawShmReader::loop() {
 
         auto latest_seen = counter;
         bool accepted = false;
+        bool waiting_for_baseline = false;
         for (unsigned int retry = 0; retry < max_copy_retries; ++retry) {
             const auto counter_before = shm_ptr_->frame_counter.load(std::memory_order_acquire);
+            if (is_counter_reset(last_seen, counter_before)) {
+                fifo_.request_overrun("raw SHM frame counter reset after baseline");
+                running_.store(false, std::memory_order_release);
+                std::lock_guard lock(mutex_);
+                state_ = ReaderState::overrun;
+                break;
+            }
             if (!valid_frame_counter(counter_before)) {
+                waiting_for_baseline = true;
                 break;
             }
             if (counter_before != last_seen &&
@@ -222,6 +242,17 @@ void RawShmReader::loop() {
             const auto counter_after = shm_ptr_->frame_counter.load(std::memory_order_acquire);
             latest_seen = counter_after;
 
+            if (is_counter_reset(last_seen, counter_after)) {
+                fifo_.request_overrun("raw SHM frame counter reset after baseline");
+                running_.store(false, std::memory_order_release);
+                std::lock_guard lock(mutex_);
+                state_ = ReaderState::overrun;
+                break;
+            }
+            if (counter_after == 0 && last_seen == 0) {
+                waiting_for_baseline = true;
+                break;
+            }
             if (counter_after != last_seen &&
                 !is_contiguous_counter(last_seen, counter_after)) {
                 fifo_.request_overrun("raw SHM frame counter advanced with a gap");
@@ -261,7 +292,7 @@ void RawShmReader::loop() {
         if (accepted) {
             last_seen = latest_seen;
         }
-        if (!accepted && running_.load(std::memory_order_acquire)) {
+        if (!accepted && !waiting_for_baseline && running_.load(std::memory_order_acquire)) {
             fifo_.request_overrun("raw SHM frame counter was unstable");
             running_.store(false, std::memory_order_release);
             std::lock_guard lock(mutex_);
