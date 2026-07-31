@@ -68,6 +68,8 @@ namespace {
         }
     };
 
+    enum class DrainResult { packet_drained, no_packets, flushed };
+
     auto write_packet(Segment& segment, AVPacket* packet) -> std::expected<void, std::string> {
         av_packet_rescale_ts(packet, segment.codec->time_base, segment.stream->time_base);
         const auto result = av_interleaved_write_frame(segment.format, packet);
@@ -79,15 +81,16 @@ namespace {
     }
 
     auto drain_packets(Segment& segment, AVPacket* packet, bool flushing)
-        -> std::expected<bool, std::string> {
+        -> std::expected<DrainResult, std::string> {
+        bool packet_drained = false;
         for (;;) {
             const auto result = avcodec_receive_packet(segment.codec, packet);
             if (result == AVERROR(EAGAIN)) {
-                return false;
+                return packet_drained ? DrainResult::packet_drained : DrainResult::no_packets;
             }
             if (result == AVERROR_EOF) {
                 if (flushing) {
-                    return true;
+                    return DrainResult::flushed;
                 }
                 return std::unexpected("NVENC packet receive reached EOF before flush");
             }
@@ -97,6 +100,7 @@ namespace {
             if (const auto written = write_packet(segment, packet); !written) {
                 return std::unexpected(written.error());
             }
+            packet_drained = true;
             if (!flushing) {
                 continue;
             }
@@ -125,10 +129,12 @@ namespace {
                     av_packet_free(&packet);
                     return std::unexpected(drained.error());
                 }
-                if (*drained) {
+                if (*drained == DrainResult::flushed) {
                     break;
                 }
-                return std::unexpected("NVENC flush returned EAGAIN");
+                if (*drained == DrainResult::no_packets) {
+                    return std::unexpected("NVENC flush returned EAGAIN");
+                }
             }
             av_packet_free(&packet);
             result = av_write_trailer(segment.format);
@@ -379,7 +385,7 @@ void RawVideoRecorder::loop() {
                 fail(drained.error(), false);
                 break;
             }
-            if (!*drained) {
+            if (*drained == DrainResult::no_packets) {
                 av_packet_free(&packet);
                 fail("NVENC send returned EAGAIN without a packet to drain", false);
                 break;
@@ -398,10 +404,6 @@ void RawVideoRecorder::loop() {
         av_packet_free(&packet);
         if (!drained) {
             fail(drained.error(), false);
-            break;
-        }
-        if (*drained) {
-            fail("NVENC packet receive reached EOF before flush", false);
             break;
         }
         ++frame_index;

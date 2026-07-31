@@ -69,3 +69,28 @@ The recorder test executable could not be built or run in this environment becau
 - Implementation hash: `f07000e`.
 - Tests: `git diff --check` passed; `colcon build --packages-select radar_camera --cmake-args -DBUILD_TESTING=ON` failed at `find_package(OpenVINO)` before compilation.
 - Concerns: NVENC execution, `ffprobe` validation, full-resolution conversion, MPEG-TS readability, rollover, and sidecar assertions still require a host with OpenVINO, OpenCV, FFmpeg development libraries, NVIDIA NVENC, and the camera runtime. The final test suite remains bounded and does not alter SDK, driver, or SHM-writer behavior.
+
+## Task 3 Remaining Findings Fix Report
+
+### Fixes
+
+- Replaced the ambiguous normal-drain boolean with explicit `DrainResult` states. Normal `receive_packet` EAGAIN is now successful no-more-packets; the drain loop continues after packets and reports whether any packet was consumed. `send_frame` EAGAIN recovery retries only after a successful packet drain and reports terminal no-packet recovery as failure. Non-flush EOF and other receive errors remain failures, while flush still requires an explicit EOF result.
+- Changed `ConsumesFramesInFifoOrder` to persist and inspect JSONL records in file insertion order without sorting records. It uses one non-rolling segment and asserts exactly `[1, 2]`.
+- Strengthened the opt-in hardware test to require `format_name=mpegts`, exact H.264 dimensions, exactly two segments and sidecars, per-segment records `{1}` and `{2}`, and aggregate sequence content `[1, 2]` with no missing or duplicate records.
+
+### Verification
+
+```text
+git diff --check
+exit status: 0
+
+source /opt/ros/jazzy/setup.bash && colcon build --packages-select radar_camera --cmake-args -DBUILD_TESTING=ON
+exit status: 1
+Blocked before compilation: the worktree lacks the built `radar_interfaces` package setup file (`install/radar_interfaces/share/radar_interfaces/package.sh`).
+```
+
+### Return Status, Hash, Tests, Concerns
+
+- Return status: remaining Task 3 findings fixed; package test execution remains blocked by the worktree build environment.
+- Tests: `git diff --check` passed; the package build stopped before CMake compilation because `radar_interfaces` was not built, so `radar_camera_tests` and the opt-in NVENC test were not run locally.
+- Concerns: hardware NVENC, FFmpeg MPEG-TS probing, rollover timing, and full-resolution sidecar validation still require the camera package dependencies and NVIDIA runtime. No SDK, driver, or SHM-writer files were changed.
