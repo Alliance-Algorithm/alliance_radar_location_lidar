@@ -11,7 +11,7 @@ import rclpy
 import yaml
 import zmq
 from geometry_msgs.msg import Point
-from radar_interfaces.msg import CameraDetectionPose, LidarLocation
+from radar_interfaces.msg import CameraDetection, CameraDetectionArray, LidarLocation
 from rclpy.node import Node
 from sensor_msgs.msg import PointCloud2
 from sensor_msgs_py import point_cloud2
@@ -73,18 +73,19 @@ def read_replay_rows(csv_path: Path, image_dir: Path):
     return selected
 
 
-def set_pose(msg: CameraDetectionPose, name: str, row: dict) -> None:
-    position = Point()
-    position.x = float(row["map_x"])
-    position.y = float(row["map_y"])
-    position.z = 0.0
-    confidence = float(row["conf"])
-    if name == "hero_b":
-        msg.hero_position, msg.hero_confidence = position, confidence
-    elif name == "eng_r":
-        msg.engine_position, msg.engine_confidence = position, confidence
-    else:
-        msg.infantry_3_position, msg.infantry_3_confidence = position, confidence
+def camera_detection(name: str, row: dict) -> CameraDetection:
+    detection = CameraDetection()
+    detection.position.x = float(row["map_x"])
+    detection.position.y = float(row["map_y"])
+    detection.position.z = 0.0
+    detection.confidence = float(row["conf"])
+    detection.team = CameraDetection.TEAM_BLUE if name.endswith("_b") else CameraDetection.TEAM_RED
+    detection.semantic_class = {
+        "hero_b": CameraDetection.CLASS_HERO,
+        "eng_r": CameraDetection.CLASS_ENGINEER,
+        "inf3_b": CameraDetection.CLASS_INFANTRY_3,
+    }[name]
+    return detection
 
 
 def lidar_location_fields(msg: LidarLocation) -> dict:
@@ -98,7 +99,7 @@ def bridge_fields(payload: dict) -> dict:
 class ReplayNode(Node):
     def __init__(self):
         super().__init__("fusion_bridge_csv_replay")
-        self.camera_pub = self.create_publisher(CameraDetectionPose, "/camera/detection", 10)
+        self.camera_pub = self.create_publisher(CameraDetectionArray, "/camera/detection", 10)
         self.cluster_pub = self.create_publisher(PointCloud2, "/lidar/cluster", 10)
         self.location = None
         self.locations = []
@@ -111,11 +112,11 @@ class ReplayNode(Node):
         self.locations.append(msg)
 
     def publish_frame(self, rows: dict, stamp):
-        camera = CameraDetectionPose()
+        camera = CameraDetectionArray()
         camera.header.stamp = stamp.to_msg()
         camera.header.frame_id = "map"
         for name, row in rows.items():
-            set_pose(camera, name, row)
+            camera.detections.append(camera_detection(name, row))
         self.camera_pub.publish(camera)
 
         points = [(float(row["map_x"]), float(row["map_y"]), 0.0) for row in rows.values()]
@@ -227,12 +228,20 @@ def test_csv_replay_fusion_and_bridge_transport():
 
             observed = {
                 "opponent_hero": (ros_fields["opponent_hero_x"], ros_fields["opponent_hero_y"]),
-                "opponent_engineer": (ros_fields["opponent_engineer_x"], ros_fields["opponent_engineer_y"]),
                 "opponent_infantry_3": (ros_fields["opponent_infantry_3_x"], ros_fields["opponent_infantry_3_y"]),
+                "ally_engineer": (ros_fields["ally_engineer_x"], ros_fields["ally_engineer_y"]),
             }
+            expected_fields = {
+                "opponent_hero": tuple(int(value) for value in expected_cm["hero_b"]),
+                "opponent_infantry_3": tuple(int(value) for value in expected_cm["inf3_b"]),
+                "ally_engineer": tuple(int(value) for value in expected_cm["eng_r"]),
+            }
+            assert observed == expected_fields, (
+                f"semantic centimeter mismatch: expected={expected_fields} observed={observed}"
+            )
             print(f"CSV official cm oracle: {expected_cm}")
             print(f"Fusion output fields: {observed}")
-            print("Diagnostic: bridge transport is field-for-field; semantic slot/unit correctness is not asserted by this current-state test.")
+            print("Bridge JSON matches the ROS LidarLocation fields and semantic centimeter slots.")
         finally:
             node.destroy_node()
             rclpy.shutdown()

@@ -19,7 +19,7 @@
 #include <visualization_msgs/msg/marker_array.hpp>
 
 #include "radar_fusion/radar_fusion_node.hpp"
-#include "radar_interfaces/msg/camera_detection_pose.hpp"
+#include "radar_interfaces/msg/camera_detection_array.hpp"
 
 namespace {
 
@@ -51,7 +51,7 @@ protected:
             publisher_node_->create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(
                 "/lidar/pose", 10);
         camera_detection_pub_ =
-            publisher_node_->create_publisher<radar_interfaces::msg::CameraDetectionPose>(
+            publisher_node_->create_publisher<radar_interfaces::msg::CameraDetectionArray>(
                 "/camera/detection", 10);
 
         pose_sub_ =
@@ -204,21 +204,24 @@ protected:
     }
 
     auto make_camera_detection(double x, double y, int32_t sec, uint32_t nanosec)
-        -> radar_interfaces::msg::CameraDetectionPose {
-        radar_interfaces::msg::CameraDetectionPose msg;
+        -> radar_interfaces::msg::CameraDetectionArray {
+        radar_interfaces::msg::CameraDetectionArray msg;
         msg.header.frame_id      = "map";
         msg.header.stamp.sec     = sec;
         msg.header.stamp.nanosec = nanosec;
-        msg.hero_position.x      = x;
-        msg.hero_position.y      = y;
-        msg.hero_position.z      = 0.0;
-        msg.hero_confidence      = 0.9;
+        radar_interfaces::msg::CameraDetection detection;
+        detection.team = radar_interfaces::msg::CameraDetection::TEAM_BLUE;
+        detection.semantic_class = radar_interfaces::msg::CameraDetection::CLASS_HERO;
+        detection.position.x = x;
+        detection.position.y = y;
+        detection.confidence = 0.9;
+        msg.detections.push_back(detection);
         return msg;
     }
 
     auto make_empty_camera_detection(int32_t sec, uint32_t nanosec)
-        -> radar_interfaces::msg::CameraDetectionPose {
-        radar_interfaces::msg::CameraDetectionPose msg;
+        -> radar_interfaces::msg::CameraDetectionArray {
+        radar_interfaces::msg::CameraDetectionArray msg;
         msg.header.frame_id      = "map";
         msg.header.stamp.sec     = sec;
         msg.header.stamp.nanosec = nanosec;
@@ -231,7 +234,7 @@ protected:
     rclcpp::Node::SharedPtr subscriber_node_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr cluster_pub_;
     rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr lidar_pose_pub_;
-    rclcpp::Publisher<radar_interfaces::msg::CameraDetectionPose>::SharedPtr camera_detection_pub_;
+    rclcpp::Publisher<radar_interfaces::msg::CameraDetectionArray>::SharedPtr camera_detection_pub_;
     rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pose_sub_;
     rclcpp::Subscription<visualization_msgs::msg::MarkerArray>::SharedPtr tracks_sub_;
     rclcpp::Subscription<visualization_msgs::msg::MarkerArray>::SharedPtr fused_tracks_sub_;

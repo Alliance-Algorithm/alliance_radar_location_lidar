@@ -184,7 +184,8 @@ def test_all_default_runtime_configs_are_installed():
         "min_hits_to_confirm": 3,
         "max_misses_before_delete": 2,
         "max_tracks": 20,
-        "enable_camera_fusion": False,
+        "enable_camera_fusion": True,
+        "camera_timeout_sec": 1.5,
         "map_to_rm_offset_x": 14.0,
         "map_to_rm_offset_y": 7.5,
     }

@@ -92,6 +92,33 @@ TEST(ProjectorPostprocessTest, LastDuplicateClassWins) {
     EXPECT_NEAR(pose->hero_confidence, 0.9, 1e-5);
 }
 
+TEST(ProjectorPostprocessTest, PreservesSemanticIdentityAndProjectedPosition) {
+    radar_camera::projection::Projector projector;
+    auto cfg = make_camera_cfg();
+    cfg.enemy_color = "blue";
+    ASSERT_TRUE(projector.proj_init_camera(cfg));
+
+    std::vector<radar_camera::detection::Detection> dets {
+        { .center = { 100, 100 }, .id = 1, .confidence = 0.82f },
+        { .center = { 200, 200 }, .id = 9, .confidence = 0.74f },
+    };
+    std::vector<std::optional<cv::Point2d>> projected {
+        cv::Point2d { 3.0, 4.0 }, cv::Point2d { 5.0, 6.0 },
+    };
+
+    auto semantic = projector.proj_semantic_postprocess(projected, dets);
+    ASSERT_TRUE(semantic.has_value()) << semantic.error();
+    ASSERT_EQ(semantic->size(), 2u);
+    EXPECT_EQ((*semantic)[0].team, radar_camera::detection::Team::BLUE);
+    EXPECT_EQ((*semantic)[0].semantic_class,
+        radar_camera::detection::SemanticClass::ENGINEER);
+    EXPECT_DOUBLE_EQ((*semantic)[0].position.x, 3.0);
+    EXPECT_FLOAT_EQ((*semantic)[0].confidence, 0.82f);
+    EXPECT_EQ((*semantic)[1].team, radar_camera::detection::Team::RED);
+    EXPECT_EQ((*semantic)[1].semantic_class,
+        radar_camera::detection::SemanticClass::INFANTRY_4);
+}
+
 TEST(ProjectorMeshTest, LoadsGroundPlaneAndIntersects) {
     radar_camera::projection::Projector projector;
     auto cam = make_camera_cfg();

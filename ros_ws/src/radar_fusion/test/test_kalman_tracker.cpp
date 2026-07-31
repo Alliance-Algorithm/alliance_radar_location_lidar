@@ -108,4 +108,29 @@ TEST(KalmanTrackerTest, PredictHandlesTimeDeltas) {
     EXPECT_GT(t.state().P.trace(), P_before);
 }
 
+TEST(KalmanTrackerTest, CameraIdentityConfirmsImmediatelyAndPersists) {
+    radar_fusion::kalman_tracker::KalmanTracker t(7);
+
+    t.update_identity(Eigen::Vector2d(1.0, 2.0), kT0_ns, 3,
+        radar_fusion::camera_observation::Team::BLUE,
+        radar_fusion::camera_observation::SemanticClass::HERO);
+
+    EXPECT_TRUE(t.state().is_confirmed());
+    EXPECT_EQ(t.state().team, radar_fusion::camera_observation::Team::BLUE);
+    EXPECT_EQ(t.state().semantic_class,
+        radar_fusion::camera_observation::SemanticClass::HERO);
+
+    t.update(Eigen::Vector2d(1.5, 2.0), kT0_ns + 100'000'000, 3);
+    EXPECT_EQ(t.state().team, radar_fusion::camera_observation::Team::BLUE);
+    EXPECT_EQ(t.state().semantic_class,
+        radar_fusion::camera_observation::SemanticClass::HERO);
+}
+
+TEST(LocationTest, ConvertsValidMetersToNonnegativeCentimeters) {
+    EXPECT_EQ(radar_fusion::location::meters_to_cm(1.25, 14.0), 1525);
+    EXPECT_EQ(radar_fusion::location::meters_to_cm(-14.1, 14.0), 0);
+    EXPECT_EQ(radar_fusion::location::meters_to_cm(std::numeric_limits<double>::infinity(), 0.0), 0);
+    EXPECT_EQ(radar_fusion::location::meters_to_cm(700.0, 0.0), 0);
+}
+
 } // namespace
