@@ -375,8 +375,13 @@ void RadarFusionNode::publish_fused_tracks(
 }
 
 void RadarFusionNode::on_game_state(const radar_interfaces::msg::GameState::SharedPtr msg) {
-    match_timer_.on_game_state(msg->game_progress, msg->stage_remain_time,
-        this->now().nanoseconds());
+    match_timer_.on_game_state(msg->game_progress, msg->stage_remain_time, steady_now_ns());
+}
+
+int64_t RadarFusionNode::steady_now_ns() {
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch())
+        .count();
 }
 
 void RadarFusionNode::fill_default_positions(
@@ -441,7 +446,7 @@ void RadarFusionNode::publish_lidar_location(
         slot_idx++;
     }
 
-    fill_default_positions(msg, this->now().nanoseconds());
+    fill_default_positions(msg, steady_now_ns());
 
     msg.cmd_id = radar_interfaces::msg::LidarLocation::CMD_ID;
     pub_lidar_location_->publish(msg);

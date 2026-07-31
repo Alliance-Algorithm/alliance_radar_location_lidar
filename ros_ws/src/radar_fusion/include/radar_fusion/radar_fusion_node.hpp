@@ -46,6 +46,8 @@ private:
     void publish_status(const rclcpp::Time& stamp) const;
     void update_fusion_mode(int64_t reference_stamp_ns);
 
+    static int64_t steady_now_ns();
+
     void process_measurements(const std::vector<Eigen::Vector2d>& measurements, int64_t now_ns,
         bool mark_unmatched_tracks);
 
