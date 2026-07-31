@@ -103,6 +103,8 @@ if(BUILD_TESTING)
 
   find_package(ament_cmake_gtest REQUIRED)
   ament_add_gtest(radar_camera_tests
+      src/radar_camera_node.cpp
+      test/test_camera_recording_contract.cpp
       test/test_model_inference.cpp
       test/test_projector.cpp
       test/test_recording_fifo.cpp
