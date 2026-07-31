@@ -49,3 +49,4 @@ learnlog.md
 
 # Local agent worktrees
 /.worktrees/
+tools/armor_verify/build/

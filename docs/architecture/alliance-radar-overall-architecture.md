@@ -83,6 +83,11 @@ ROS 组件，与 `radar_lidar` 同容器零拷贝。
 补充观测源，独立于 LiDAR 主链路。订阅相机图像与内参，完成去畸变、目标检测 / 视觉定位，
 输出视觉观测供 `radar_fusion` 融合。只产出观测，不做融合，不进入 LiDAR 主链路容器。
 
+L1 模型使用红方优先的固定 class ID：`0-5` 为红方 hero/engineer/infantry3/
+infantry4/sentry/drone，`6-11` 为蓝方同序类别。L2/L3 的 genre、颜色和数字结果
+必须转换到同一最终 ID 空间；L3 只有 `B1/B2/B3/B4/BS/R1/R2/R3/R4`，没有 `RS`，
+红方 sentry 由 L2 genre + color 映射或 L1 fallback 提供。
+
 | 文件 | 职责 |
 |---|---|
 | `include/radar_camera/types.hpp` | `radar::camera::Detection` / `CameraFrame` 数据类型 |
