@@ -54,6 +54,11 @@ inline auto validate_config(const RecordingConfig& config) -> std::expected<void
     if (config.segment_duration_sec <= 0) {
         return std::unexpected("segment_duration_sec must be positive");
     }
+    const auto fps = static_cast<std::uint64_t>(config.fps);
+    const auto duration = static_cast<std::uint64_t>(config.segment_duration_sec);
+    if (fps > std::numeric_limits<std::uint64_t>::max() / duration) {
+        return std::unexpected("segment frame count calculation overflows");
+    }
     if (config.buffer_pool_frames == 0) {
         return std::unexpected("buffer_pool_frames must be positive");
     }
@@ -78,7 +83,7 @@ inline auto validate_config(const RecordingConfig& config) -> std::expected<void
     return { };
 }
 
-enum class RecorderState { stopped, running, failed };
+enum class RecorderState { stopped, running, failed, overrun };
 
 struct RecorderStats {
     std::uint64_t queued   = 0;
@@ -107,6 +112,7 @@ public:
 
 private:
     void loop();
+    void fail(std::string reason, bool overrun);
 
     const RecordingConfig config_;
     RecordingFifo& fifo_;

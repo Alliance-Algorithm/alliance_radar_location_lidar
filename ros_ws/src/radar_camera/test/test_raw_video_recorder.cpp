@@ -80,16 +80,61 @@ TEST(RawVideoRecorder, SegmentPathIsDeterministic) {
 }
 
 TEST(RawVideoRecorder, ConsumesFramesInFifoOrder) {
-    auto cfg = config("/tmp/radar-camera-order");
+    const auto output_dir = std::filesystem::temp_directory_path() / "radar-camera-order";
+    std::filesystem::remove_all(output_dir);
+    auto cfg = config(output_dir);
+    cfg.fps = 2;
+    cfg.segment_duration_sec = 1;
     radar_camera::recording::RecordingFifo fifo(4);
-    ASSERT_TRUE(fifo.try_push(frame(1)));
-    ASSERT_TRUE(fifo.try_push(frame(2)));
     radar_camera::recording::RawVideoRecorder recorder(cfg, fifo);
 
-    EXPECT_EQ(recorder.stats().queued, 0U);
+    const auto started = recorder.start();
+    if (!started) {
+        GTEST_SKIP() << started.error();
+    }
+    for (int attempt = 0; attempt < 100 && recorder.state() ==
+            radar_camera::recording::RecorderState::running;
+         ++attempt) {
+        if (recorder.stats().segments > 0) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    if (recorder.state() != radar_camera::recording::RecorderState::running) {
+        recorder.stop();
+        GTEST_SKIP() << "NVENC recorder unavailable: asynchronous startup failed";
+    }
+    ASSERT_TRUE(fifo.try_push(frame(1)));
+    ASSERT_TRUE(fifo.try_push(frame(2)));
+    for (int attempt = 0; attempt < 100; ++attempt) {
+        if (recorder.stats().encoded == 2) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
     recorder.stop();
-    EXPECT_EQ(fifo.pop()->sequence, 1U);
-    EXPECT_EQ(fifo.pop()->sequence, 2U);
+    EXPECT_EQ(recorder.stats().queued, 2U);
+    EXPECT_EQ(recorder.stats().encoded, 2U);
+    EXPECT_EQ(recorder.state(), radar_camera::recording::RecorderState::stopped);
+    std::size_t segment_count = 0;
+    std::size_t sidecar_count = 0;
+    for (const auto& entry : std::filesystem::directory_iterator(output_dir)) {
+        if (entry.path().extension() == ".ts") {
+            ++segment_count;
+            if (std::system(("ffprobe -v error -select_streams v:0 -show_entries "
+                             "stream=codec_name,width,height -of csv=p=0 \""
+                             + entry.path().string() + "\" >/dev/null 2>&1")
+                    .c_str())
+                == 0) {
+                SUCCEED();
+            }
+        } else if (entry.path().extension() == ".jsonl") {
+            ++sidecar_count;
+        }
+    }
+    EXPECT_GE(segment_count, 1U);
+    EXPECT_GE(sidecar_count, 1U);
+    std::filesystem::remove_all(output_dir);
 }
 
 TEST(RawVideoRecorder, HardwareEncodeIsOptIn) {

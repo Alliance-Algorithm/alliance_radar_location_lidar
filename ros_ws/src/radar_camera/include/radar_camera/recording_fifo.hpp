@@ -59,6 +59,14 @@ public:
         closed_ = true;
     }
 
+    void reset() {
+        std::lock_guard lock(mutex_);
+        queue_.clear();
+        overrun_ = false;
+        closed_ = false;
+        overrun_reason_.clear();
+    }
+
 private:
     void request_overrun_locked(std::string reason) {
         overrun_ = true;

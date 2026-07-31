@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iomanip>
 #include <memory>
+#include <limits>
 #include <sstream>
 #include <thread>
 
@@ -40,22 +41,11 @@ namespace {
         SwsContext* scaler      = nullptr;
         AVFrame* frame          = nullptr;
         std::ofstream sidecar;
+        bool finalized = false;
 
         ~Segment() {
-            if (format != nullptr) {
-                if (codec != nullptr) {
-                    avcodec_send_frame(codec, nullptr);
-                    AVPacket* packet = av_packet_alloc();
-                    while (packet != nullptr && avcodec_receive_packet(codec, packet) >= 0) {
-                        av_packet_rescale_ts(packet, codec->time_base, stream->time_base);
-                        av_interleaved_write_frame(format, packet);
-                        av_packet_unref(packet);
-                    }
-                    av_packet_free(&packet);
-                }
-                av_write_trailer(format);
-            }
-            if (format != nullptr && !(format->oformat->flags & AVFMT_NOFILE)) {
+            if (format != nullptr && format->oformat != nullptr
+                && !(format->oformat->flags & AVFMT_NOFILE)) {
                 avio_closep(&format->pb);
             }
             av_frame_free(&frame);
@@ -64,6 +54,85 @@ namespace {
             avformat_free_context(format);
         }
     };
+
+    auto write_packet(Segment& segment, AVPacket* packet) -> std::expected<void, std::string> {
+        av_packet_rescale_ts(packet, segment.codec->time_base, segment.stream->time_base);
+        const auto result = av_interleaved_write_frame(segment.format, packet);
+        av_packet_unref(packet);
+        if (result < 0) {
+            return std::unexpected("MPEG-TS packet write failed: " + ffmpeg_error(result));
+        }
+        return { };
+    }
+
+    auto drain_packets(Segment& segment, AVPacket* packet, bool flushing)
+        -> std::expected<bool, std::string> {
+        for (;;) {
+            const auto result = avcodec_receive_packet(segment.codec, packet);
+            if (result == AVERROR(EAGAIN)) {
+                return false;
+            }
+            if (result == AVERROR_EOF) {
+                return true;
+            }
+            if (result < 0) {
+                return std::unexpected("NVENC packet receive failed: " + ffmpeg_error(result));
+            }
+            if (const auto written = write_packet(segment, packet); !written) {
+                return std::unexpected(written.error());
+            }
+            if (!flushing) {
+                continue;
+            }
+        }
+    }
+
+    auto finalize_segment(Segment& segment) -> std::expected<void, std::string> {
+        if (segment.finalized) {
+            return { };
+        }
+        if (segment.codec != nullptr && segment.format != nullptr) {
+            if (segment.stream == nullptr || segment.format->oformat == nullptr) {
+                return std::unexpected("incomplete MPEG-TS segment during finalization");
+            }
+            auto result = avcodec_send_frame(segment.codec, nullptr);
+            if (result < 0 && result != AVERROR_EOF) {
+                return std::unexpected("NVENC flush send failed: " + ffmpeg_error(result));
+            }
+            AVPacket* packet = av_packet_alloc();
+            if (packet == nullptr) {
+                return std::unexpected("could not allocate flush packet");
+            }
+            for (;;) {
+                const auto drained = drain_packets(segment, packet, true);
+                if (!drained) {
+                    av_packet_free(&packet);
+                    return std::unexpected(drained.error());
+                }
+                if (*drained) {
+                    break;
+                }
+                return std::unexpected("NVENC flush returned EAGAIN");
+            }
+            av_packet_free(&packet);
+            result = av_write_trailer(segment.format);
+            if (result < 0) {
+                return std::unexpected("MPEG-TS trailer write failed: " + ffmpeg_error(result));
+            }
+        }
+        if (segment.sidecar.is_open()) {
+            segment.sidecar.flush();
+            if (!segment.sidecar) {
+                return std::unexpected("sidecar flush failed");
+            }
+            segment.sidecar.close();
+            if (segment.sidecar.fail()) {
+                return std::unexpected("sidecar close failed");
+            }
+        }
+        segment.finalized = true;
+        return { };
+    }
 
     auto open_segment(const RecordingConfig& config, const std::filesystem::path& path)
         -> std::expected<std::unique_ptr<Segment>, std::string> {
@@ -92,7 +161,6 @@ namespace {
         segment->codec->gop_size     = config.gop;
         segment->codec->bit_rate     = config.bitrate;
         segment->codec->max_b_frames = 0;
-        segment->codec->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
         av_opt_set(segment->codec->priv_data, "preset", "p1", 0);
         av_opt_set(segment->codec->priv_data, "tune", "ll", 0);
         av_opt_set(segment->codec->priv_data, "bf", "0", 0);
@@ -105,6 +173,9 @@ namespace {
             return std::unexpected("could not copy codec parameters: " + ffmpeg_error(result));
         }
         segment->stream->time_base = segment->codec->time_base;
+        if (segment->format->oformat == nullptr) {
+            return std::unexpected("MPEG-TS format has no output format");
+        }
         if (!(segment->format->oformat->flags & AVFMT_NOFILE)) {
             result = avio_open(&segment->format->pb, path.c_str(), AVIO_FLAG_WRITE);
             if (result < 0) {
@@ -164,7 +235,11 @@ auto RawVideoRecorder::start() -> std::expected<void, std::string> {
         return std::unexpected("recorder is already running");
     }
     try {
+        if (thread_.joinable()) {
+            thread_.join();
+        }
         std::filesystem::create_directories(config_.output_dir);
+        fifo_.reset();
         {
             std::lock_guard lock(mutex_);
             state_ = RecorderState::running;
@@ -173,7 +248,9 @@ auto RawVideoRecorder::start() -> std::expected<void, std::string> {
         thread_ = std::thread(&RawVideoRecorder::loop, this);
     } catch (const std::exception& error) {
         running_.store(false, std::memory_order_release);
+        fifo_.request_overrun(std::string("could not start recorder: ") + error.what());
         std::lock_guard lock(mutex_);
+        ++stats_.errors;
         state_ = RecorderState::failed;
         return std::unexpected(std::string("could not start recorder: ") + error.what());
     }
@@ -192,6 +269,17 @@ void RawVideoRecorder::stop() {
     }
 }
 
+void RawVideoRecorder::fail(std::string reason, bool overrun) {
+    fifo_.request_overrun(std::move(reason));
+    std::lock_guard lock(mutex_);
+    ++stats_.errors;
+    if (overrun) {
+        ++stats_.overruns;
+    }
+    state_ = overrun ? RecorderState::overrun : RecorderState::failed;
+    running_.store(false, std::memory_order_release);
+}
+
 auto RawVideoRecorder::state() const -> RecorderState {
     std::lock_guard lock(mutex_);
     return state_;
@@ -206,15 +294,12 @@ void RawVideoRecorder::loop() {
     const auto session_start  = std::chrono::system_clock::now();
     std::size_t segment_index = 0;
     std::uint64_t frame_index = 0;
+    const auto segment_frames = static_cast<std::uint64_t>(config_.fps)
+        * static_cast<std::uint64_t>(config_.segment_duration_sec);
     auto segment =
         open_segment(config_, segment_path(config_.output_dir, session_start, segment_index));
     if (!segment) {
-        fifo_.request_overrun(segment.error());
-        std::lock_guard lock(mutex_);
-        ++stats_.errors;
-        ++stats_.overruns;
-        state_ = RecorderState::failed;
-        running_.store(false, std::memory_order_release);
+        fail(segment.error(), false);
         return;
     }
     {
@@ -223,9 +308,7 @@ void RawVideoRecorder::loop() {
     }
     while (running_.load(std::memory_order_acquire)) {
         if (fifo_.overrun()) {
-            std::lock_guard lock(mutex_);
-            ++stats_.overruns;
-            state_ = RecorderState::failed;
+            fail("recording FIFO overrun", true);
             break;
         }
         auto frame = fifo_.pop();
@@ -233,22 +316,18 @@ void RawVideoRecorder::loop() {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
             continue;
         }
+        {
+            std::lock_guard lock(mutex_);
+            ++stats_.queued;
+        }
         if (frame->rgb.cols != config_.width || frame->rgb.rows != config_.height
             || frame->rgb.type() != CV_8UC3) {
-            fifo_.request_overrun("raw frame dimensions or format do not match recorder");
-            std::lock_guard lock(mutex_);
-            ++stats_.errors;
-            ++stats_.overruns;
-            state_ = RecorderState::failed;
+            fail("raw frame dimensions or format do not match recorder", true);
             break;
         }
         auto result = av_frame_make_writable(segment->frame);
         if (result < 0) {
-            fifo_.request_overrun("could not make YUV frame writable: " + ffmpeg_error(result));
-            std::lock_guard lock(mutex_);
-            ++stats_.errors;
-            ++stats_.overruns;
-            state_ = RecorderState::failed;
+            fail("could not make YUV frame writable: " + ffmpeg_error(result), false);
             break;
         }
         const auto* source[]      = { frame->rgb.ptr<std::uint8_t>() };
@@ -256,61 +335,95 @@ void RawVideoRecorder::loop() {
         if (sws_scale(segment->scaler, source, source_stride, 0, config_.height,
                 segment->frame->data, segment->frame->linesize)
             <= 0) {
-            fifo_.request_overrun("RGB-to-YUV conversion failed");
-            std::lock_guard lock(mutex_);
-            ++stats_.errors;
-            ++stats_.overruns;
-            state_ = RecorderState::failed;
+            fail("RGB-to-YUV conversion failed", false);
             break;
         }
-        segment->frame->pts = static_cast<std::int64_t>(frame_index++);
-        result              = avcodec_send_frame(segment->codec, segment->frame);
         AVPacket* packet    = av_packet_alloc();
         if (packet == nullptr) {
-            result = AVERROR(ENOMEM);
-        }
-        while (result >= 0 && packet != nullptr
-            && (result = avcodec_receive_packet(segment->codec, packet)) >= 0) {
-            av_packet_rescale_ts(packet, segment->codec->time_base, segment->stream->time_base);
-            result = av_interleaved_write_frame(segment->format, packet);
-            av_packet_unref(packet);
-        }
-        av_packet_free(&packet);
-        if (result < 0 && result != AVERROR(EAGAIN)) {
-            fifo_.request_overrun("NVENC encode or MPEG-TS write failed: " + ffmpeg_error(result));
-            std::lock_guard lock(mutex_);
-            ++stats_.errors;
-            ++stats_.overruns;
-            state_ = RecorderState::failed;
+            fail("could not allocate encoded packet", false);
             break;
         }
+        if (frame_index >= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
+            av_packet_free(&packet);
+            fail("frame index exceeds FFmpeg timestamp range", false);
+            break;
+        }
+        segment->frame->pts = static_cast<std::int64_t>(frame_index);
+        for (;;) {
+            result = avcodec_send_frame(segment->codec, segment->frame);
+            if (result != AVERROR(EAGAIN)) {
+                break;
+            }
+            const auto drained = drain_packets(*segment, packet, false);
+            if (!drained) {
+                av_packet_free(&packet);
+                fail(drained.error(), false);
+                break;
+            }
+            if (!*drained) {
+                av_packet_free(&packet);
+                fail("NVENC send returned EAGAIN without a packet to drain", false);
+                break;
+            }
+        }
+        if (!running_.load(std::memory_order_acquire)) {
+            av_packet_free(&packet);
+            break;
+        }
+        if (result < 0) {
+            av_packet_free(&packet);
+            fail("NVENC frame send failed: " + ffmpeg_error(result), false);
+            break;
+        }
+        const auto drained = drain_packets(*segment, packet, false);
+        av_packet_free(&packet);
+        if (!drained) {
+            fail(drained.error(), false);
+            break;
+        }
+        ++frame_index;
         segment->sidecar
             << "{\"sequence\":" << frame->sequence
             << ",\"source_monotonic_ns\":" << frame->host_monotonic_ns << ",\"segment\":\""
             << segment_path(config_.output_dir, session_start, segment_index).filename().string()
             << "\",\"overruns\":" << fifo_.overrun() << ",\"errors\":" << stats().errors << "}\n";
+        if (!segment->sidecar) {
+            fail("sidecar write failed", false);
+            break;
+        }
+        segment->sidecar.flush();
+        if (!segment->sidecar) {
+            fail("sidecar write or flush failed", false);
+            break;
+        }
         {
             std::lock_guard lock(mutex_);
-            ++stats_.queued;
             ++stats_.encoded;
         }
-        const auto segment_frames = static_cast<std::uint64_t>(config_.fps)
-            * static_cast<std::uint64_t>(config_.segment_duration_sec);
         if (frame_index % segment_frames == 0) {
+            if (const auto finalized = finalize_segment(*segment); !finalized) {
+                fail(finalized.error(), false);
+                break;
+            }
             segment.reset();
+            if (segment_index == std::numeric_limits<std::size_t>::max()) {
+                fail("segment index overflow", false);
+                break;
+            }
             ++segment_index;
             segment = open_segment(
                 config_, segment_path(config_.output_dir, session_start, segment_index));
             if (!segment) {
-                fifo_.request_overrun(segment.error());
-                std::lock_guard lock(mutex_);
-                ++stats_.errors;
-                ++stats_.overruns;
-                state_ = RecorderState::failed;
+                fail(segment.error(), false);
                 break;
             }
             std::lock_guard lock(mutex_);
             ++stats_.segments;
+        }
+    }
+    if (segment != nullptr) {
+        if (const auto finalized = finalize_segment(*segment); !finalized) {
+            fail(finalized.error(), false);
         }
     }
 }
