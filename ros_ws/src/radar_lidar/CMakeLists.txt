@@ -96,6 +96,11 @@ ament_auto_add_executable(offline_test_node
 )
 target_link_libraries(offline_test_node ${PROJECT_NAME}_offline_lib)
 
+ament_auto_add_executable(grid_map_tool
+    tools/grid_map_tool.cpp
+)
+target_link_libraries(grid_map_tool ${PROJECT_NAME}_offline_lib)
+
 # ── Tests ──────────────────────────────────────────────────────────
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -134,7 +139,7 @@ if(BUILD_TESTING)
   target_include_directories(radar_registration_tests PRIVATE tools)
 endif()
 
-install(TARGETS ${PROJECT_NAME}_node registration_tool offline_detection_node offline_test_node
+install(TARGETS ${PROJECT_NAME}_node registration_tool offline_detection_node offline_test_node grid_map_tool
     DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
 ament_package()
