@@ -1,3 +1,0 @@
-Message definitions go here once finalized (e.g. CameraDetection.msg after
-radar_camera's detection output format is decided). Keeping this file so the
-empty msg/ directory is tracked by git.

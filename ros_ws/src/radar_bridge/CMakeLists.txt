@@ -28,6 +28,18 @@ set(SOURCE_FILES
 ament_auto_add_executable(${PROJECT_NAME}_node
     ${SOURCE_FILES}
 )
+add_executable(test_zmq_send
+    tests/test_zmq_send.cpp
+    src/zmq_bridge.cpp
+)
+target_include_directories(test_zmq_send PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_link_libraries(test_zmq_send
+    cppzmq
+    nlohmann_json::nlohmann_json
+)
+
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   set(ament_cmake_copyright_FOUND TRUE)
