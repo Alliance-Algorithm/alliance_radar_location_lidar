@@ -1,6 +1,6 @@
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
-#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -44,7 +44,7 @@ auto sidecar_sequences(const std::filesystem::path& path) -> std::vector<std::ui
     std::ifstream sidecar(path);
     if (!sidecar) {
         ADD_FAILURE() << "could not open sidecar " << path;
-        return {};
+        return { };
     }
     std::vector<std::uint64_t> sequences;
     for (std::string line; std::getline(sidecar, line);) {
@@ -103,7 +103,7 @@ TEST(RawVideoRecorder, RejectsOutputPathBeforeWorkerStarts) {
 }
 
 TEST(RawVideoRecorder, EnabledStartRejectsUnavailableEncoderSynchronously) {
-    auto cfg = config(std::filesystem::temp_directory_path() / "radar-camera-encoder");
+    auto cfg    = config(std::filesystem::temp_directory_path() / "radar-camera-encoder");
     cfg.encoder = "h264_nvenc_missing_for_contract_test";
     radar_camera::recording::RecordingFifo fifo(2);
     radar_camera::recording::RawVideoRecorder recorder(cfg, fifo);
@@ -161,8 +161,8 @@ TEST(RawVideoRecorder, SegmentPathIsDeterministic) {
 TEST(RawVideoRecorder, ConsumesFramesInFifoOrder) {
     const auto output_dir = std::filesystem::temp_directory_path() / "radar-camera-order";
     std::filesystem::remove_all(output_dir);
-    auto cfg = config(output_dir);
-    cfg.fps = 2;
+    auto cfg                 = config(output_dir);
+    cfg.fps                  = 2;
     cfg.segment_duration_sec = 60;
     radar_camera::recording::RecordingFifo fifo(4);
     radar_camera::recording::RawVideoRecorder recorder(cfg, fifo);
@@ -171,9 +171,9 @@ TEST(RawVideoRecorder, ConsumesFramesInFifoOrder) {
     if (!started) {
         GTEST_SKIP() << started.error();
     }
-    for (int attempt = 0; attempt < 100 && recorder.state() ==
-            radar_camera::recording::RecorderState::running;
-         ++attempt) {
+    for (int attempt = 0;
+        attempt < 100 && recorder.state() == radar_camera::recording::RecorderState::running;
+        ++attempt) {
         if (recorder.stats().segments > 0) {
             break;
         }
@@ -210,6 +210,36 @@ TEST(RawVideoRecorder, ConsumesFramesInFifoOrder) {
     std::filesystem::remove_all(output_dir);
 }
 
+TEST(RawVideoRecorder, StopDrainsAcceptedFramesBeforeFinalizing) {
+    const auto output_dir = std::filesystem::temp_directory_path() / "radar-camera-stop-drain";
+    std::filesystem::remove_all(output_dir);
+    radar_camera::recording::RecordingFifo fifo(4);
+    radar_camera::recording::RawVideoRecorder recorder(config(output_dir), fifo);
+    const auto started = recorder.start();
+    if (!started) {
+        GTEST_SKIP() << started.error();
+    }
+
+    constexpr std::uint64_t accepted_count = 3;
+    for (std::uint64_t sequence = 1; sequence <= accepted_count; ++sequence) {
+        ASSERT_TRUE(fifo.try_push(frame(sequence)));
+    }
+    recorder.stop();
+
+    EXPECT_EQ(recorder.stats().queued, accepted_count);
+    EXPECT_EQ(recorder.stats().encoded, accepted_count);
+    std::vector<std::uint64_t> sequences;
+    for (const auto& entry : std::filesystem::directory_iterator(output_dir)) {
+        if (entry.path().extension() == ".jsonl") {
+            const auto records = sidecar_sequences(entry.path());
+            sequences.insert(sequences.end(), records.begin(), records.end());
+        }
+    }
+    EXPECT_EQ(sequences, (std::vector<std::uint64_t> { 1, 2, 3 }));
+    EXPECT_EQ(recorder.state(), radar_camera::recording::RecorderState::stopped);
+    std::filesystem::remove_all(output_dir);
+}
+
 TEST(RawVideoRecorder, HardwareEncodeIsOptIn) {
     if (std::getenv("RADAR_CAMERA_RUN_HW_RECORDING_TESTS") == nullptr) {
         GTEST_SKIP() << "set RADAR_CAMERA_RUN_HW_RECORDING_TESTS=1 to run NVENC test";
@@ -217,12 +247,12 @@ TEST(RawVideoRecorder, HardwareEncodeIsOptIn) {
 
     const auto output_dir = std::filesystem::temp_directory_path() / "radar-camera-hw-test";
     std::filesystem::remove_all(output_dir);
-    auto cfg             = config(output_dir);
-    cfg.width            = 5472;
-    cfg.height           = 3648;
-    cfg.fps              = 1;
+    auto cfg                 = config(output_dir);
+    cfg.width                = 5472;
+    cfg.height               = 3648;
+    cfg.fps                  = 1;
     cfg.segment_duration_sec = 1;
-    cfg.max_buffer_bytes = static_cast<std::size_t>(cfg.width) * cfg.height * 3 * 2;
+    cfg.max_buffer_bytes     = static_cast<std::size_t>(cfg.width) * cfg.height * 3 * 2;
     radar_camera::recording::RecordingFifo fifo(2);
     radar_camera::recording::RawVideoRecorder recorder(cfg, fifo);
     ASSERT_TRUE(recorder.start());
@@ -251,11 +281,11 @@ TEST(RawVideoRecorder, HardwareEncodeIsOptIn) {
     ASSERT_EQ(segments.size(), 2U);
     ASSERT_EQ(sidecars.size(), 2U);
     for (std::size_t index = 0; index < segments.size(); ++index) {
-        const auto& segment = segments[index];
-        const auto stream_probe = output_dir / "stream-probe.txt";
+        const auto& segment       = segments[index];
+        const auto stream_probe   = output_dir / "stream-probe.txt";
         const auto stream_command = "ffprobe -v error -select_streams v:0 -show_entries "
-            "stream=codec_name,width,height -of csv=p=0 \"" + segment.string()
-            + "\" > \"" + stream_probe.string() + "\"";
+                                    "stream=codec_name,width,height -of csv=p=0 \""
+            + segment.string() + "\" > \"" + stream_probe.string() + "\"";
         ASSERT_EQ(std::system(stream_command.c_str()), 0);
         std::ifstream stream(stream_probe);
         ASSERT_TRUE(stream);
@@ -263,10 +293,10 @@ TEST(RawVideoRecorder, HardwareEncodeIsOptIn) {
         ASSERT_TRUE(std::getline(stream, stream_line));
         EXPECT_EQ(stream_line, "h264,5472,3648");
 
-        const auto format_probe = output_dir / "format-probe.txt";
+        const auto format_probe   = output_dir / "format-probe.txt";
         const auto format_command = "ffprobe -v error -show_entries format=format_name "
-            "-of default=nw=1:nk=1 \"" + segment.string() + "\" > \""
-            + format_probe.string() + "\"";
+                                    "-of default=nw=1:nk=1 \""
+            + segment.string() + "\" > \"" + format_probe.string() + "\"";
         ASSERT_EQ(std::system(format_command.c_str()), 0);
         std::ifstream format(format_probe);
         ASSERT_TRUE(format);

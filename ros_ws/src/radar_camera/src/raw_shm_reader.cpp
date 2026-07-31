@@ -2,8 +2,12 @@
 
 #include <chrono>
 #include <cstring>
+#include <fcntl.h>
 #include <limits>
 #include <stdexcept>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include "radar_camera/recording_fifo.hpp"
 
@@ -38,8 +42,7 @@ auto validate_raw_frame_dimensions(int width, int height) -> bool {
     if (width <= 0 || height <= 0) {
         return false;
     }
-    const auto pixels = static_cast<std::uint64_t>(width)
-                      * static_cast<std::uint64_t>(height);
+    const auto pixels = static_cast<std::uint64_t>(width) * static_cast<std::uint64_t>(height);
     return pixels <= static_cast<std::uint64_t>(MAX_IMAGE_SIZE) / 3;
 }
 
@@ -47,10 +50,10 @@ auto raw_frame_byte_count(int width, int height) -> std::optional<std::size_t> {
     if (!validate_raw_frame_dimensions(width, height)) {
         return std::nullopt;
     }
-    constexpr auto channels = std::size_t{3};
-    const auto max_size = std::numeric_limits<std::size_t>::max();
-    const auto width_size = static_cast<std::size_t>(width);
-    const auto height_size = static_cast<std::size_t>(height);
+    constexpr auto channels = std::size_t { 3 };
+    const auto max_size     = std::numeric_limits<std::size_t>::max();
+    const auto width_size   = static_cast<std::size_t>(width);
+    const auto height_size  = static_cast<std::size_t>(height);
     if (width_size > max_size / height_size) {
         return std::nullopt;
     }
@@ -61,12 +64,16 @@ auto raw_frame_byte_count(int width, int height) -> std::optional<std::size_t> {
     return pixels * channels;
 }
 
+auto valid_shm_object_size(std::intmax_t size) -> bool {
+    return size == static_cast<std::intmax_t>(sizeof(hikcamera::imageSHM));
+}
+
 RawShmReader::RawShmReader(std::string shm_name, int width, int height, RecordingFifo& fifo)
-    : shm_name_(std::move(shm_name)),
-      width_(width),
-      height_(height),
-      image_bytes_(raw_frame_byte_count(width, height).value_or(0)),
-      fifo_(fifo) {}
+    : shm_name_(std::move(shm_name))
+    , width_(width)
+    , height_(height)
+    , image_bytes_(raw_frame_byte_count(width, height).value_or(0))
+    , fifo_(fifo) { }
 
 RawShmReader::~RawShmReader() { stop(); }
 
@@ -83,21 +90,26 @@ auto RawShmReader::start() -> std::expected<void, std::string> {
         return std::unexpected("reader is already running");
     }
 
-    auto fd_ret = hikcamera::SHMInit(shm_name_, sizeof(hikcamera::imageSHM));
-    if (!fd_ret) {
+    shm_fd_ = shm_open(shm_name_.c_str(), O_RDONLY, 0);
+    if (shm_fd_ == -1) {
         running_.store(false, std::memory_order_release);
-        return std::unexpected("SHMInit failed: " + fd_ret.error());
+        return std::unexpected("could not open existing SHM read-only");
     }
-    shm_fd_ = *fd_ret;
-
-    auto ptr_ret = hikcamera::SHMGetPtr(shm_fd_);
-    if (!ptr_ret) {
-        std::ignore = hikcamera::SHMClose(shm_fd_);
+    struct stat object_stat { };
+    if (fstat(shm_fd_, &object_stat) != 0
+        || !valid_shm_object_size(static_cast<std::intmax_t>(object_stat.st_size))) {
+        close_shm();
         shm_fd_ = -1;
         running_.store(false, std::memory_order_release);
-        return std::unexpected("SHMGetPtr failed: " + ptr_ret.error());
+        return std::unexpected("existing SHM object has an invalid size");
     }
-    shm_ptr_ = *ptr_ret;
+    void* mapped = mmap(nullptr, sizeof(hikcamera::imageSHM), PROT_READ, MAP_SHARED, shm_fd_, 0);
+    if (mapped == MAP_FAILED) {
+        close_shm();
+        running_.store(false, std::memory_order_release);
+        return std::unexpected("could not map existing SHM read-only");
+    }
+    shm_ptr_ = static_cast<const hikcamera::imageSHM*>(mapped);
     try {
         buffer_pool_.clear();
         buffer_pool_.reserve(fifo_.capacity());
@@ -112,7 +124,7 @@ auto RawShmReader::start() -> std::expected<void, std::string> {
     {
         std::lock_guard lock(mutex_);
         state_ = ReaderState::running;
-        stats_ = {};
+        stats_ = { };
         failure_reason_.clear();
     }
     try {
@@ -124,7 +136,7 @@ auto RawShmReader::start() -> std::expected<void, std::string> {
         state_ = ReaderState::stopped;
         return std::unexpected(std::string("could not start reader thread: ") + error.what());
     }
-    return {};
+    return { };
 }
 
 void RawShmReader::stop() {
@@ -162,33 +174,33 @@ void RawShmReader::fail(std::string reason, bool overrun) {
     fifo_.request_overrun(reason);
     running_.store(false, std::memory_order_release);
     std::lock_guard lock(mutex_);
-    state_ = overrun ? ReaderState::overrun : ReaderState::failed;
+    state_          = overrun ? ReaderState::overrun : ReaderState::failed;
     failure_reason_ = std::move(reason);
 }
 
 void RawShmReader::close_shm() {
     if (shm_ptr_ != nullptr) {
-        std::ignore = hikcamera::SHMReleasePtr(shm_ptr_);
+        munmap(const_cast<hikcamera::imageSHM*>(shm_ptr_), sizeof(hikcamera::imageSHM));
         shm_ptr_ = nullptr;
     }
     if (shm_fd_ != -1) {
-        std::ignore = hikcamera::SHMClose(shm_fd_);
+        close(shm_fd_);
         shm_fd_ = -1;
     }
 }
 
 void RawShmReader::join_finished_thread() {
-    if (thread_.joinable() && !running_.load(std::memory_order_acquire) &&
-        thread_.get_id() != std::this_thread::get_id()) {
+    if (thread_.joinable() && !running_.load(std::memory_order_acquire)
+        && thread_.get_id() != std::this_thread::get_id()) {
         thread_.join();
     }
 }
 
 void RawShmReader::loop() {
-    constexpr auto slot_count = 4U;
-    constexpr auto poll_interval = std::chrono::milliseconds(1);
+    constexpr auto slot_count       = 4U;
+    constexpr auto poll_interval    = std::chrono::milliseconds(1);
     constexpr auto max_copy_retries = 3U;
-    std::uint64_t last_seen = 0;
+    std::uint64_t last_seen         = 0;
 
     while (running_.load(std::memory_order_acquire)) {
         const auto counter = shm_ptr_->frame_counter.load(std::memory_order_acquire);
@@ -205,8 +217,8 @@ void RawShmReader::loop() {
             break;
         }
 
-        auto latest_seen = counter;
-        bool accepted = false;
+        auto latest_seen          = counter;
+        bool accepted             = false;
         bool waiting_for_baseline = false;
         for (unsigned int retry = 0; retry < max_copy_retries; ++retry) {
             const auto counter_before = shm_ptr_->frame_counter.load(std::memory_order_acquire);
@@ -218,12 +230,11 @@ void RawShmReader::loop() {
                 waiting_for_baseline = true;
                 break;
             }
-            if (counter_before != last_seen &&
-                !is_contiguous_counter(last_seen, counter_before)) {
+            if (counter_before != last_seen && !is_contiguous_counter(last_seen, counter_before)) {
                 fail("raw SHM frame counter advanced with a gap", true);
                 break;
             }
-            latest_seen = counter_before;
+            latest_seen     = counter_before;
             const auto slot = completed_slot(counter_before, slot_count);
             std::shared_ptr<cv::Mat> storage;
             for (const auto& candidate : buffer_pool_) {
@@ -237,9 +248,9 @@ void RawShmReader::loop() {
                 break;
             }
             std::memcpy(storage->data, shm_ptr_->imagedata[slot], image_bytes_);
-            const auto timestamp = shm_ptr_->timestamp[slot];
+            const auto timestamp     = shm_ptr_->timestamp[slot];
             const auto counter_after = shm_ptr_->frame_counter.load(std::memory_order_acquire);
-            latest_seen = counter_after;
+            latest_seen              = counter_after;
 
             if (is_counter_reset(last_seen, counter_after)) {
                 fail("raw SHM frame counter reset after baseline", true);
@@ -249,8 +260,7 @@ void RawShmReader::loop() {
                 waiting_for_baseline = true;
                 break;
             }
-            if (counter_after != last_seen &&
-                !is_contiguous_counter(last_seen, counter_after)) {
+            if (counter_after != last_seen && !is_contiguous_counter(last_seen, counter_after)) {
                 fail("raw SHM frame counter advanced with a gap", true);
                 break;
             }
@@ -259,10 +269,11 @@ void RawShmReader::loop() {
                 continue;
             }
 
-            RawFrame frame{
-                *storage, counter_before,
-                static_cast<std::uint64_t>(timestamp.time_since_epoch().count()),
-                std::move(storage)};
+            RawFrame frame { *storage, counter_before,
+                static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    timestamp.time_since_epoch())
+                        .count()),
+                std::move(storage) };
             {
                 std::lock_guard lock(mutex_);
                 ++stats_.observed;

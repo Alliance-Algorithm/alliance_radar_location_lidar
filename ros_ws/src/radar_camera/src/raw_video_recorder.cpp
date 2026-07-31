@@ -5,8 +5,8 @@
 #include <ctime>
 #include <fstream>
 #include <iomanip>
-#include <memory>
 #include <limits>
+#include <memory>
 #include <sstream>
 #include <thread>
 
@@ -133,6 +133,7 @@ namespace {
                     break;
                 }
                 if (*drained == DrainResult::no_packets) {
+                    av_packet_free(&packet);
                     return std::unexpected("NVENC flush returned EAGAIN");
                 }
             }
@@ -241,15 +242,15 @@ namespace {
         if (codec == nullptr) {
             return std::unexpected("could not allocate h264_nvenc probe context");
         }
-        codec->codec_id = AV_CODEC_ID_H264;
-        codec->codec_type = AVMEDIA_TYPE_VIDEO;
-        codec->width = config.width;
-        codec->height = config.height;
-        codec->pix_fmt = AV_PIX_FMT_YUV420P;
-        codec->time_base = AVRational { 1, config.fps };
-        codec->framerate = AVRational { config.fps, 1 };
-        codec->gop_size = config.gop;
-        codec->bit_rate = config.bitrate;
+        codec->codec_id     = AV_CODEC_ID_H264;
+        codec->codec_type   = AVMEDIA_TYPE_VIDEO;
+        codec->width        = config.width;
+        codec->height       = config.height;
+        codec->pix_fmt      = AV_PIX_FMT_YUV420P;
+        codec->time_base    = AVRational { 1, config.fps };
+        codec->framerate    = AVRational { config.fps, 1 };
+        codec->gop_size     = config.gop;
+        codec->bit_rate     = config.bitrate;
         codec->max_b_frames = 0;
         av_opt_set(codec->priv_data, "preset", "p1", 0);
         av_opt_set(codec->priv_data, "tune", "ll", 0);
@@ -292,8 +293,8 @@ auto RawVideoRecorder::start() -> std::expected<void, std::string> {
             return std::unexpected("recording output path is not a directory");
         }
     } catch (const std::exception& error) {
-        return std::unexpected(std::string("could not prepare recording output directory: ")
-            + error.what());
+        return std::unexpected(
+            std::string("could not prepare recording output directory: ") + error.what());
     }
     if (const auto encoder = probe_encoder(config_); !encoder) {
         return std::unexpected(encoder.error());
@@ -306,6 +307,7 @@ auto RawVideoRecorder::start() -> std::expected<void, std::string> {
             thread_.join();
         }
         fifo_.reset();
+        stop_requested_.store(false, std::memory_order_release);
         {
             std::lock_guard lock(mutex_);
             state_ = RecorderState::running;
@@ -318,7 +320,7 @@ auto RawVideoRecorder::start() -> std::expected<void, std::string> {
         fifo_.request_overrun(std::string("could not start recorder: ") + error.what());
         std::lock_guard lock(mutex_);
         ++stats_.errors;
-        state_ = RecorderState::failed;
+        state_          = RecorderState::failed;
         failure_reason_ = std::string("could not start recorder: ") + error.what();
         return std::unexpected(std::string("could not start recorder: ") + error.what());
     }
@@ -327,10 +329,17 @@ auto RawVideoRecorder::start() -> std::expected<void, std::string> {
 
 void RawVideoRecorder::stop() {
     std::lock_guard lifecycle_lock(lifecycle_mutex_);
-    running_.store(false, std::memory_order_release);
+    if (thread_.joinable() && running_.load(std::memory_order_acquire)) {
+        // Closing the input prevents new frames while the worker drains accepted frames.
+        fifo_.close();
+        stop_requested_.store(true, std::memory_order_release);
+    } else {
+        running_.store(false, std::memory_order_release);
+    }
     if (thread_.joinable()) {
         thread_.join();
     }
+    running_.store(false, std::memory_order_release);
     std::lock_guard lock(mutex_);
     if (state_ == RecorderState::running) {
         state_ = RecorderState::stopped;
@@ -339,12 +348,13 @@ void RawVideoRecorder::stop() {
 
 void RawVideoRecorder::fail(std::string reason, bool overrun) {
     fifo_.request_overrun(reason);
+    stop_requested_.store(false, std::memory_order_release);
     std::lock_guard lock(mutex_);
     ++stats_.errors;
     if (overrun) {
         ++stats_.overruns;
     }
-    state_ = overrun ? RecorderState::overrun : RecorderState::failed;
+    state_          = overrun ? RecorderState::overrun : RecorderState::failed;
     failure_reason_ = std::move(reason);
     running_.store(false, std::memory_order_release);
 }
@@ -380,13 +390,17 @@ void RawVideoRecorder::loop() {
         std::lock_guard lock(mutex_);
         ++stats_.segments;
     }
-    while (running_.load(std::memory_order_acquire)) {
+    while (running_.load(std::memory_order_acquire)
+        || stop_requested_.load(std::memory_order_acquire)) {
         if (fifo_.overrun()) {
             fail("recording FIFO overrun", true);
             break;
         }
         auto frame = fifo_.pop();
         if (!frame) {
+            if (stop_requested_.load(std::memory_order_acquire)) {
+                break;
+            }
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
             continue;
         }
@@ -412,7 +426,7 @@ void RawVideoRecorder::loop() {
             fail("RGB-to-YUV conversion failed", false);
             break;
         }
-        AVPacket* packet    = av_packet_alloc();
+        AVPacket* packet = av_packet_alloc();
         if (packet == nullptr) {
             fail("could not allocate encoded packet", false);
             break;
@@ -440,7 +454,8 @@ void RawVideoRecorder::loop() {
                 break;
             }
         }
-        if (!running_.load(std::memory_order_acquire)) {
+        if (!running_.load(std::memory_order_acquire)
+            && !stop_requested_.load(std::memory_order_acquire)) {
             av_packet_free(&packet);
             break;
         }

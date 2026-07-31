@@ -72,12 +72,18 @@ TEST(RawShmReader, ValidatesDimensionsAndRgbByteCount) {
     EXPECT_FALSE(raw_frame_byte_count(0, 2));
 }
 
+TEST(RawShmReader, ValidatesExistingShmObjectSize) {
+    EXPECT_TRUE(valid_shm_object_size(sizeof(hikcamera::imageSHM)));
+    EXPECT_FALSE(valid_shm_object_size(sizeof(hikcamera::imageSHM) - 1));
+    EXPECT_FALSE(valid_shm_object_size(sizeof(hikcamera::imageSHM) + 1));
+}
+
 TEST(RawShmReader, RawFramePreservesImageAndMetadata) {
     cv::Mat image(2, 3, CV_8UC3, cv::Scalar(7, 8, 9));
     constexpr std::uint64_t sequence = 42;
-    constexpr std::uint64_t host_ns = 123456789;
+    constexpr std::uint64_t host_ns  = 123456789;
 
-    RawFrame frame{ image.clone(), sequence, host_ns };
+    RawFrame frame { image.clone(), sequence, host_ns };
 
     EXPECT_EQ(frame.rgb.rows, 2);
     EXPECT_EQ(frame.rgb.cols, 3);

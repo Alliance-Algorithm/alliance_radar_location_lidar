@@ -54,7 +54,7 @@ inline auto validate_config(const RecordingConfig& config) -> std::expected<void
     if (config.segment_duration_sec <= 0) {
         return std::unexpected("segment_duration_sec must be positive");
     }
-    const auto fps = static_cast<std::uint64_t>(config.fps);
+    const auto fps      = static_cast<std::uint64_t>(config.fps);
     const auto duration = static_cast<std::uint64_t>(config.segment_duration_sec);
     if (fps > std::numeric_limits<std::uint64_t>::max() / duration) {
         return std::unexpected("segment frame count calculation overflows");
@@ -118,6 +118,7 @@ private:
     const RecordingConfig config_;
     RecordingFifo& fifo_;
     std::atomic<bool> running_ { false };
+    std::atomic<bool> stop_requested_ { false };
     mutable std::mutex lifecycle_mutex_;
     mutable std::mutex mutex_;
     RecorderState state_ = RecorderState::stopped;
