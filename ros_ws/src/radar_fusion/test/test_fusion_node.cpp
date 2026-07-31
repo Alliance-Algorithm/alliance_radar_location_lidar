@@ -644,17 +644,34 @@ TEST(FusionNode, MatchTimerResetsOnProgress5) {
     EXPECT_EQ(mt.elapsed_sec(1 * kSec + 100 * kSec), -1);
 }
 
-TEST(FusionNode, MatchTimerResetsOnRemainBelow10) {
+TEST(FusionNode, MatchTimerDoesNotResetDuringBattleLowRemain) {
     MatchTimer mt;
     mt.on_game_state(4, 300, 1 * kSec);
     ASSERT_TRUE(mt.started());
 
+    // During the battle (progress 4) the remaining time counts down through
+    // <10 without ending the round: the timer keeps running.
     mt.on_game_state(4, 10, 2 * kSec); // exactly 10: still running
     EXPECT_TRUE(mt.started());
 
-    mt.on_game_state(4, 9, 3 * kSec); // < 10: reset
+    mt.on_game_state(4, 9, 3 * kSec); // < 10: still running (battle phase)
+    EXPECT_TRUE(mt.started());
+    EXPECT_EQ(mt.elapsed_sec(3 * kSec), 2);
+}
+
+TEST(FusionNode, MatchTimerResetsOnRemainBelow10OutsideBattle) {
+    MatchTimer mt;
+    mt.on_game_state(4, 300, 1 * kSec);
+    ASSERT_TRUE(mt.started());
+
+    // Round ends; the next message outside the battle phase with a small
+    // remain (e.g. 准备阶段 180 -> countdown tail) resets the timer.
+    mt.on_game_state(5, 0, 1 * kSec + 100 * kSec);
+    ASSERT_FALSE(mt.started());
+
+    mt.on_game_state(3, 5, 1 * kSec + 150 * kSec); // 五秒倒计时 tail: reset stays
     EXPECT_FALSE(mt.started());
-    EXPECT_EQ(mt.elapsed_sec(3 * kSec), -1);
+    EXPECT_EQ(mt.elapsed_sec(1 * kSec + 150 * kSec), -1);
 }
 
 TEST(FusionNode, MatchTimerReentersFromZeroForSecondRound) {
@@ -687,14 +704,14 @@ TEST(FusionNode, MatchTimerDoesNotRestartOnRoundEndingMessage) {
     mt.on_game_state(4, 300, 1 * kSec);
     ASSERT_TRUE(mt.started());
 
-    // remain drops below 10 while progress is still 4: reset only, no restart
+    // Battle-phase low remain does not reset (and therefore cannot restart).
     mt.on_game_state(4, 5, 2 * kSec);
-    EXPECT_FALSE(mt.started());
-    EXPECT_EQ(mt.elapsed_sec(2 * kSec), -1);
+    EXPECT_TRUE(mt.started());
 
-    // 结算 message with remain > 400: still no restart
+    // 结算 message with remain > 400: reset, no restart
     mt.on_game_state(5, 450, 3 * kSec);
     EXPECT_FALSE(mt.started());
+    EXPECT_EQ(mt.elapsed_sec(3 * kSec), -1);
 }
 
 TEST(FusionNode, SlotFilledWhenNoTrack) {

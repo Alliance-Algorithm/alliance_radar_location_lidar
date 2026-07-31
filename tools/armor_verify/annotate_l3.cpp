@@ -87,11 +87,9 @@ auto run_l3(TensorRtInference& engine, const cv::Mat& rgb, cv::Rect2f box) -> st
     resized.copyTo(input(cv::Rect(px, py, width, height)));
     const auto raw = infer(engine, input);
     if (raw.size() < 9) return std::nullopt;
-    const float max_value = *std::max_element(raw.begin(), raw.begin() + 9);
-    float sum = 0.0f;
-    for (int i = 0; i < 9; ++i) sum += std::exp(raw[i] - max_value);
+    // Model output is already softmax probabilities — use directly.
     const int index = static_cast<int>(std::max_element(raw.begin(), raw.begin() + 9) - raw.begin());
-    const float confidence = std::exp(raw[index] - max_value) / sum;
+    const float confidence = raw[index];
     if (confidence < kL3Confidence) return std::nullopt;
     return Number { index, confidence };
 }

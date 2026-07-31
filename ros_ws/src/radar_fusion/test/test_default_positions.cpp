@@ -37,12 +37,12 @@ TEST(DefaultPositions, LoadAndQuery) {
 
     DefaultPosition p;
     ASSERT_TRUE(radar_fusion::default_positions::query(0, "hero", 1, p));
-    EXPECT_DOUBLE_EQ(p.x_med, 5.5);
-    EXPECT_DOUBLE_EQ(p.y_med, 2.5);
+    EXPECT_DOUBLE_EQ(p.x_mode, 5.5);
+    EXPECT_DOUBLE_EQ(p.y_mode, 2.5);
     EXPECT_EQ(p.n, 20);
 
     ASSERT_TRUE(radar_fusion::default_positions::query(1, "hero", 1, p));
-    EXPECT_DOUBLE_EQ(p.x_med, 22.5);
+    EXPECT_DOUBLE_EQ(p.x_mode, 22.5);
 
     EXPECT_FALSE(radar_fusion::default_positions::query(0, "sentry", 1, p));
     EXPECT_FALSE(radar_fusion::default_positions::query(0, "hero", 999, p));
@@ -61,14 +61,14 @@ TEST(DefaultPositions, QueryClampedClampsToLastAvailableSecond) {
 
     // In-range exact hit.
     ASSERT_TRUE(radar_fusion::default_positions::query_clamped(0, "hero", 1, p));
-    EXPECT_DOUBLE_EQ(p.x_med, 5.5);
+    EXPECT_DOUBLE_EQ(p.x_mode, 5.5);
 
     // t beyond the last row per (camp, class): clamp to the t=5 row.
     ASSERT_TRUE(radar_fusion::default_positions::query_clamped(0, "hero", 500, p));
-    EXPECT_DOUBLE_EQ(p.x_med, 6.5);
-    EXPECT_DOUBLE_EQ(p.y_med, 2.5);
+    EXPECT_DOUBLE_EQ(p.x_mode, 6.5);
+    EXPECT_DOUBLE_EQ(p.y_mode, 2.5);
     ASSERT_TRUE(radar_fusion::default_positions::query_clamped(1, "hero", 500, p));
-    EXPECT_DOUBLE_EQ(p.x_med, 23.5);
+    EXPECT_DOUBLE_EQ(p.x_mode, 23.5);
 
     // Gaps inside the covered range are not filled: t=3 does not exist.
     EXPECT_FALSE(radar_fusion::default_positions::query_clamped(0, "hero", 3, p));
