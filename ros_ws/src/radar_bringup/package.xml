@@ -26,6 +26,7 @@
   <exec_depend>radar_fusion</exec_depend>
 
   <test_depend>ament_cmake_pytest</test_depend>
+  <test_depend>launch_testing</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

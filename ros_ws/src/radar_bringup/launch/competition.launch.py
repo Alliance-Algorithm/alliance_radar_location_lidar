@@ -7,6 +7,7 @@
     ros2 launch radar_bringup competition.launch.py side:=red
     ros2 launch radar_bringup competition.launch.py side:=blue map_path:=/path/to/map.pcd
 """
+import math
 import os
 
 from ament_index_python.packages import get_package_share_directory
@@ -15,6 +16,7 @@ from launch.actions import (
     DeclareLaunchArgument,
     EmitEvent,
     IncludeLaunchDescription,
+    OpaqueFunction,
     RegisterEventHandler,
 )
 from launch.conditions import IfCondition
@@ -25,20 +27,62 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
-def gated_consumers(gate, consumers):
-    def on_gate_exit(event, _context):
-        if event.returncode == 0:
-            return consumers
-        return [EmitEvent(event=Shutdown(
-            reason=f"registration gate failed with exit code {event.returncode}"))]
+VALID_SIDES = {"red", "blue"}
+VALID_SENSORS = {"odin", "mid70"}
 
-    return [
-        RegisterEventHandler(OnProcessExit(
-            target_action=gate,
-            on_exit=on_gate_exit,
-        )),
-        gate,
-    ]
+
+def validated_startup(context):
+    side = LaunchConfiguration("side").perform(context)
+    if side not in VALID_SIDES:
+        raise RuntimeError(
+            f"Unsupported side '{side}'. Expected one of: {sorted(VALID_SIDES)}"
+        )
+
+    sensor = LaunchConfiguration("sensor").perform(context)
+    if sensor not in VALID_SENSORS:
+        raise RuntimeError(
+            f"Unsupported sensor '{sensor}'. Expected one of: {sorted(VALID_SENSORS)}"
+        )
+
+    timeout_text = LaunchConfiguration("registration_timeout_sec").perform(context)
+    try:
+        timeout = float(timeout_text)
+    except ValueError as error:
+        raise RuntimeError(
+            "registration_timeout_sec must be a positive number"
+        ) from error
+    if not math.isfinite(timeout) or timeout <= 0.0:
+        raise RuntimeError("registration_timeout_sec must be a positive number")
+
+    for argument in ("map_path", "camera_config", "fusion_config", "bridge_config"):
+        path = LaunchConfiguration(argument).perform(context)
+        if not os.path.isfile(path):
+            raise RuntimeError(f"{argument} does not exist or is not a file: {path}")
+
+    return []
+
+
+def critical_process_handler(gate, consumers):
+    def on_process_exit(event, context):
+        if context.is_shutdown:
+            return None
+        if getattr(event, "action", gate) is gate:
+            if event.returncode == 0:
+                return consumers
+            reason = f"registration gate failed with exit code {event.returncode}"
+        else:
+            reason = f"critical process exited with code {event.returncode}"
+        return [EmitEvent(event=Shutdown(reason=reason))]
+
+    return RegisterEventHandler(
+        OnProcessExit(
+            on_exit=on_process_exit,
+        )
+    )
+
+
+def gated_consumers(gate, consumers):
+    return [critical_process_handler(gate, consumers), gate]
 
 
 def generate_launch_description():
@@ -94,6 +138,9 @@ def generate_launch_description():
         DeclareLaunchArgument("enable_legacy_video", default_value="false",
             description="Enable the legacy bridge video stream"),
 
+        OpaqueFunction(function=validated_startup),
+        critical_process_handler(gate, [camera, fusion, bridge]),
+
         # 1. 相机驱动
         IncludeLaunchDescription(PythonLaunchDescriptionSource(
             os.path.join(bringup_dir, "launch", "hikcamera.launch.py"))),
@@ -109,5 +156,5 @@ def generate_launch_description():
             }.items()),
 
         # 3. 配准完成后启动视觉检测、传感器融合和 ZMQ 桥接
-        *gated_consumers(gate, [camera, fusion, bridge]),
+        gate,
     ])

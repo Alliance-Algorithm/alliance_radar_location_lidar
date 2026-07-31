@@ -12,6 +12,10 @@ if(BUILD_TESTING)
     test/test_registration_gate.py
     TIMEOUT 30
   )
+  ament_add_pytest_test(test_competition_launch
+    test/test_competition_launch.py
+    TIMEOUT 30
+  )
 endif()
 
 install(DIRECTORY
