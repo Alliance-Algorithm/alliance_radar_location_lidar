@@ -54,8 +54,8 @@ using SlotQuery = std::function<bool(int camp, const std::string& robot_class, i
 
 // Fill every unoccupied slot with the default position for its robot class.
 // Occupied slots are left untouched. Defaults are already in the official
-// referee frame (corner-origin, meters), so the m -> mm conversion is a plain
-// x1000 with no map_to_rm_offset; negative medians (padded-field clip allows
+// referee frame (corner-origin, meters), so the m -> cm conversion is a plain
+// x100 with no map_to_rm_offset; negative medians (padded-field clip allows
 // down to -2 m) clamp to 0 so they cannot wrap in uint16_t.
 inline void fill_empty_slots(radar_interfaces::msg::LidarLocation& msg,
     const std::array<SlotSpec, 6>& slots, const std::array<bool, 6>& occupied, int camp, int t,
@@ -64,8 +64,8 @@ inline void fill_empty_slots(radar_interfaces::msg::LidarLocation& msg,
         if (occupied[i]) continue;
         DefaultPosition p;
         if (!query(camp, slots[i].robot_class, t, p)) continue;
-        msg.*(slots[i].x) = static_cast<std::uint16_t>(std::max(0.0, p.x_med) * 1000.0);
-        msg.*(slots[i].y) = static_cast<std::uint16_t>(std::max(0.0, p.y_med) * 1000.0);
+        msg.*(slots[i].x) = static_cast<std::uint16_t>(std::max(0.0, p.x_med) * 100.0);
+        msg.*(slots[i].y) = static_cast<std::uint16_t>(std::max(0.0, p.y_med) * 100.0);
     }
 }
 

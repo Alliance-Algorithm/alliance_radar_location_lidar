@@ -705,17 +705,17 @@ TEST(FusionNode, SlotFilledWhenNoTrack) {
         radar_fusion::default_positions::kOpponentSlots, occupied, /*camp=*/0, /*t=*/0,
         make_fake_query());
 
-    // Defaults are in the official referee frame: plain (med * 1000), with NO
-    // map_to_rm_offset. A regression here (adding 14/7.5) shifts positions by
-    // half a field.
-    EXPECT_EQ(msg.opponent_hero_x, static_cast<uint16_t>(5.5 * 1000.0));
-    EXPECT_EQ(msg.opponent_hero_y, static_cast<uint16_t>(2.25 * 1000.0));
-    EXPECT_EQ(msg.opponent_engineer_x, static_cast<uint16_t>(1.0 * 1000.0));
-    EXPECT_EQ(msg.opponent_infantry_3_x, static_cast<uint16_t>(2.0 * 1000.0));
-    EXPECT_EQ(msg.opponent_infantry_4_x, static_cast<uint16_t>(3.0 * 1000.0));
-    EXPECT_EQ(msg.opponent_aerial_x, static_cast<uint16_t>(4.0 * 1000.0));
-    EXPECT_EQ(msg.opponent_sentry_x, static_cast<uint16_t>(6.0 * 1000.0));
-    EXPECT_EQ(msg.opponent_sentry_y, static_cast<uint16_t>(6.0 * 1000.0));
+    // Defaults are in the official referee frame: plain (med * 100) centimeters,
+    // with NO map_to_rm_offset. A regression here (adding 14/7.5) shifts
+    // positions by half a field.
+    EXPECT_EQ(msg.opponent_hero_x, static_cast<uint16_t>(5.5 * 100.0));
+    EXPECT_EQ(msg.opponent_hero_y, static_cast<uint16_t>(2.25 * 100.0));
+    EXPECT_EQ(msg.opponent_engineer_x, static_cast<uint16_t>(1.0 * 100.0));
+    EXPECT_EQ(msg.opponent_infantry_3_x, static_cast<uint16_t>(2.0 * 100.0));
+    EXPECT_EQ(msg.opponent_infantry_4_x, static_cast<uint16_t>(3.0 * 100.0));
+    EXPECT_EQ(msg.opponent_aerial_x, static_cast<uint16_t>(4.0 * 100.0));
+    EXPECT_EQ(msg.opponent_sentry_x, static_cast<uint16_t>(6.0 * 100.0));
+    EXPECT_EQ(msg.opponent_sentry_y, static_cast<uint16_t>(6.0 * 100.0));
 }
 
 TEST(FusionNode, NegativeDefaultMediansClampToZero) {
@@ -749,7 +749,7 @@ TEST(FusionNode, OccupiedSlotsAreNotOverwritten) {
 
     EXPECT_EQ(msg.opponent_hero_x, 111);
     EXPECT_EQ(msg.opponent_hero_y, 222);
-    EXPECT_EQ(msg.opponent_engineer_x, static_cast<uint16_t>(1.0 * 1000.0));
+    EXPECT_EQ(msg.opponent_engineer_x, static_cast<uint16_t>(1.0 * 100.0));
 }
 
 TEST(FusionNode, QueryFailureLeavesSlotZero) {
@@ -784,8 +784,8 @@ TEST(FusionNode, AllySlotsFilledWithCampInjectedQuery) {
         radar_fusion::default_positions::kAllySlots, occupied, /*camp=*/1, /*t=*/0,
         ally_query);
 
-    EXPECT_EQ(msg.ally_hero_x, static_cast<uint16_t>(20.0 * 1000.0));
-    EXPECT_EQ(msg.ally_hero_y, static_cast<uint16_t>(12.0 * 1000.0));
-    EXPECT_EQ(msg.ally_sentry_x, static_cast<uint16_t>(20.0 * 1000.0));
+    EXPECT_EQ(msg.ally_hero_x, static_cast<uint16_t>(20.0 * 100.0));
+    EXPECT_EQ(msg.ally_hero_y, static_cast<uint16_t>(12.0 * 100.0));
+    EXPECT_EQ(msg.ally_sentry_x, static_cast<uint16_t>(20.0 * 100.0));
     EXPECT_EQ(msg.opponent_hero_x, 0);
 }

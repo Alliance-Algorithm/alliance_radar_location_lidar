@@ -442,8 +442,9 @@ void RadarFusionNode::publish_lidar_location(
         const auto& s = track.state();
         if (!s.is_confirmed()) continue;
         if (slot_idx >= 6) break;
-        *slots_x[slot_idx] = static_cast<uint16_t>((s.x(0) + cfg_.map_to_rm_offset_x) * 1000.0);
-        *slots_y[slot_idx] = static_cast<uint16_t>((s.x(1) + cfg_.map_to_rm_offset_y) * 1000.0);
+        // RoboMaster 0x0305 / radar-egui 约定: 厘米 (米 -> cm 乘 100)
+        *slots_x[slot_idx] = static_cast<uint16_t>((s.x(0) + cfg_.map_to_rm_offset_x) * 100.0);
+        *slots_y[slot_idx] = static_cast<uint16_t>((s.x(1) + cfg_.map_to_rm_offset_y) * 100.0);
         slot_idx++;
     }
 
