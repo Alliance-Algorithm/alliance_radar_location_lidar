@@ -21,7 +21,8 @@ auto load(const std::string& db_path) -> bool {
         return false;
     }
     std::unordered_map<std::string, DefaultPosition> rows;
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
+    int rc = SQLITE_OK;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
         const std::string camp   = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
         const std::string rclass = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
         const int t              = sqlite3_column_int(stmt, 2);
@@ -29,6 +30,11 @@ auto load(const std::string& db_path) -> bool {
         const std::string key    = std::to_string(camp_id) + "|" + rclass + "|" + std::to_string(t);
         rows[key] = DefaultPosition { sqlite3_column_double(stmt, 3),
             sqlite3_column_double(stmt, 4), sqlite3_column_int(stmt, 5) };
+    }
+    if (rc != SQLITE_DONE) {
+        sqlite3_finalize(stmt);
+        sqlite3_close(db);
+        return false;
     }
     sqlite3_finalize(stmt);
     sqlite3_close(db);
