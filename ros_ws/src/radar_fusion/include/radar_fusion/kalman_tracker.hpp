@@ -20,6 +20,9 @@ public:
 
     /// 用观测更新
     void update(const Eigen::Vector2d& measurement, int64_t now_ns, int min_hits_to_confirm);
+    void update_identity(const Eigen::Vector2d& measurement, int64_t now_ns,
+        int min_hits_to_confirm, camera_observation::Team team,
+        camera_observation::SemanticClass semantic_class);
 
     void mark_missed(int max_misses_before_delete);
 
@@ -27,8 +30,7 @@ public:
 
     auto state() const -> const KalmanState& { return state_; }
 
-    void set_color(int color) { state_.color = color; }
-    void set_number(int number) { state_.number = number; }
+    void set_identity(camera_observation::Team team, camera_observation::SemanticClass semantic_class);
 
 private:
     KalmanState state_;

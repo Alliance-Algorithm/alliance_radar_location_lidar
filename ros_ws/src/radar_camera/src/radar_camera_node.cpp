@@ -30,7 +30,7 @@ RadarCameraNode::RadarCameraNode()
     auto map_ret = projector_.proj_init_map(projection_config_);
     if (!map_ret) RCLCPP_WARN(get_logger(), "Projector map init skipped: %s", map_ret.error().c_str());
 
-    pose_publisher_ = this->create_publisher<radar_interfaces::msg::CameraDetectionPose>(
+    pose_publisher_ = this->create_publisher<radar_interfaces::msg::CameraDetectionArray>(
         camera_config_.pub_topic_name, 10);
     RCLCPP_INFO(get_logger(), "Publisher created");
 
@@ -63,8 +63,6 @@ auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 continue;
             }
-            capture_timestamp_ = ts;
-
             auto tensor = model_inference_->infer_preprocess(frame,
                 static_cast<size_t>(inference_config_.model_input_width),
                 static_cast<size_t>(inference_config_.model_input_height));
@@ -91,18 +89,18 @@ auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
             }
 
             auto projected = projector_.proj_preprocess(dets->get());
-            auto pose = std::expected<robot_pose::RobotPose, std::string>(
+            auto semantic = std::expected<std::vector<detection::SemanticDetection>, std::string>(
                 std::unexpected("projection preprocess failed"));
             if (!projected) {
                 RCLCPP_WARN(get_logger(), "Projection preprocess failed: %s", projected.error().c_str());
             } else {
-                pose = projector_.proj_postprocess(*projected, dets->get());
-                if (!pose) {
-                    RCLCPP_WARN(get_logger(), "Projection postprocess failed: %s", pose.error().c_str());
+                semantic = projector_.proj_semantic_postprocess(*projected, dets->get());
+                if (!semantic) {
+                    RCLCPP_WARN(get_logger(), "Projection postprocess failed: %s", semantic.error().c_str());
                 }
             }
 
-            if (pose) PublishCallback(*pose);
+            if (semantic) PublishCallback(*semantic);
         }
     });
     return { };
@@ -117,29 +115,22 @@ auto RadarCameraNode::infer_thread_stop() -> void {
     }
 }
 
-auto RadarCameraNode::PublishCallback(const robot_pose::RobotPose& robot_poses) -> void {
-    auto pose_msg                  = radar_interfaces::msg::CameraDetectionPose();
-    pose_msg.header.stamp          = rclcpp::Time(capture_timestamp_.time_since_epoch().count());
-    pose_msg.header.frame_id       = "map";
-    pose_msg.hero_position.x       = robot_poses.hero_position.x;
-    pose_msg.hero_position.y       = robot_poses.hero_position.y;
-    pose_msg.engine_position.x     = robot_poses.engine_position.x;
-    pose_msg.engine_position.y     = robot_poses.engine_position.y;
-    pose_msg.infantry_3_position.x = robot_poses.infantry_3_position.x;
-    pose_msg.infantry_3_position.y = robot_poses.infantry_3_position.y;
-    pose_msg.infantry_4_position.x = robot_poses.infantry_4_position.x;
-    pose_msg.infantry_4_position.y = robot_poses.infantry_4_position.y;
-    pose_msg.sentry_position.x     = robot_poses.sentry_position.x;
-    pose_msg.sentry_position.y     = robot_poses.sentry_position.y;
-    pose_msg.drone_position.x      = robot_poses.drone_position.x;
-    pose_msg.drone_position.y      = robot_poses.drone_position.y;
-    pose_msg.hero_confidence       = robot_poses.hero_confidence;
-    pose_msg.engine_confidence     = robot_poses.engine_confidence;
-    pose_msg.infantry_3_confidence = robot_poses.infantry_3_confidence;
-    pose_msg.infantry_4_confidence = robot_poses.infantry_4_confidence;
-    pose_msg.sentry_confidence     = robot_poses.sentry_confidence;
-    pose_msg.drone_confidence      = robot_poses.drone_confidence;
-    pose_publisher_->publish(pose_msg);
+auto RadarCameraNode::PublishCallback(
+    const std::vector<detection::SemanticDetection>& detections) -> void {
+    auto array_msg = radar_interfaces::msg::CameraDetectionArray();
+    array_msg.header.stamp = this->now();
+    array_msg.header.frame_id = "map";
+    array_msg.detections.reserve(detections.size());
+    for (const auto& detection : detections) {
+        radar_interfaces::msg::CameraDetection msg;
+        msg.team = static_cast<std::uint8_t>(detection.team);
+        msg.semantic_class = static_cast<std::uint8_t>(detection.semantic_class);
+        msg.position.x = detection.position.x;
+        msg.position.y = detection.position.y;
+        msg.confidence = detection.confidence;
+        array_msg.detections.push_back(msg);
+    }
+    pose_publisher_->publish(array_msg);
 }
 
 auto ConfigsLoader(rclcpp::Node& node, camera_config::CameraConfig& camera,
@@ -163,7 +154,7 @@ auto ConfigsLoader(rclcpp::Node& node, camera_config::CameraConfig& camera,
         node.declare_parameter("distortion_coefficients", std::vector<double> { 0, 0, 0, 0, 0 });
         node.declare_parameter("rotation", std::vector<double> { 0, 0, 0 });
         node.declare_parameter("translation", std::vector<double> { 0, 0, 0 });
-        node.declare_parameter("pub_topic_name", std::string("/radar_camera/robot_pose"));
+        node.declare_parameter("pub_topic_name", std::string("/camera/detection"));
         node.declare_parameter("shm_name", std::string("/hikcamera_shm"));
         node.declare_parameter("width", 5472);
         node.declare_parameter("height", 3648);

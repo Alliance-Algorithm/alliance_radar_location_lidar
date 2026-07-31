@@ -1,6 +1,6 @@
 #pragma once
 
-#include "radar_interfaces/msg/camera_detection_pose.hpp"
+#include "radar_interfaces/msg/camera_detection_array.hpp"
 #include "radar_interfaces/msg/lidar_location.hpp"
 #include <chrono>
 #include <cstdint>
@@ -25,7 +25,7 @@ public:
 
 private:
     void on_lidar_pose(geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg);
-    void on_camera_detection(radar_interfaces::msg::CameraDetectionPose::SharedPtr msg);
+    void on_camera_detection(radar_interfaces::msg::CameraDetectionArray::SharedPtr msg);
 
     void on_cluster(sensor_msgs::msg::PointCloud2::SharedPtr msg);
 
@@ -53,8 +53,7 @@ private:
 
     rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr sub_lidar_pose_;
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr sub_cluster_;
-    rclcpp::Subscription<radar_interfaces::msg::CameraDetectionPose>::SharedPtr
-        sub_camera_detection_;
+    rclcpp::Subscription<radar_interfaces::msg::CameraDetectionArray>::SharedPtr sub_camera_detection_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_tracks_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_fused_tracks_;
     rclcpp::Publisher<radar_interfaces::msg::LidarLocation>::SharedPtr pub_lidar_location_;

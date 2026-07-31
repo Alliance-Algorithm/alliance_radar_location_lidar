@@ -1,6 +1,5 @@
 #pragma once
 #include <atomic>
-#include <chrono>
 #include <expected>
 #include <memory>
 #include <opencv2/opencv.hpp>
@@ -13,7 +12,7 @@
 #include "radar_camera/data_format.hpp"
 #include "radar_camera/model_inference.hpp"
 #include "radar_camera/projector.hpp"
-#include "radar_interfaces/msg/camera_detection_pose.hpp"
+#include "radar_interfaces/msg/camera_detection_array.hpp"
 
 namespace radar_camera::node {
 
@@ -26,14 +25,13 @@ public:
     RadarCameraNode();
     ~RadarCameraNode() override;
 
-    auto PublishCallback(const robot_pose::RobotPose& robot_poses) -> void;
+    auto PublishCallback(const std::vector<detection::SemanticDetection>& detections) -> void;
 
 private:
     auto infer_thread_start() -> std::expected<void, std::string>;
     auto infer_thread_stop() -> void;
 
-    std::chrono::steady_clock::time_point capture_timestamp_;
-    rclcpp::Publisher<radar_interfaces::msg::CameraDetectionPose>::SharedPtr pose_publisher_;
+    rclcpp::Publisher<radar_interfaces::msg::CameraDetectionArray>::SharedPtr pose_publisher_;
 
     int shm_fd_ = -1;
     std::atomic<bool> infer_running_ { false };

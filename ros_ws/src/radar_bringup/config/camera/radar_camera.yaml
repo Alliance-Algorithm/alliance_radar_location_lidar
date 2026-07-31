@@ -33,5 +33,5 @@ radar_camera_node:
     distortion_coefficients: [0.0, 0.0, 0.0, 0.0, 0.0]
     rotation: [0.0, 0.0, 0.0]
     translation: [0.0, 0.0, 0.0]
-    pub_topic_name: "/radar_camera/robot_pose"
+    pub_topic_name: "/camera/detection"
     sub_topic_name: "/camera/image_raw"
