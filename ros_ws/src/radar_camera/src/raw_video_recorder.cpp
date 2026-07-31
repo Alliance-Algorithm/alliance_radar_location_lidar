@@ -232,6 +232,36 @@ namespace {
         return segment;
     }
 
+    auto probe_encoder(const RecordingConfig& config) -> std::expected<void, std::string> {
+        const auto* encoder = avcodec_find_encoder_by_name(config.encoder.c_str());
+        if (encoder == nullptr) {
+            return std::unexpected("NVENC encoder not found: " + config.encoder);
+        }
+        auto* codec = avcodec_alloc_context3(encoder);
+        if (codec == nullptr) {
+            return std::unexpected("could not allocate h264_nvenc probe context");
+        }
+        codec->codec_id = AV_CODEC_ID_H264;
+        codec->codec_type = AVMEDIA_TYPE_VIDEO;
+        codec->width = config.width;
+        codec->height = config.height;
+        codec->pix_fmt = AV_PIX_FMT_YUV420P;
+        codec->time_base = AVRational { 1, config.fps };
+        codec->framerate = AVRational { config.fps, 1 };
+        codec->gop_size = config.gop;
+        codec->bit_rate = config.bitrate;
+        codec->max_b_frames = 0;
+        av_opt_set(codec->priv_data, "preset", "p1", 0);
+        av_opt_set(codec->priv_data, "tune", "ll", 0);
+        av_opt_set(codec->priv_data, "bf", "0", 0);
+        const auto result = avcodec_open2(codec, encoder, nullptr);
+        avcodec_free_context(&codec);
+        if (result < 0) {
+            return std::unexpected("could not open h264_nvenc: " + ffmpeg_error(result));
+        }
+        return { };
+    }
+
 } // namespace
 
 auto segment_path(const std::filesystem::path& output_dir,
@@ -256,6 +286,18 @@ auto RawVideoRecorder::start() -> std::expected<void, std::string> {
     if (const auto valid = validate_config(config_); !valid) {
         return std::unexpected(valid.error());
     }
+    try {
+        std::filesystem::create_directories(config_.output_dir);
+        if (!std::filesystem::is_directory(config_.output_dir)) {
+            return std::unexpected("recording output path is not a directory");
+        }
+    } catch (const std::exception& error) {
+        return std::unexpected(std::string("could not prepare recording output directory: ")
+            + error.what());
+    }
+    if (const auto encoder = probe_encoder(config_); !encoder) {
+        return std::unexpected(encoder.error());
+    }
     if (running_.exchange(true, std::memory_order_acq_rel)) {
         return std::unexpected("recorder is already running");
     }
@@ -263,12 +305,12 @@ auto RawVideoRecorder::start() -> std::expected<void, std::string> {
         if (thread_.joinable()) {
             thread_.join();
         }
-        std::filesystem::create_directories(config_.output_dir);
         fifo_.reset();
         {
             std::lock_guard lock(mutex_);
             state_ = RecorderState::running;
             stats_ = { };
+            failure_reason_.clear();
         }
         thread_ = std::thread(&RawVideoRecorder::loop, this);
     } catch (const std::exception& error) {
@@ -277,6 +319,7 @@ auto RawVideoRecorder::start() -> std::expected<void, std::string> {
         std::lock_guard lock(mutex_);
         ++stats_.errors;
         state_ = RecorderState::failed;
+        failure_reason_ = std::string("could not start recorder: ") + error.what();
         return std::unexpected(std::string("could not start recorder: ") + error.what());
     }
     return { };
@@ -295,13 +338,14 @@ void RawVideoRecorder::stop() {
 }
 
 void RawVideoRecorder::fail(std::string reason, bool overrun) {
-    fifo_.request_overrun(std::move(reason));
+    fifo_.request_overrun(reason);
     std::lock_guard lock(mutex_);
     ++stats_.errors;
     if (overrun) {
         ++stats_.overruns;
     }
     state_ = overrun ? RecorderState::overrun : RecorderState::failed;
+    failure_reason_ = std::move(reason);
     running_.store(false, std::memory_order_release);
 }
 
@@ -313,6 +357,11 @@ auto RawVideoRecorder::state() const -> RecorderState {
 auto RawVideoRecorder::stats() const -> RecorderStats {
     std::lock_guard lock(mutex_);
     return stats_;
+}
+
+auto RawVideoRecorder::failure_reason() const -> std::string {
+    std::lock_guard lock(mutex_);
+    return failure_reason_;
 }
 
 void RawVideoRecorder::loop() {

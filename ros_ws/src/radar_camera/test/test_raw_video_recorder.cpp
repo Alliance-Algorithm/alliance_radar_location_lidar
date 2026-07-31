@@ -84,6 +84,37 @@ TEST(RawVideoRecorder, RejectsInvalidConfigurationWhenEnabled) {
     EXPECT_NE(result.error().find("width"), std::string::npos);
 }
 
+TEST(RawVideoRecorder, RejectsOutputPathBeforeWorkerStarts) {
+    const auto output_file = std::filesystem::temp_directory_path() / "radar-camera-output-file";
+    {
+        std::ofstream file(output_file);
+        ASSERT_TRUE(file);
+    }
+    auto cfg = config(output_file);
+    radar_camera::recording::RecordingFifo fifo(2);
+    radar_camera::recording::RawVideoRecorder recorder(cfg, fifo);
+
+    const auto result = recorder.start();
+
+    ASSERT_FALSE(result);
+    EXPECT_NE(result.error().find("directory"), std::string::npos);
+    EXPECT_EQ(recorder.state(), radar_camera::recording::RecorderState::stopped);
+    std::filesystem::remove(output_file);
+}
+
+TEST(RawVideoRecorder, EnabledStartRejectsUnavailableEncoderSynchronously) {
+    auto cfg = config(std::filesystem::temp_directory_path() / "radar-camera-encoder");
+    cfg.encoder = "h264_nvenc_missing_for_contract_test";
+    radar_camera::recording::RecordingFifo fifo(2);
+    radar_camera::recording::RawVideoRecorder recorder(cfg, fifo);
+
+    const auto result = recorder.start();
+
+    ASSERT_FALSE(result);
+    EXPECT_NE(result.error().find("encoder"), std::string::npos);
+    EXPECT_EQ(recorder.state(), radar_camera::recording::RecorderState::stopped);
+}
+
 TEST(RawVideoRecorder, StopIsIdempotent) {
     auto cfg = config("/tmp/radar-camera-stop");
     radar_camera::recording::RecordingFifo fifo(2);
@@ -92,6 +123,32 @@ TEST(RawVideoRecorder, StopIsIdempotent) {
     recorder.stop();
     recorder.stop();
     EXPECT_EQ(recorder.state(), radar_camera::recording::RecorderState::stopped);
+}
+
+TEST(RawVideoRecorder, FifoFailureStopsWorkerAndPreservesReason) {
+    const auto output_dir = std::filesystem::temp_directory_path() / "radar-camera-overrun";
+    std::filesystem::remove_all(output_dir);
+    radar_camera::recording::RecordingFifo fifo(1);
+    radar_camera::recording::RawVideoRecorder recorder(config(output_dir), fifo);
+    const auto started = recorder.start();
+    if (!started) {
+        GTEST_SKIP() << started.error();
+    }
+
+    ASSERT_TRUE(fifo.try_push(frame(1)));
+    ASSERT_FALSE(fifo.try_push(frame(2)));
+    for (int attempt = 0; attempt < 100; ++attempt) {
+        if (recorder.state() == radar_camera::recording::RecorderState::overrun) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    EXPECT_EQ(recorder.state(), radar_camera::recording::RecorderState::overrun);
+    EXPECT_FALSE(recorder.failure_reason().empty());
+    recorder.stop();
+    EXPECT_EQ(recorder.state(), radar_camera::recording::RecorderState::overrun);
+    std::filesystem::remove_all(output_dir);
 }
 
 TEST(RawVideoRecorder, SegmentPathIsDeterministic) {

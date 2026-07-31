@@ -5,9 +5,20 @@
 #include <unistd.h>
 
 #include <cstdint>
+#include <mutex>
+#include <stdexcept>
 #include <utility>
 
 namespace radar_camera::node {
+
+namespace {
+struct FdGuard {
+    int fd = -1;
+    ~FdGuard() {
+        if (fd != -1) close(fd);
+    }
+};
+} // namespace
 
 RadarCameraNode::RadarCameraNode()
     : Node("radar_camera_node") {
@@ -40,10 +51,11 @@ RadarCameraNode::RadarCameraNode()
         camera_config_.pub_topic_name, 10);
     RCLCPP_INFO(get_logger(), "Publisher created");
 
-    shm_fd_ = shm_open(camera_config_.shm_name.c_str(), O_RDWR, 0666);
-    if (shm_fd_ == -1) {
+    FdGuard shm_guard { shm_open(camera_config_.shm_name.c_str(), O_RDWR, 0666) };
+    if (shm_guard.fd == -1) {
         throw std::runtime_error("SHM shm_open failed: " + camera_config_.shm_name);
     }
+    shm_fd_ = shm_guard.fd;
     RCLCPP_INFO(get_logger(), "SHM shm_open succeeded: %s", camera_config_.shm_name.c_str());
 
     if (recording_config_.enabled) {
@@ -72,6 +84,8 @@ RadarCameraNode::RadarCameraNode()
     if (!ret) {
         throw std::runtime_error("infer_thread_start failed: " + ret.error());
     }
+    status_.store(NodeStatus::running, std::memory_order_release);
+    shm_guard.fd = -1;
     RCLCPP_INFO(get_logger(), "infer_thread started");
 }
 
@@ -80,6 +94,7 @@ RadarCameraNode::~RadarCameraNode() {
     if (raw_shm_reader_) raw_shm_reader_->stop();
     if (raw_video_recorder_) raw_video_recorder_->stop();
     infer_thread_stop();
+    status_.store(NodeStatus::stopped, std::memory_order_release);
 }
 
 auto RadarCameraNode::recording_monitor_start() -> void {
@@ -87,17 +102,45 @@ auto RadarCameraNode::recording_monitor_start() -> void {
     recording_monitor_thread_  = std::thread([this]() {
         while (recording_monitor_running_.load(std::memory_order_acquire)) {
             const auto recorder_state = raw_video_recorder_->state();
+            const auto reader_state = raw_shm_reader_->state();
             if (recorder_state == recording::RecorderState::failed
-                || recorder_state == recording::RecorderState::overrun) {
+                || recorder_state == recording::RecorderState::overrun
+                || reader_state == recording::ReaderState::failed
+                || reader_state == recording::ReaderState::overrun) {
+                const auto recorder_failed = recorder_state == recording::RecorderState::failed
+                    || recorder_state == recording::RecorderState::overrun;
+                const auto reason = recorder_failed ? raw_video_recorder_->failure_reason()
+                                                     : raw_shm_reader_->failure_reason();
                 RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 5000,
-                    "Raw recording failed (state=%s); stopping camera inference",
-                    recorder_state == recording::RecorderState::overrun ? "OVERRUN" : "FAILED");
+                    "Raw recording failed (state=%s): %s; stopping camera inference",
+                    recorder_state == recording::RecorderState::overrun
+                            || reader_state == recording::ReaderState::overrun
+                        ? "OVERRUN"
+                        : "FAILED",
+                    reason.c_str());
+                if (raw_shm_reader_) raw_shm_reader_->stop();
+                if (raw_video_recorder_) raw_video_recorder_->stop();
                 infer_running_ = false;
+                {
+                    std::lock_guard lock(status_mutex_);
+                    failure_reason_ = reason;
+                }
+                status_.store(NodeStatus::failed, std::memory_order_release);
+                rclcpp::shutdown();
                 break;
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
     });
+}
+
+auto RadarCameraNode::status() const -> NodeStatus {
+    return status_.load(std::memory_order_acquire);
+}
+
+auto RadarCameraNode::failure_reason() const -> std::string {
+    std::lock_guard lock(status_mutex_);
+    return failure_reason_;
 }
 
 auto RadarCameraNode::recording_monitor_stop() -> void {

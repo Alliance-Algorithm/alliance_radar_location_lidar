@@ -113,6 +113,7 @@ auto RawShmReader::start() -> std::expected<void, std::string> {
         std::lock_guard lock(mutex_);
         state_ = ReaderState::running;
         stats_ = {};
+        failure_reason_.clear();
     }
     try {
         thread_ = std::thread(&RawShmReader::loop, this);
@@ -152,6 +153,19 @@ auto RawShmReader::stats() const -> ReaderStats {
     return stats_;
 }
 
+auto RawShmReader::failure_reason() const -> std::string {
+    std::lock_guard lock(mutex_);
+    return failure_reason_;
+}
+
+void RawShmReader::fail(std::string reason, bool overrun) {
+    fifo_.request_overrun(reason);
+    running_.store(false, std::memory_order_release);
+    std::lock_guard lock(mutex_);
+    state_ = overrun ? ReaderState::overrun : ReaderState::failed;
+    failure_reason_ = std::move(reason);
+}
+
 void RawShmReader::close_shm() {
     if (shm_ptr_ != nullptr) {
         std::ignore = hikcamera::SHMReleasePtr(shm_ptr_);
@@ -179,10 +193,7 @@ void RawShmReader::loop() {
     while (running_.load(std::memory_order_acquire)) {
         const auto counter = shm_ptr_->frame_counter.load(std::memory_order_acquire);
         if (is_counter_reset(last_seen, counter)) {
-            fifo_.request_overrun("raw SHM frame counter reset after baseline");
-            running_.store(false, std::memory_order_release);
-            std::lock_guard lock(mutex_);
-            state_ = ReaderState::overrun;
+            fail("raw SHM frame counter reset after baseline", true);
             break;
         }
         if (!valid_frame_counter(counter) || counter == last_seen) {
@@ -190,10 +201,7 @@ void RawShmReader::loop() {
             continue;
         }
         if (!is_contiguous_counter(last_seen, counter)) {
-            fifo_.request_overrun("raw SHM frame counter advanced with a gap");
-            running_.store(false, std::memory_order_release);
-            std::lock_guard lock(mutex_);
-            state_ = ReaderState::overrun;
+            fail("raw SHM frame counter advanced with a gap", true);
             break;
         }
 
@@ -203,10 +211,7 @@ void RawShmReader::loop() {
         for (unsigned int retry = 0; retry < max_copy_retries; ++retry) {
             const auto counter_before = shm_ptr_->frame_counter.load(std::memory_order_acquire);
             if (is_counter_reset(last_seen, counter_before)) {
-                fifo_.request_overrun("raw SHM frame counter reset after baseline");
-                running_.store(false, std::memory_order_release);
-                std::lock_guard lock(mutex_);
-                state_ = ReaderState::overrun;
+                fail("raw SHM frame counter reset after baseline", true);
                 break;
             }
             if (!valid_frame_counter(counter_before)) {
@@ -215,10 +220,7 @@ void RawShmReader::loop() {
             }
             if (counter_before != last_seen &&
                 !is_contiguous_counter(last_seen, counter_before)) {
-                fifo_.request_overrun("raw SHM frame counter advanced with a gap");
-                running_.store(false, std::memory_order_release);
-                std::lock_guard lock(mutex_);
-                state_ = ReaderState::overrun;
+                fail("raw SHM frame counter advanced with a gap", true);
                 break;
             }
             latest_seen = counter_before;
@@ -231,10 +233,7 @@ void RawShmReader::loop() {
                 }
             }
             if (!storage) {
-                fifo_.request_overrun("raw SHM reader frame pool exhausted");
-                running_.store(false, std::memory_order_release);
-                std::lock_guard lock(mutex_);
-                state_ = ReaderState::overrun;
+                fail("raw SHM reader frame pool exhausted", true);
                 break;
             }
             std::memcpy(storage->data, shm_ptr_->imagedata[slot], image_bytes_);
@@ -243,10 +242,7 @@ void RawShmReader::loop() {
             latest_seen = counter_after;
 
             if (is_counter_reset(last_seen, counter_after)) {
-                fifo_.request_overrun("raw SHM frame counter reset after baseline");
-                running_.store(false, std::memory_order_release);
-                std::lock_guard lock(mutex_);
-                state_ = ReaderState::overrun;
+                fail("raw SHM frame counter reset after baseline", true);
                 break;
             }
             if (counter_after == 0 && last_seen == 0) {
@@ -255,10 +251,7 @@ void RawShmReader::loop() {
             }
             if (counter_after != last_seen &&
                 !is_contiguous_counter(last_seen, counter_after)) {
-                fifo_.request_overrun("raw SHM frame counter advanced with a gap");
-                running_.store(false, std::memory_order_release);
-                std::lock_guard lock(mutex_);
-                state_ = ReaderState::overrun;
+                fail("raw SHM frame counter advanced with a gap", true);
                 break;
             }
 
@@ -275,10 +268,7 @@ void RawShmReader::loop() {
                 ++stats_.observed;
             }
             if (!fifo_.try_push(std::move(frame))) {
-                fifo_.request_overrun("raw SHM reader could not submit frame");
-                running_.store(false, std::memory_order_release);
-                std::lock_guard lock(mutex_);
-                state_ = ReaderState::overrun;
+                fail("raw SHM reader could not submit frame", true);
                 break;
             }
             {
@@ -293,11 +283,11 @@ void RawShmReader::loop() {
             last_seen = latest_seen;
         }
         if (!accepted && !waiting_for_baseline && running_.load(std::memory_order_acquire)) {
-            fifo_.request_overrun("raw SHM frame counter was unstable");
-            running_.store(false, std::memory_order_release);
-            std::lock_guard lock(mutex_);
-            ++stats_.unstable;
-            state_ = ReaderState::overrun;
+            {
+                std::lock_guard lock(mutex_);
+                ++stats_.unstable;
+            }
+            fail("raw SHM frame counter was unstable", true);
         }
     }
     close_shm();

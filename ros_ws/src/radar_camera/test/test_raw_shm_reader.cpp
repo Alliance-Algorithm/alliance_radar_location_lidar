@@ -50,6 +50,18 @@ TEST(RawShmReader, StopIsIdempotentBeforeAndAfterFailedStart) {
     EXPECT_EQ(reader.state(), ReaderState::stopped);
 }
 
+TEST(RawShmReader, FailedStartLeavesReaderStoppedAndObservable) {
+    RecordingFifo fifo(2);
+    RawShmReader reader("", 4, 2, fifo);
+
+    const auto result = reader.start();
+
+    ASSERT_FALSE(result);
+    EXPECT_EQ(reader.state(), ReaderState::stopped);
+    reader.stop();
+    EXPECT_EQ(reader.state(), ReaderState::stopped);
+}
+
 TEST(RawShmReader, ValidatesDimensionsAndRgbByteCount) {
     EXPECT_TRUE(validate_raw_frame_dimensions(4, 2));
     EXPECT_FALSE(validate_raw_frame_dimensions(0, 2));

@@ -109,6 +109,7 @@ public:
     void stop();
     [[nodiscard]] auto state() const -> RecorderState;
     [[nodiscard]] auto stats() const -> RecorderStats;
+    [[nodiscard]] auto failure_reason() const -> std::string;
 
 private:
     void loop();
@@ -121,6 +122,7 @@ private:
     mutable std::mutex mutex_;
     RecorderState state_ = RecorderState::stopped;
     RecorderStats stats_;
+    std::string failure_reason_;
     std::thread thread_;
 };
 

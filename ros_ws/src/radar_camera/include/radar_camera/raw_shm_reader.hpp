@@ -31,6 +31,7 @@ struct RawFrame {
 enum class ReaderState {
     stopped,
     running,
+    failed,
     overrun,
 };
 
@@ -61,6 +62,7 @@ public:
     void stop();
     [[nodiscard]] auto state() const -> ReaderState;
     [[nodiscard]] auto stats() const -> ReaderStats;
+    [[nodiscard]] auto failure_reason() const -> std::string;
 
 private:
     void loop();
@@ -77,10 +79,13 @@ private:
     mutable std::mutex mutex_;
     ReaderState state_ = ReaderState::stopped;
     ReaderStats stats_;
+    std::string failure_reason_;
     std::thread thread_;
     std::vector<std::shared_ptr<cv::Mat>> buffer_pool_;
     int shm_fd_ = -1;
     hikcamera::imageSHM* shm_ptr_ = nullptr;
+
+    void fail(std::string reason, bool overrun = false);
 };
 
 } // namespace radar_camera::recording

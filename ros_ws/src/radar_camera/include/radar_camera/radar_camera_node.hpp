@@ -3,6 +3,7 @@
 #include <chrono>
 #include <expected>
 #include <memory>
+#include <mutex>
 #include <opencv2/opencv.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <thread>
@@ -19,6 +20,8 @@
 
 namespace radar_camera::node {
 
+enum class NodeStatus { starting, running, failed, stopped };
+
 auto ConfigsLoader(rclcpp::Node& node, camera_config::CameraConfig& camera,
     inference_config::InferenceConfig& inference, projection_config::ProjectionConfig& projection,
     recording::RecordingConfig& recording) -> std::expected<void, std::string>;
@@ -29,6 +32,8 @@ public:
     ~RadarCameraNode() override;
 
     auto PublishCallback(const robot_pose::RobotPose& robot_poses) -> void;
+    [[nodiscard]] auto status() const -> NodeStatus;
+    [[nodiscard]] auto failure_reason() const -> std::string;
 
 private:
     auto infer_thread_start() -> std::expected<void, std::string>;
@@ -55,6 +60,9 @@ private:
     std::unique_ptr<recording::RawShmReader> raw_shm_reader_;
     std::atomic<bool> recording_monitor_running_ { false };
     std::thread recording_monitor_thread_;
+    std::atomic<NodeStatus> status_ { NodeStatus::starting };
+    mutable std::mutex status_mutex_;
+    std::string failure_reason_;
 };
 
 } // namespace radar_camera::node
