@@ -91,6 +91,7 @@ Blocked before compilation: the worktree lacks the built `radar_interfaces` pack
 
 ### Return Status, Hash, Tests, Concerns
 
-- Return status: remaining Task 3 findings fixed; package test execution remains blocked by the worktree build environment.
+- Return status: remaining Task 3 findings fixed and committed.
+- Implementation commit: `09674e4` (`fix(camera): close remaining raw recorder findings`).
 - Tests: `git diff --check` passed; the package build stopped before CMake compilation because `radar_interfaces` was not built, so `radar_camera_tests` and the opt-in NVENC test were not run locally.
 - Concerns: hardware NVENC, FFmpeg MPEG-TS probing, rollover timing, and full-resolution sidecar validation still require the camera package dependencies and NVIDIA runtime. No SDK, driver, or SHM-writer files were changed.
