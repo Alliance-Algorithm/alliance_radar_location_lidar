@@ -69,22 +69,36 @@ RadarCameraNode::RadarCameraNode()
     RCLCPP_INFO(get_logger(), "infer_thread started");
 
     if (recording_config_.enabled) {
-        recording_fifo_ =
-            std::make_unique<recording::RecordingFifo>(recording_config_.buffer_pool_frames);
-        raw_video_recorder_ =
-            std::make_unique<recording::RawVideoRecorder>(recording_config_, *recording_fifo_);
-        raw_shm_reader_ = std::make_unique<recording::RawShmReader>(camera_config_.shm_name,
-            recording_config_.width, recording_config_.height, *recording_fifo_);
+        auto components     = make_recording_components(recording_config_, camera_config_.shm_name);
+        recording_fifo_     = std::move(components.fifo);
+        raw_video_recorder_ = std::move(components.recorder);
+        raw_shm_reader_     = std::move(components.reader);
 
-        auto recorder_ret = raw_video_recorder_->start();
-        if (!recorder_ret) {
-            throw std::runtime_error("RawVideoRecorder start failed: " + recorder_ret.error());
+        for (const auto component : recording_lifecycle_order()) {
+            switch (component) {
+            case LifecycleComponent::recorder: {
+                auto recorder_ret = raw_video_recorder_->start();
+                if (!recorder_ret) {
+                    throw std::runtime_error(
+                        "RawVideoRecorder start failed: " + recorder_ret.error());
+                }
+                break;
+            }
+            case LifecycleComponent::reader: {
+                auto reader_ret = raw_shm_reader_->start();
+                if (!reader_ret) {
+                    throw std::runtime_error("RawShmReader start failed: " + reader_ret.error());
+                }
+                break;
+            }
+            case LifecycleComponent::monitor:
+                recording_monitor_start();
+                break;
+            case LifecycleComponent::inference:
+            case LifecycleComponent::shm:
+                break;
+            }
         }
-        auto reader_ret = raw_shm_reader_->start();
-        if (!reader_ret) {
-            throw std::runtime_error("RawShmReader start failed: " + reader_ret.error());
-        }
-        recording_monitor_start();
         RCLCPP_INFO(
             get_logger(), "Raw recording started: %s", recording_config_.output_dir.c_str());
     }
@@ -122,9 +136,16 @@ auto RadarCameraNode::recording_monitor_start() -> void {
                         ? "OVERRUN"
                         : "FAILED",
                     reason.c_str());
-                if (raw_shm_reader_) raw_shm_reader_->stop();
-                if (raw_video_recorder_) raw_video_recorder_->stop();
-                infer_running_ = false;
+                infer_running_     = false;
+                const auto cleanup = constructor_cleanup_order(
+                    { LifecycleComponent::recorder, LifecycleComponent::reader });
+                for (const auto component : cleanup) {
+                    if (component == LifecycleComponent::reader && raw_shm_reader_) {
+                        raw_shm_reader_->stop();
+                    } else if (component == LifecycleComponent::recorder && raw_video_recorder_) {
+                        raw_video_recorder_->stop();
+                    }
+                }
                 {
                     std::lock_guard lock(status_mutex_);
                     failure_reason_ = reason;
@@ -147,32 +168,71 @@ auto RadarCameraNode::failure_reason() const -> std::string {
     return failure_reason_;
 }
 
-auto RadarCameraNode::recording_lifecycle_order_for_test() -> std::vector<std::string> {
-    return { "inference", "recorder", "reader", "monitor" };
+auto recording_lifecycle_order() -> std::vector<LifecycleComponent> {
+    return { LifecycleComponent::inference, LifecycleComponent::recorder,
+        LifecycleComponent::reader, LifecycleComponent::monitor };
 }
 
-auto RadarCameraNode::constructor_cleanup_for_test(const std::vector<std::string>& started)
-    -> std::vector<std::string> {
-    std::vector<std::string> cleanup;
-    if (std::find(started.begin(), started.end(), "monitor") != started.end()) {
-        cleanup.emplace_back("monitor");
+auto constructor_cleanup_order(const std::vector<LifecycleComponent>& started)
+    -> std::vector<LifecycleComponent> {
+    std::vector<LifecycleComponent> cleanup;
+    if (std::find(started.begin(), started.end(), LifecycleComponent::monitor) != started.end()) {
+        cleanup.emplace_back(LifecycleComponent::monitor);
     }
     for (auto it = started.rbegin(); it != started.rend(); ++it) {
-        if (*it == "reader" || *it == "recorder" || *it == "inference") {
+        if (*it == LifecycleComponent::reader || *it == LifecycleComponent::recorder
+            || *it == LifecycleComponent::inference) {
             cleanup.push_back(*it);
         }
     }
-    if (std::find(started.begin(), started.end(), "shm") != started.end()) {
-        cleanup.emplace_back("shm");
+    if (std::find(started.begin(), started.end(), LifecycleComponent::shm) != started.end()) {
+        cleanup.emplace_back(LifecycleComponent::shm);
     }
     return cleanup;
 }
 
+auto make_recording_components(
+    const recording::RecordingConfig& config, const std::string& shm_name) -> RecordingComponents {
+    if (!config.enabled) return { };
+    auto fifo     = std::make_unique<recording::RecordingFifo>(config.buffer_pool_frames);
+    auto recorder = std::make_unique<recording::RawVideoRecorder>(config, *fifo);
+    auto reader =
+        std::make_unique<recording::RawShmReader>(shm_name, config.width, config.height, *fifo);
+    return { std::move(fifo), std::move(recorder), std::move(reader) };
+}
+
 auto RadarCameraNode::constructor_cleanup() noexcept -> void {
-    recording_monitor_stop();
-    if (raw_shm_reader_) raw_shm_reader_->stop();
-    if (raw_video_recorder_) raw_video_recorder_->stop();
-    infer_thread_stop();
+    std::vector<LifecycleComponent> started;
+    if (shm_fd_ != -1) started.emplace_back(LifecycleComponent::shm);
+    if (infer_thread_.joinable() || infer_running_)
+        started.emplace_back(LifecycleComponent::inference);
+    if (raw_video_recorder_) started.emplace_back(LifecycleComponent::recorder);
+    if (raw_shm_reader_) started.emplace_back(LifecycleComponent::reader);
+    if (recording_monitor_thread_.joinable() || recording_monitor_running_)
+        started.emplace_back(LifecycleComponent::monitor);
+
+    for (const auto component : constructor_cleanup_order(started)) {
+        switch (component) {
+        case LifecycleComponent::monitor:
+            recording_monitor_stop();
+            break;
+        case LifecycleComponent::reader:
+            if (raw_shm_reader_) raw_shm_reader_->stop();
+            break;
+        case LifecycleComponent::recorder:
+            if (raw_video_recorder_) raw_video_recorder_->stop();
+            break;
+        case LifecycleComponent::inference:
+            infer_thread_stop();
+            break;
+        case LifecycleComponent::shm:
+            if (shm_fd_ != -1) {
+                close(shm_fd_);
+                shm_fd_ = -1;
+            }
+            break;
+        }
+    }
 }
 
 auto RadarCameraNode::recording_monitor_stop() -> void {

@@ -71,3 +71,27 @@ The available test invocation remains blocked by the worktree environment. `colc
 
 - The lifecycle tests use static node contract helpers because constructing `RadarCameraNode` requires the unavailable OpenVINO/radar interface dependency artifacts and a live camera SHM object. They verify the ordering and unwind contract without requiring hardware.
 - Full constructor failure injection through every concrete recorder/reader failure point still requires a dependency-complete build; the actual constructor catch path is covered by code inspection and the isolated contract assertions.
+
+## Scoped Follow-up
+
+- Moved `infer_running_ = false` ahead of potentially blocking reader and recorder stops in the monitor failure path. The monitor now uses the same production cleanup-order helper as constructor unwind for reader-before-recorder cleanup, while leaving monitor joining to the owning destructor/unwind path.
+- Replaced the test-only lifecycle helpers with production-owned `LifecycleComponent` order functions. Constructor recording startup and constructor cleanup both use those helpers, and the tests assert the production functions directly.
+- Centralized recording component construction in `make_recording_components()`. Disabled recording returns no FIFO, recorder, or reader without opening SHM or requiring camera hardware; the contract test asserts all three components are absent.
+
+## Scoped Verification
+
+```text
+clang-format -i <touched C++ files>
+exit status: 0
+
+git diff --check
+exit status: 0
+
+source /opt/ros/jazzy/setup.bash && colcon build --packages-select radar_camera --cmake-args -DBUILD_TESTING=ON
+exit status: 1 before compilation
+
+source /opt/ros/jazzy/setup.bash && colcon test --packages-select radar_camera --ctest-args -R radar_camera_tests --event-handlers console_direct+
+exit status: 1 before test discovery
+```
+
+Both colcon commands are blocked by the pre-existing missing artifact `install/radar_interfaces/share/radar_interfaces/package.sh`; no `radar_camera_tests` executable was built or run locally. The source diff remains whitespace-clean.

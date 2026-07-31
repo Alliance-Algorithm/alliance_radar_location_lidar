@@ -59,25 +59,51 @@ TEST_F(CameraRecordingContract, RejectsInvalidEnabledRecordingConfiguration) {
 }
 
 TEST_F(CameraRecordingContract, StartsInferenceBeforeRecordingLifecycle) {
-    const std::vector<std::string> events =
-        radar_camera::node::RadarCameraNode::recording_lifecycle_order_for_test();
+    const auto events = radar_camera::node::recording_lifecycle_order();
 
-    ASSERT_EQ(events, (std::vector<std::string> { "inference", "recorder", "reader", "monitor" }));
+    ASSERT_EQ(events,
+        (std::vector<radar_camera::node::LifecycleComponent> {
+            radar_camera::node::LifecycleComponent::inference,
+            radar_camera::node::LifecycleComponent::recorder,
+            radar_camera::node::LifecycleComponent::reader,
+            radar_camera::node::LifecycleComponent::monitor }));
 }
 
 TEST_F(CameraRecordingContract, ConstructorCleanupStopsEveryStartedComponent) {
-    const auto cleanup = radar_camera::node::RadarCameraNode::constructor_cleanup_for_test(
-        { "shm", "inference", "recorder", "reader", "monitor" });
+    const auto cleanup =
+        radar_camera::node::constructor_cleanup_order({ radar_camera::node::LifecycleComponent::shm,
+            radar_camera::node::LifecycleComponent::inference,
+            radar_camera::node::LifecycleComponent::recorder,
+            radar_camera::node::LifecycleComponent::reader,
+            radar_camera::node::LifecycleComponent::monitor });
 
     EXPECT_EQ(cleanup,
-        (std::vector<std::string> { "monitor", "reader", "recorder", "inference", "shm" }));
+        (std::vector<radar_camera::node::LifecycleComponent> {
+            radar_camera::node::LifecycleComponent::monitor,
+            radar_camera::node::LifecycleComponent::reader,
+            radar_camera::node::LifecycleComponent::recorder,
+            radar_camera::node::LifecycleComponent::inference,
+            radar_camera::node::LifecycleComponent::shm }));
 }
 
 TEST_F(CameraRecordingContract, ConstructorCleanupClosesShmWhenInferenceNeverStarts) {
-    const auto cleanup = radar_camera::node::RadarCameraNode::constructor_cleanup_for_test({ "sh"
-                                                                                             "m" });
+    const auto cleanup = radar_camera::node::constructor_cleanup_order(
+        { radar_camera::node::LifecycleComponent::shm });
 
-    EXPECT_EQ(cleanup, (std::vector<std::string> { "shm" }));
+    EXPECT_EQ(cleanup,
+        (std::vector<radar_camera::node::LifecycleComponent> {
+            radar_camera::node::LifecycleComponent::shm }));
+}
+
+TEST_F(CameraRecordingContract, DisabledRecordingHasNoComponentsWithoutHardware) {
+    radar_camera::recording::RecordingConfig config { };
+    config.enabled = false;
+
+    const auto components = radar_camera::node::make_recording_components(config, "unused");
+
+    EXPECT_FALSE(components.fifo);
+    EXPECT_FALSE(components.recorder);
+    EXPECT_FALSE(components.reader);
 }
 
 } // namespace

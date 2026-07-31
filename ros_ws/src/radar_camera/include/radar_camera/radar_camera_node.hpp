@@ -21,6 +21,19 @@
 namespace radar_camera::node {
 
 enum class NodeStatus { starting, running, failed, stopped };
+enum class LifecycleComponent { shm, inference, recorder, reader, monitor };
+
+struct RecordingComponents {
+    std::unique_ptr<recording::RecordingFifo> fifo;
+    std::unique_ptr<recording::RawVideoRecorder> recorder;
+    std::unique_ptr<recording::RawShmReader> reader;
+};
+
+[[nodiscard]] auto recording_lifecycle_order() -> std::vector<LifecycleComponent>;
+[[nodiscard]] auto constructor_cleanup_order(const std::vector<LifecycleComponent>& started)
+    -> std::vector<LifecycleComponent>;
+[[nodiscard]] auto make_recording_components(
+    const recording::RecordingConfig& config, const std::string& shm_name) -> RecordingComponents;
 
 auto ConfigsLoader(rclcpp::Node& node, camera_config::CameraConfig& camera,
     inference_config::InferenceConfig& inference, projection_config::ProjectionConfig& projection,
@@ -34,9 +47,6 @@ public:
     auto PublishCallback(const robot_pose::RobotPose& robot_poses) -> void;
     [[nodiscard]] auto status() const -> NodeStatus;
     [[nodiscard]] auto failure_reason() const -> std::string;
-    [[nodiscard]] static auto recording_lifecycle_order_for_test() -> std::vector<std::string>;
-    [[nodiscard]] static auto constructor_cleanup_for_test(const std::vector<std::string>& started)
-        -> std::vector<std::string>;
 
 private:
     auto constructor_cleanup() noexcept -> void;
