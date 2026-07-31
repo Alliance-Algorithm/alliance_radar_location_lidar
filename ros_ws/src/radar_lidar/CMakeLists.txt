@@ -38,6 +38,7 @@ add_library(${PROJECT_NAME}_offline_lib STATIC
     tools/offline_pipeline.cpp
     tools/offline_detection_node.cpp
     tools/offline_test_node.cpp
+    tools/radar_lidar/grid_map.cpp
 )
 target_link_libraries(${PROJECT_NAME}_offline_lib ${PROJECT_NAME}_core)
 target_include_directories(${PROJECT_NAME}_offline_lib PUBLIC
@@ -109,6 +110,7 @@ if(BUILD_TESTING)
       test/test_frame_accumulator.cpp
       test/test_spherical_grid.cpp
       test/test_offline_visualization.cpp
+      test/test_grid_map.cpp
   )
   target_link_libraries(radar_tests ${PROJECT_NAME}_core ${PROJECT_NAME}_offline_lib)
   target_include_directories(radar_tests PRIVATE tools)
