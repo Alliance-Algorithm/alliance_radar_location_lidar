@@ -35,3 +35,14 @@ radar_camera_node:
     translation: [0.0, 0.0, 0.0]
     pub_topic_name: "/radar_camera/robot_pose"
     sub_topic_name: "/camera/image_raw"
+    enable_raw_recording: false
+    recording_output_dir: "/data/competition/recordings"
+    recording_width: 5472
+    recording_height: 3648
+    recording_fps: 20
+    recording_bitrate: 40000000
+    recording_gop: 20
+    recording_encoder: "h264_nvenc"
+    recording_segment_duration_sec: 60
+    recording_buffer_pool_frames: 8
+    recording_max_buffer_bytes: 480000000
