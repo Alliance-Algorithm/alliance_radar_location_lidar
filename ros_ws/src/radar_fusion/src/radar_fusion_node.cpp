@@ -42,6 +42,7 @@ RadarFusionNode::RadarFusionNode(const rclcpp::NodeOptions& options)
     this->declare_parameter("max_misses_before_delete", 2);
     this->declare_parameter("max_tracks", 20);
     this->declare_parameter("enable_camera_fusion", false);
+    this->declare_parameter("camera_timeout_sec", 1.5);
     this->declare_parameter("map_to_rm_offset_x", 14.0);
     this->declare_parameter("map_to_rm_offset_y", 7.5);
 
@@ -51,6 +52,7 @@ RadarFusionNode::RadarFusionNode(const rclcpp::NodeOptions& options)
     cfg_.max_misses_before_delete = this->get_parameter("max_misses_before_delete").as_int();
     cfg_.max_tracks               = this->get_parameter("max_tracks").as_int();
     cfg_.enable_camera_fusion     = this->get_parameter("enable_camera_fusion").as_bool();
+    cfg_.camera_timeout_sec       = this->get_parameter("camera_timeout_sec").as_double();
     cfg_.map_to_rm_offset_x       = this->get_parameter("map_to_rm_offset_x").as_double();
     cfg_.map_to_rm_offset_y       = this->get_parameter("map_to_rm_offset_y").as_double();
     tracks_.reserve(static_cast<std::size_t>(cfg_.max_tracks));
