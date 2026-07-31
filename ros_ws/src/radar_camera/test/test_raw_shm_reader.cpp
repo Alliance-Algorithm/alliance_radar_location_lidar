@@ -1,0 +1,98 @@
+#include <cstdint>
+#include <limits>
+
+#include <gtest/gtest.h>
+#include <opencv2/core.hpp>
+
+#include "radar_camera/raw_shm_reader.hpp"
+#include "radar_camera/recording_fifo.hpp"
+
+namespace radar_camera::recording {
+
+TEST(RawShmReader, CounterZeroHasNoCompletedSlot) {
+    EXPECT_FALSE(valid_frame_counter(0));
+    EXPECT_TRUE(valid_frame_counter(1));
+}
+
+TEST(RawShmReader, CompletedSlotUsesThePreviouslyPublishedCounter) {
+    EXPECT_EQ(completed_slot(1, 4), 0U);
+    EXPECT_EQ(completed_slot(2, 4), 1U);
+    EXPECT_EQ(completed_slot(5, 4), 0U);
+    EXPECT_EQ(completed_slot(17, 4), 0U);
+}
+
+TEST(RawShmReader, StabilityRequiresAnUnchangedCounter) {
+    EXPECT_TRUE(is_stable(12, 12));
+    EXPECT_FALSE(is_stable(12, 13));
+}
+
+TEST(RawShmReader, CounterMustAdvanceExactlyOneAfterStartupBaseline) {
+    EXPECT_TRUE(is_contiguous_counter(0, 7));
+    EXPECT_TRUE(is_contiguous_counter(7, 8));
+    EXPECT_FALSE(is_contiguous_counter(7, 9));
+    EXPECT_FALSE(is_contiguous_counter(7, 6));
+    EXPECT_FALSE(is_contiguous_counter(std::numeric_limits<std::uint64_t>::max(), 1));
+}
+
+TEST(RawShmReader, CounterZeroResetsOnlyAfterAEstablishedBaseline) {
+    EXPECT_FALSE(is_counter_reset(0, 0));
+    EXPECT_TRUE(is_counter_reset(7, 0));
+    EXPECT_FALSE(is_counter_reset(7, 8));
+}
+
+TEST(RawShmReader, StopIsIdempotentBeforeAndAfterFailedStart) {
+    RecordingFifo fifo(1);
+    RawShmReader reader("", 4, 2, fifo);
+
+    reader.stop();
+    EXPECT_FALSE(reader.start());
+    reader.stop();
+    EXPECT_EQ(reader.state(), ReaderState::stopped);
+}
+
+TEST(RawShmReader, FailedStartLeavesReaderStoppedAndObservable) {
+    RecordingFifo fifo(2);
+    RawShmReader reader("", 4, 2, fifo);
+
+    const auto result = reader.start();
+
+    ASSERT_FALSE(result);
+    EXPECT_EQ(reader.state(), ReaderState::stopped);
+    reader.stop();
+    EXPECT_EQ(reader.state(), ReaderState::stopped);
+}
+
+TEST(RawShmReader, ValidatesDimensionsAndRgbByteCount) {
+    EXPECT_TRUE(validate_raw_frame_dimensions(4, 2));
+    EXPECT_FALSE(validate_raw_frame_dimensions(0, 2));
+    EXPECT_FALSE(validate_raw_frame_dimensions(4, -1));
+    EXPECT_FALSE(validate_raw_frame_dimensions(5473, 3648));
+
+    ASSERT_EQ(raw_frame_byte_count(4, 2), 24U);
+    EXPECT_FALSE(raw_frame_byte_count(0, 2));
+}
+
+TEST(RawShmReader, ValidatesExistingShmObjectSize) {
+    EXPECT_TRUE(valid_shm_object_size(sizeof(hikcamera::imageSHM)));
+    EXPECT_FALSE(valid_shm_object_size(sizeof(hikcamera::imageSHM) - 1));
+    EXPECT_FALSE(valid_shm_object_size(sizeof(hikcamera::imageSHM) + 1));
+}
+
+TEST(RawShmReader, RawFramePreservesImageAndMetadata) {
+    cv::Mat image(2, 3, CV_8UC3, cv::Scalar(7, 8, 9));
+    constexpr std::uint64_t sequence = 42;
+    constexpr std::uint64_t host_ns  = 123456789;
+
+    RawFrame frame { image.clone(), sequence, host_ns };
+
+    EXPECT_EQ(frame.rgb.rows, 2);
+    EXPECT_EQ(frame.rgb.cols, 3);
+    const auto pixel = frame.rgb.at<cv::Vec3b>(0, 0);
+    EXPECT_EQ(pixel[0], 7);
+    EXPECT_EQ(pixel[1], 8);
+    EXPECT_EQ(pixel[2], 9);
+    EXPECT_EQ(frame.sequence, sequence);
+    EXPECT_EQ(frame.host_monotonic_ns, host_ns);
+}
+
+} // namespace radar_camera::recording

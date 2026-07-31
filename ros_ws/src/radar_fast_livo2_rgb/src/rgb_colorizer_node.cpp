@@ -31,13 +31,13 @@
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
 
+#include <nav_msgs/msg/odometry.hpp>
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
+#include <pcl_conversions/pcl_conversions.h>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
-#include <nav_msgs/msg/odometry.hpp>
-#include <pcl_conversions/pcl_conversions.h>
-#include <pcl/point_cloud.h>
-#include <pcl/point_types.h>
 
 #include "radar_fast_livo2_rgb/camera_frame.hpp"
 #include "radar_fast_livo2_rgb/color_voxel_map.hpp"
@@ -49,42 +49,36 @@ namespace radar::fast_livo2::rgb {
 
 namespace {
 
-using namespace std::chrono_literals;
+    using namespace std::chrono_literals;
 
-// ════════════════════════════════════════════════════════════════════════
-// Timestamped wrappers for the image queue and odometry cache.
-// ════════════════════════════════════════════════════════════════════════
+    // ════════════════════════════════════════════════════════════════════════
+    // Timestamped wrappers for the image queue and odometry cache.
+    // ════════════════════════════════════════════════════════════════════════
 
-struct TimestampedImage {
-    cv::Mat data;          // owned (BGR for replay, RGB for live SHM)
-    rclcpp::Time stamp;
-    bool source_is_rgb = false;  // true if data came from live SHM (RGB byte order)
-};
+    struct TimestampedImage {
+        cv::Mat data; // owned (BGR for replay, RGB for live SHM)
+        rclcpp::Time stamp;
+        bool source_is_rgb = false; // true if data came from live SHM (RGB byte order)
+    };
 
-struct TimestampedOdom {
-    Eigen::Isometry3d pose;  // T_world_lidar
-    rclcpp::Time stamp;
-};
+    struct TimestampedOdom {
+        Eigen::Isometry3d pose; // T_world_lidar
+        rclcpp::Time stamp;
+    };
 
-// ════════════════════════════════════════════════════════════════════════
-// Odometry → Isometry3d conversion
-// ════════════════════════════════════════════════════════════════════════
+    // ════════════════════════════════════════════════════════════════════════
+    // Odometry → Isometry3d conversion
+    // ════════════════════════════════════════════════════════════════════════
 
-auto odom_to_isometry(const nav_msgs::msg::Odometry& msg) -> Eigen::Isometry3d
-{
-    Eigen::Isometry3d pose = Eigen::Isometry3d::Identity();
-    pose.translation() = Eigen::Vector3d(
-        msg.pose.pose.position.x,
-        msg.pose.pose.position.y,
-        msg.pose.pose.position.z);
-    Eigen::Quaterniond q(
-        msg.pose.pose.orientation.w,
-        msg.pose.pose.orientation.x,
-        msg.pose.pose.orientation.y,
-        msg.pose.pose.orientation.z);
-    pose.linear() = q.toRotationMatrix();
-    return pose;
-}
+    auto odom_to_isometry(const nav_msgs::msg::Odometry& msg) -> Eigen::Isometry3d {
+        Eigen::Isometry3d pose = Eigen::Isometry3d::Identity();
+        pose.translation()     = Eigen::Vector3d(
+            msg.pose.pose.position.x, msg.pose.pose.position.y, msg.pose.pose.position.z);
+        Eigen::Quaterniond q(msg.pose.pose.orientation.w, msg.pose.pose.orientation.x,
+            msg.pose.pose.orientation.y, msg.pose.pose.orientation.z);
+        pose.linear() = q.toRotationMatrix();
+        return pose;
+    }
 
 } // anonymous namespace
 
@@ -95,72 +89,59 @@ auto odom_to_isometry(const nav_msgs::msg::Odometry& msg) -> Eigen::Isometry3d
 class RgbColorizerNode final : public rclcpp::Node {
 public:
     RgbColorizerNode()
-        : Node("rgb_colorizer_node")
-    {
+        : Node("rgb_colorizer_node") {
         load_parameters();
 
         // ── Calibration ────────────────────────────────────────────────
-        calibration_.fx = fx_;
-        calibration_.fy = fy_;
-        calibration_.cx = cx_;
-        calibration_.cy = cy_;
-        calibration_.rotation_lidar_camera = rotation_lidar_camera_;
+        calibration_.fx                       = fx_;
+        calibration_.fy                       = fy_;
+        calibration_.cx                       = cx_;
+        calibration_.cy                       = cy_;
+        calibration_.rotation_lidar_camera    = rotation_lidar_camera_;
         calibration_.translation_lidar_camera = translation_lidar_camera_;
-        calibration_.quality_weights = quality_weights_;
+        calibration_.quality_weights          = quality_weights_;
 
         // Construct the color map AFTER all parameters are loaded.
         color_map_ = std::make_unique<ColorVoxelMap>(voxel_size_);
 
         if (!validate_calibration(calibration_)) {
-            RCLCPP_FATAL(get_logger(),
-                "Calibration rejected: intrinsics or extrinsics invalid");
+            RCLCPP_FATAL(get_logger(), "Calibration rejected: intrinsics or extrinsics invalid");
             throw std::runtime_error("Calibration validation failed");
         }
 
         // ── Subscribers ────────────────────────────────────────────────
-        cloud_sub_ = create_subscription<sensor_msgs::msg::PointCloud2>(
-            "/fast_livo2/cloud_world",
-            rclcpp::SensorDataQoS(),
-            [this](sensor_msgs::msg::PointCloud2::SharedPtr msg) {
+        cloud_sub_ = create_subscription<sensor_msgs::msg::PointCloud2>("/fast_livo2/cloud_world",
+            rclcpp::SensorDataQoS(), [this](sensor_msgs::msg::PointCloud2::SharedPtr msg) {
                 on_cloud_world(std::move(msg));
             });
 
-        odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
-            "/fast_livo2/odom",
+        odom_sub_ = create_subscription<nav_msgs::msg::Odometry>("/fast_livo2/odom",
             rclcpp::SensorDataQoS(),
-            [this](nav_msgs::msg::Odometry::SharedPtr msg) {
-                on_odometry(std::move(msg));
-            });
+            [this](nav_msgs::msg::Odometry::SharedPtr msg) { on_odometry(std::move(msg)); });
 
         // ── Camera input ───────────────────────────────────────────────
         start_camera_input();
 
         // ── Publishers ─────────────────────────────────────────────────
-        auto cloud_qos = rclcpp::QoS(rclcpp::KeepLast(1))
-            .reliable()
-            .durability_volatile();
+        auto cloud_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().durability_volatile();
 
-        cloud_rgb_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
-            "/fast_livo2/cloud_rgb_map", cloud_qos);
+        cloud_rgb_pub_ =
+            create_publisher<sensor_msgs::msg::PointCloud2>("/fast_livo2/cloud_rgb_map", cloud_qos);
 
         // ── Timers ─────────────────────────────────────────────────────
         publish_timer_ = create_wall_timer(
-            std::chrono::milliseconds(publish_interval_ms_),
-            [this]() { on_publish_timer(); });
+            std::chrono::milliseconds(publish_interval_ms_), [this]() { on_publish_timer(); });
 
         pcd_timer_ = create_wall_timer(
-            std::chrono::milliseconds(pcd_save_interval_ms_),
-            [this]() { on_pcd_timer(); });
+            std::chrono::milliseconds(pcd_save_interval_ms_), [this]() { on_pcd_timer(); });
 
         RCLCPP_INFO(get_logger(),
             "RgbColorizerNode ready: mode=%s voxel=%.2fm "
             "%dx%d fx=%.1f fy=%.1f",
-            camera_input_mode_.c_str(), voxel_size_,
-            camera_width_, camera_height_, fx_, fy_);
+            camera_input_mode_.c_str(), voxel_size_, camera_width_, camera_height_, fx_, fy_);
     }
 
-    ~RgbColorizerNode() override
-    {
+    ~RgbColorizerNode() override {
         publish_timer_->cancel();
         pcd_timer_->cancel();
         stop_camera_input();
@@ -169,8 +150,7 @@ public:
 private:
     // ── Parameters ─────────────────────────────────────────────────────
 
-    void load_parameters()
-    {
+    void load_parameters() {
         declare_parameter("camera_input_mode", "ros_image");
         declare_parameter("shm_name", "/hikcamera_shm");
         declare_parameter("img_time_offset", 0.0);
@@ -186,12 +166,8 @@ private:
 
         // LiDAR→camera extrinsics (rotation matrix, translation vector)
         declare_parameter("rotation_lidar_camera",
-            std::vector<double>{
-                1.0, 0.0, 0.0,
-                0.0, 1.0, 0.0,
-                0.0, 0.0, 1.0});
-        declare_parameter("translation_lidar_camera",
-            std::vector<double>{0.0, 0.0, 0.0});
+            std::vector<double> { 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0 });
+        declare_parameter("translation_lidar_camera", std::vector<double> { 0.0, 0.0, 0.0 });
 
         // Quality weights
         declare_parameter("quality_axis_alignment", 1.0);
@@ -209,55 +185,51 @@ private:
         declare_parameter("pcd_save_dir", "/tmp");
         declare_parameter("pcd_trigger", false);
 
-        camera_input_mode_ = get_parameter("camera_input_mode").as_string();
-        shm_name_ = get_parameter("shm_name").as_string();
-        img_time_offset_ = get_parameter("img_time_offset").as_double();
+        camera_input_mode_  = get_parameter("camera_input_mode").as_string();
+        shm_name_           = get_parameter("shm_name").as_string();
+        img_time_offset_    = get_parameter("img_time_offset").as_double();
         camera_image_topic_ = get_parameter("camera_image_topic").as_string();
-        camera_width_ = get_parameter("camera_width").as_int();
-        camera_height_ = get_parameter("camera_height").as_int();
+        camera_width_       = get_parameter("camera_width").as_int();
+        camera_height_      = get_parameter("camera_height").as_int();
 
         fx_ = get_parameter("fx").as_double();
         fy_ = get_parameter("fy").as_double();
         cx_ = get_parameter("cx").as_double();
         cy_ = get_parameter("cy").as_double();
 
-        auto rot = get_parameter("rotation_lidar_camera").as_double_array();
+        auto rot   = get_parameter("rotation_lidar_camera").as_double_array();
         auto trans = get_parameter("translation_lidar_camera").as_double_array();
         if (rot.size() != 9 || trans.size() != 3) {
-            throw std::runtime_error(
-                "rotation_lidar_camera must have 9 elements, "
-                "translation_lidar_camera must have 3");
+            throw std::runtime_error("rotation_lidar_camera must have 9 elements, "
+                                     "translation_lidar_camera must have 3");
         }
-        rotation_lidar_camera_ << rot[0], rot[1], rot[2],
-                                  rot[3], rot[4], rot[5],
-                                  rot[6], rot[7], rot[8];
+        rotation_lidar_camera_ << rot[0], rot[1], rot[2], rot[3], rot[4], rot[5], rot[6], rot[7],
+            rot[8];
         translation_lidar_camera_ << trans[0], trans[1], trans[2];
 
-        quality_weights_.axis_alignment = get_parameter("quality_axis_alignment").as_double();
+        quality_weights_.axis_alignment   = get_parameter("quality_axis_alignment").as_double();
         quality_weights_.inverse_distance = get_parameter("quality_inverse_distance").as_double();
-        quality_weights_.image_center = get_parameter("quality_image_center").as_double();
-        quality_weights_.gradient = get_parameter("quality_gradient").as_double();
+        quality_weights_.image_center     = get_parameter("quality_image_center").as_double();
+        quality_weights_.gradient         = get_parameter("quality_gradient").as_double();
 
         voxel_size_ = get_parameter("voxel_size").as_double();
 
         if (!is_finite_positive(voxel_size_)) {
-            throw std::runtime_error(
-                "voxel_size must be finite and strictly positive, got "
+            throw std::runtime_error("voxel_size must be finite and strictly positive, got "
                 + std::to_string(voxel_size_));
         }
 
-        max_image_queue_ = static_cast<size_t>(get_parameter("max_image_queue").as_int());
-        max_odom_cache_ = static_cast<size_t>(get_parameter("max_odom_cache").as_int());
-        time_tolerance_ms_ = get_parameter("time_tolerance_ms").as_int();
-        publish_interval_ms_ = get_parameter("publish_interval_ms").as_int();
+        max_image_queue_      = static_cast<size_t>(get_parameter("max_image_queue").as_int());
+        max_odom_cache_       = static_cast<size_t>(get_parameter("max_odom_cache").as_int());
+        time_tolerance_ms_    = get_parameter("time_tolerance_ms").as_int();
+        publish_interval_ms_  = get_parameter("publish_interval_ms").as_int();
         pcd_save_interval_ms_ = get_parameter("pcd_save_interval_ms").as_int();
-        pcd_save_dir_ = get_parameter("pcd_save_dir").as_string();
+        pcd_save_dir_         = get_parameter("pcd_save_dir").as_string();
 
         // Validate mode
         if (camera_input_mode_ != "shm" && camera_input_mode_ != "ros_image") {
             throw std::runtime_error(
-                "camera_input_mode must be 'shm' or 'ros_image', got: "
-                + camera_input_mode_);
+                "camera_input_mode must be 'shm' or 'ros_image', got: " + camera_input_mode_);
         }
 
         // Validate intrinsic/extrinsic placeholders
@@ -286,130 +258,107 @@ private:
             if (!std::filesystem::is_directory(pcd_save_dir_, ec)) {
                 if (ec) {
                     throw std::runtime_error(
-                        "PCD save directory check failed: "
-                        + pcd_save_dir_ + " — " + ec.message());
+                        "PCD save directory check failed: " + pcd_save_dir_ + " — " + ec.message());
                 }
                 throw std::runtime_error(
-                    "PCD save directory does not exist or is not a directory: "
-                    + pcd_save_dir_);
+                    "PCD save directory does not exist or is not a directory: " + pcd_save_dir_);
             }
         }
     }
 
     // ── Camera input startup ───────────────────────────────────────────
 
-    void start_camera_input()
-    {
+    void start_camera_input() {
         if (camera_input_mode_ == "shm") {
             open_shm();
             shm_running_.store(true, std::memory_order_release);
             shm_thread_ = std::thread(&RgbColorizerNode::shm_loop, this);
         } else {
             // ros_image mode: subscribe to BGR8 topic
-            image_sub_ = create_subscription<sensor_msgs::msg::Image>(
-                camera_image_topic_,
+            image_sub_ = create_subscription<sensor_msgs::msg::Image>(camera_image_topic_,
                 rclcpp::SensorDataQoS(),
-                [this](sensor_msgs::msg::Image::SharedPtr msg) {
-                    on_image(msg);
-                });
-            RCLCPP_INFO(get_logger(),
-                "Subscribed to camera image topic: %s",
-                camera_image_topic_.c_str());
+                [this](sensor_msgs::msg::Image::SharedPtr msg) { on_image(msg); });
+            RCLCPP_INFO(
+                get_logger(), "Subscribed to camera image topic: %s", camera_image_topic_.c_str());
         }
     }
 
-    void stop_camera_input()
-    {
+    void stop_camera_input() {
         if (shm_thread_.joinable()) {
             shm_running_.store(false, std::memory_order_release);
             shm_thread_.join();
         }
         if (shm_ptr_ != nullptr) {
             std::ignore = hikcamera::SHMReleasePtr(shm_ptr_);
-            shm_ptr_ = nullptr;
+            shm_ptr_    = nullptr;
         }
         if (shm_fd_ != -1) {
             std::ignore = hikcamera::SHMClose(shm_fd_);
-            shm_fd_ = -1;
+            shm_fd_     = -1;
         }
     }
 
     // ── SHM (live mode) ────────────────────────────────────────────────
 
-    void open_shm()
-    {
-        auto fd_ret = hikcamera::SHMInit(
-            shm_name_, sizeof(hikcamera::imageSHM));
+    void open_shm() {
+        auto fd_ret = hikcamera::SHMInit(shm_name_, sizeof(hikcamera::imageSHM));
         if (!fd_ret.has_value()) {
-            throw std::runtime_error(
-                "SHMInit('" + shm_name_ + "') failed: " + fd_ret.error());
+            throw std::runtime_error("SHMInit('" + shm_name_ + "') failed: " + fd_ret.error());
         }
         shm_fd_ = fd_ret.value();
 
         auto ptr_ret = hikcamera::SHMGetPtr(shm_fd_);
         if (!ptr_ret.has_value()) {
             std::ignore = hikcamera::SHMClose(shm_fd_);
-            shm_fd_ = -1;
+            shm_fd_     = -1;
             throw std::runtime_error("SHMGetPtr failed: " + ptr_ret.error());
         }
         shm_ptr_ = ptr_ret.value();
 
-        image_bytes_ = static_cast<size_t>(camera_width_)
-                     * static_cast<size_t>(camera_height_) * 3;
+        image_bytes_ = static_cast<size_t>(camera_width_) * static_cast<size_t>(camera_height_) * 3;
 
-        RCLCPP_INFO(get_logger(),
-            "SHM opened: fd=%d ptr=%p name='%s' %dx%d (%zu bytes)",
-            shm_fd_, static_cast<void*>(shm_ptr_), shm_name_.c_str(),
-            camera_width_, camera_height_, image_bytes_);
+        RCLCPP_INFO(get_logger(), "SHM opened: fd=%d ptr=%p name='%s' %dx%d (%zu bytes)", shm_fd_,
+            static_cast<void*>(shm_ptr_), shm_name_.c_str(), camera_width_, camera_height_,
+            image_bytes_);
     }
 
     /// Semaphore-free polling loop — same protocol as Task 4 recorder.
     /// Does NOT consume imageSHM::sem (preserves it for radar_bridge).
     /// Does NOT lock the SHM mutex (writer doesn't participate).
     /// Makes ONE full RGB copy per frame into an owned cv::Mat.
-    void shm_loop()
-    {
+    void shm_loop() {
         constexpr int kPollIntervalMs = 1;
         constexpr int kMaxCopyRetries = 3;
-        uint64_t last_seen = 0;
+        uint64_t last_seen            = 0;
 
         while (shm_running_.load(std::memory_order_acquire)) {
-            uint64_t counter =
-                shm_ptr_->frame_counter.load(std::memory_order_acquire);
+            uint64_t counter = shm_ptr_->frame_counter.load(std::memory_order_acquire);
 
             if (!should_process_counter(counter, last_seen)) {
-                std::this_thread::sleep_for(
-                    std::chrono::milliseconds(kPollIntervalMs));
+                std::this_thread::sleep_for(std::chrono::milliseconds(kPollIntervalMs));
                 continue;
             }
 
             uint64_t latest_seen = counter;
-            bool pushed = false;
+            bool pushed          = false;
 
             for (int retry = 0; retry < kMaxCopyRetries; ++retry) {
-                uint64_t counter_before =
-                    shm_ptr_->frame_counter.load(std::memory_order_acquire);
+                uint64_t counter_before = shm_ptr_->frame_counter.load(std::memory_order_acquire);
                 if (!is_valid_frame_counter(counter_before)) break;
                 latest_seen = counter_before;
 
-                unsigned int slot = completed_slot_from_counter(
-                    counter_before, SLOT_NUM);
+                unsigned int slot = completed_slot_from_counter(counter_before, SLOT_NUM);
 
                 // One full copy into owned cv::Mat.
                 cv::Mat rgb(camera_height_, camera_width_, CV_8UC3);
-                std::memcpy(rgb.data,
-                            shm_ptr_->imagedata[slot],
-                            image_bytes_);
+                std::memcpy(rgb.data, shm_ptr_->imagedata[slot], image_bytes_);
 
                 auto ts_monotonic = shm_ptr_->timestamp[slot];
-                uint64_t host_ns = static_cast<uint64_t>(
-                    ts_monotonic.time_since_epoch().count());
-                auto ros_stamp = camera_stamp_from_shm(
-                    host_ns, img_time_offset_);
+                uint64_t host_ns  = static_cast<uint64_t>(ts_monotonic.time_since_epoch().count());
+                auto ros_stamp    = camera_stamp_from_shm(host_ns, img_time_offset_);
 
-                uint64_t counter_after =
-                    shm_ptr_->frame_counter.load(std::memory_order_acquire);
-                latest_seen = counter_after;
+                uint64_t counter_after = shm_ptr_->frame_counter.load(std::memory_order_acquire);
+                latest_seen            = counter_after;
 
                 if (is_frame_stable(counter_before, counter_after)) {
                     push_image(std::move(rgb), ros_stamp, /*source_is_rgb=*/true);
@@ -424,16 +373,14 @@ private:
                 RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
                     "SHM frame_counter unstable after %d retries; "
                     "skipping to counter %lu",
-                    kMaxCopyRetries,
-                    static_cast<unsigned long>(latest_seen));
+                    kMaxCopyRetries, static_cast<unsigned long>(latest_seen));
             }
         }
     }
 
     // ── ROS image callback (replay mode) ───────────────────────────────
 
-    void on_image(sensor_msgs::msg::Image::SharedPtr msg)
-    {
+    void on_image(sensor_msgs::msg::Image::SharedPtr msg) {
         // Odin driver firmware may omit Image.encoding for this stream. The
         // payload is still the BGR8 decoded image created by publishRgb().
         if (!msg->encoding.empty() && msg->encoding != "bgr8" && msg->encoding != "rgb8") {
@@ -452,15 +399,10 @@ private:
             (static_cast<size_t>(msg->height) - 1U) * msg->step + row_bytes;
         if (msg->data.size() < required_bytes) return;
 
-        cv::Mat color(
-            static_cast<int>(msg->height),
-            static_cast<int>(msg->width),
-            CV_8UC3);
+        cv::Mat color(static_cast<int>(msg->height), static_cast<int>(msg->width), CV_8UC3);
         for (size_t row = 0; row < msg->height; ++row) {
             std::memcpy(
-                color.ptr(static_cast<int>(row)),
-                msg->data.data() + row * msg->step,
-                row_bytes);
+                color.ptr(static_cast<int>(row)), msg->data.data() + row * msg->step, row_bytes);
         }
 
         rclcpp::Time stamp(msg->header.stamp);
@@ -470,18 +412,15 @@ private:
 
     // ── Image queue ────────────────────────────────────────────────────
 
-    void push_image(cv::Mat color, const rclcpp::Time& stamp, bool source_is_rgb = false)
-    {
+    void push_image(cv::Mat color, const rclcpp::Time& stamp, bool source_is_rgb = false) {
         std::lock_guard<std::mutex> lock(image_queue_mutex_);
-        image_queue_.push_back({std::move(color), stamp, source_is_rgb});
+        image_queue_.push_back({ std::move(color), stamp, source_is_rgb });
         while (image_queue_.size() > max_image_queue_) {
             image_queue_.pop_front();
         }
     }
 
-    auto find_nearest_image(const rclcpp::Time& target) const
-        -> std::optional<TimestampedImage>
-    {
+    auto find_nearest_image(const rclcpp::Time& target) const -> std::optional<TimestampedImage> {
         // Phase 1 (under lock): find best match, capture a shallow
         // cv::Mat copy (ref-counted shared data) — no deep copy here.
         cv::Mat snapshot;
@@ -495,15 +434,15 @@ private:
                 static_cast<int64_t>(time_tolerance_ms_) * 1'000'000LL);
 
             const TimestampedImage* best = nullptr;
-            rclcpp::Duration best_diff = rclcpp::Duration::from_nanoseconds(
-                std::numeric_limits<int64_t>::max());
+            rclcpp::Duration best_diff =
+                rclcpp::Duration::from_nanoseconds(std::numeric_limits<int64_t>::max());
 
             for (const auto& img : image_queue_) {
-                auto abs_ns = std::abs((target - img.stamp).nanoseconds());
+                auto abs_ns  = std::abs((target - img.stamp).nanoseconds());
                 auto abs_dur = rclcpp::Duration::from_nanoseconds(abs_ns);
                 if (abs_dur <= tolerance && abs_dur < best_diff) {
                     best_diff = abs_dur;
-                    best = &img;
+                    best      = &img;
                 }
             }
 
@@ -512,45 +451,37 @@ private:
             // Shallow copy: cv::Mat ref-counts underlying data, so the
             // pixel buffer stays alive even after the lock is released
             // and the deque entry is potentially evicted by another thread.
-            snapshot = best->data;
-            best_stamp = best->stamp;
+            snapshot      = best->data;
+            best_stamp    = best->stamp;
             source_is_rgb = best->source_is_rgb;
         }
 
         // Phase 2 (no lock): deep-clone into an owned cv::Mat.
         // snapshot still holds a ref count on the pixel data.
-        return TimestampedImage{
-            .data = snapshot.clone(),
-            .stamp = best_stamp,
-            .source_is_rgb = source_is_rgb
+        return TimestampedImage {
+            .data = snapshot.clone(), .stamp = best_stamp, .source_is_rgb = source_is_rgb
         };
     }
 
     // ── Odometry cache ─────────────────────────────────────────────────
 
-    void on_odometry(nav_msgs::msg::Odometry::SharedPtr msg)
-    {
+    void on_odometry(nav_msgs::msg::Odometry::SharedPtr msg) {
         std::lock_guard<std::mutex> lock(odom_cache_mutex_);
-        odom_cache_.push_back({
-            odom_to_isometry(*msg),
-            rclcpp::Time(msg->header.stamp)
-        });
+        odom_cache_.push_back({ odom_to_isometry(*msg), rclcpp::Time(msg->header.stamp) });
         while (odom_cache_.size() > max_odom_cache_) {
             odom_cache_.pop_front();
         }
     }
 
-    auto find_nearest_odom(const rclcpp::Time& target) const
-        -> std::optional<TimestampedOdom>
-    {
+    auto find_nearest_odom(const rclcpp::Time& target) const -> std::optional<TimestampedOdom> {
         std::lock_guard<std::mutex> lock(odom_cache_mutex_);
         if (odom_cache_.empty()) return std::nullopt;
 
         auto tolerance_ns = static_cast<int64_t>(time_tolerance_ms_) * 1'000'000LL;
 
         const TimestampedOdom* best = nullptr;
-        rclcpp::Duration best_diff = rclcpp::Duration::from_nanoseconds(
-            std::numeric_limits<int64_t>::max());
+        rclcpp::Duration best_diff =
+            rclcpp::Duration::from_nanoseconds(std::numeric_limits<int64_t>::max());
 
         for (const auto& odom : odom_cache_) {
             auto abs_ns = std::abs((target - odom.stamp).nanoseconds());
@@ -558,7 +489,7 @@ private:
             auto abs_dur = rclcpp::Duration::from_nanoseconds(abs_ns);
             if (abs_dur < best_diff) {
                 best_diff = abs_dur;
-                best = &odom;
+                best      = &odom;
             }
         }
 
@@ -568,8 +499,7 @@ private:
 
     // ── Cloud world callback ───────────────────────────────────────────
 
-    void on_cloud_world(sensor_msgs::msg::PointCloud2::SharedPtr msg)
-    {
+    void on_cloud_world(sensor_msgs::msg::PointCloud2::SharedPtr msg) {
         // Extract world points from PointCloud2.
         pcl::PointCloud<pcl::PointXYZ> pcl_cloud;
         pcl::fromROSMsg(*msg, pcl_cloud);
@@ -588,8 +518,7 @@ private:
         auto image_opt = find_nearest_image(cloud_stamp);
         if (!image_opt.has_value()) {
             RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
-                "No BGR image within %d ms of cloud stamp %lu.%09lu",
-                time_tolerance_ms_,
+                "No BGR image within %d ms of cloud stamp %lu.%09lu", time_tolerance_ms_,
                 static_cast<unsigned long>(cloud_stamp.seconds()),
                 static_cast<unsigned long>(cloud_stamp.nanoseconds()));
             return;
@@ -606,52 +535,40 @@ private:
         }
 
         // Colorize.
-        ColorFormat fmt = image_opt->source_is_rgb
-            ? ColorFormat::RGB : ColorFormat::BGR;
-        auto map = color_world_points(
-            world_points,
-            image_opt->data,
-            odom_opt->pose,
-            calibration_,
-            quality_weights_,
-            voxel_size_,
-            fmt);
+        ColorFormat fmt = image_opt->source_is_rgb ? ColorFormat::RGB : ColorFormat::BGR;
+        auto map = color_world_points(world_points, image_opt->data, odom_opt->pose, calibration_,
+            quality_weights_, voxel_size_, fmt);
 
         // Merge into the shared map, preserving per-voxel quality scores.
         {
             std::lock_guard<std::mutex> lock(color_map_mutex_);
-            map.for_each_voxel(
-                [this](const Eigen::Vector3d& pos,
-                       uint32_t rgb, double quality) {
-                    color_map_->insert_if_better(pos, rgb, quality);
-                });
+            map.for_each_voxel([this](const Eigen::Vector3d& pos, uint32_t rgb, double quality) {
+                color_map_->insert_if_better(pos, rgb, quality);
+            });
         }
     }
 
     // ── Periodic publish ───────────────────────────────────────────────
 
-    void on_publish_timer()
-    {
+    void on_publish_timer() {
         std::lock_guard<std::mutex> lock(color_map_mutex_);
         publish_current_map();
     }
 
-    void publish_current_map()
-    {
+    void publish_current_map() {
         auto cloud = color_map_->to_point_cloud();
         if (cloud.empty()) return;
 
         sensor_msgs::msg::PointCloud2 msg;
         pcl::toROSMsg(cloud, msg);
-        msg.header.stamp = now();
+        msg.header.stamp    = now();
         msg.header.frame_id = "odom";
         cloud_rgb_pub_->publish(msg);
     }
 
     // ── PCD save trigger (polling) ─────────────────────────────────────
 
-    void on_pcd_timer()
-    {
+    void on_pcd_timer() {
         bool trigger = get_parameter("pcd_trigger").as_bool();
         if (!trigger) return;
 
@@ -665,33 +582,26 @@ private:
         set_parameter(rclcpp::Parameter("pcd_trigger", new_trigger));
 
         if (new_trigger) {
-            RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 10000,
-                "PCD save failed; trigger retained for retry");
+            RCLCPP_WARN_THROTTLE(
+                get_logger(), *get_clock(), 10000, "PCD save failed; trigger retained for retry");
         }
     }
 
-    int save_pcd_impl(const std::string& tag)
-    {
+    int save_pcd_impl(const std::string& tag) {
         int64_t total_ns = now().nanoseconds();
-        int32_t sec = static_cast<int32_t>(total_ns / 1'000'000'000LL);
-        uint32_t nsec = static_cast<uint32_t>(total_ns % 1'000'000'000LL);
+        int32_t sec      = static_cast<int32_t>(total_ns / 1'000'000'000LL);
+        uint32_t nsec    = static_cast<uint32_t>(total_ns % 1'000'000'000LL);
 
         char filename[512];
-        std::snprintf(filename, sizeof(filename),
-            "%s/cloud_rgb_%s_%d_%09u.pcd",
-            pcd_save_dir_.c_str(),
-            tag.c_str(),
-            sec,
-            nsec);
+        std::snprintf(filename, sizeof(filename), "%s/cloud_rgb_%s_%d_%09u.pcd",
+            pcd_save_dir_.c_str(), tag.c_str(), sec, nsec);
 
         int ret = color_map_->save_binary_pcd(filename);
         if (ret == 0) {
-            RCLCPP_INFO(get_logger(),
-                "PCD saved: %s (%zu voxels)",
-                filename, color_map_->size());
+            RCLCPP_INFO(get_logger(), "PCD saved: %s (%zu voxels)", filename, color_map_->size());
         } else {
-            RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 10000,
-                "PCD save failed: %s (code %d)", filename, ret);
+            RCLCPP_ERROR_THROTTLE(
+                get_logger(), *get_clock(), 10000, "PCD save failed: %s (code %d)", filename, ret);
         }
         return ret;
     }
@@ -703,17 +613,17 @@ private:
     std::string shm_name_;
     double img_time_offset_ = 0.0;
     std::string camera_image_topic_;
-    int camera_width_ = 5472;
+    int camera_width_  = 5472;
     int camera_height_ = 3648;
     double fx_ = 0.0, fy_ = 0.0, cx_ = 0.0, cy_ = 0.0;
-    Eigen::Matrix3d rotation_lidar_camera_ = Eigen::Matrix3d::Identity();
+    Eigen::Matrix3d rotation_lidar_camera_    = Eigen::Matrix3d::Identity();
     Eigen::Vector3d translation_lidar_camera_ = Eigen::Vector3d::Zero();
     QualityWeights quality_weights_;
-    double voxel_size_ = 0.10;
-    size_t max_image_queue_ = 5;
-    size_t max_odom_cache_ = 200;
-    int time_tolerance_ms_ = 50;
-    int publish_interval_ms_ = 1000;
+    double voxel_size_        = 0.10;
+    size_t max_image_queue_   = 5;
+    size_t max_odom_cache_    = 200;
+    int time_tolerance_ms_    = 50;
+    int publish_interval_ms_  = 1000;
     int pcd_save_interval_ms_ = 5000;
     std::string pcd_save_dir_;
 
@@ -745,9 +655,9 @@ private:
     rclcpp::TimerBase::SharedPtr pcd_timer_;
 
     // SHM (live mode)
-    int shm_fd_ = -1;
+    int shm_fd_                   = -1;
     hikcamera::imageSHM* shm_ptr_ = nullptr;
-    std::atomic<bool> shm_running_{false};
+    std::atomic<bool> shm_running_ { false };
     std::thread shm_thread_;
     size_t image_bytes_ = 0;
 };
@@ -758,17 +668,14 @@ private:
 // main
 // ════════════════════════════════════════════════════════════════════════
 
-int main(int argc, char** argv)
-{
+int main(int argc, char** argv) {
     rclcpp::init(argc, argv);
 
     try {
-        auto node = std::make_shared<
-            radar::fast_livo2::rgb::RgbColorizerNode>();
+        auto node = std::make_shared<radar::fast_livo2::rgb::RgbColorizerNode>();
         rclcpp::spin(node);
     } catch (const std::exception& e) {
-        RCLCPP_FATAL(rclcpp::get_logger("rgb_colorizer_node"),
-            "Startup failed: %s", e.what());
+        RCLCPP_FATAL(rclcpp::get_logger("rgb_colorizer_node"), "Startup failed: %s", e.what());
         rclcpp::shutdown();
         return EXIT_FAILURE;
     }

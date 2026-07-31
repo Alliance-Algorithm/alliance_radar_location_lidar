@@ -1,0 +1,23 @@
+radar_fusion_node:
+  ros__parameters:
+    # 关联门限 (m)
+    gate_distance: 1.0
+    # track 超时删除 (s)
+    track_timeout_sec: 1.5
+    # 确认 track 所需最小命中帧数
+    min_hits_to_confirm: 3
+    # 标记 missed 超过此次数后删除 track
+    max_misses_before_delete: 2
+    # 最大同时跟踪目标数
+    max_tracks: 20
+    # 开启视觉融合
+    enable_camera_fusion: true
+    # 视觉数据超时 (s)
+    camera_timeout_sec: 1.5
+    # 地图坐标系 → 裁判系统坐标系偏移 (m)
+    map_to_rm_offset_x: 14.0
+    map_to_rm_offset_y: 7.5
+    # 默认位置数据库路径 (空字符串 = 关闭该功能)
+    default_positions_path: ""
+    # 敌方颜色: "red" / "blue" (决定敌方阵营 ID 0/1)
+    enemy_color: "blue"

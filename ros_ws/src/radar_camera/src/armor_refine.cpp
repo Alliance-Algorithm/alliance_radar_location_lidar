@@ -95,34 +95,38 @@ auto ArmorRefiner::init(const ArmorRefineConfig& armor_config,
     return { };
 }
 
-auto ArmorRefiner::refine(const cv::Mat& frame, detection::Detection& det,
-    const std::vector<std::int64_t>& drone_class_ids) -> void {
-    if (!initialized_ || frame.empty() || det.bbox.area() <= 0.0f) return;
+auto ArmorRefiner::refine(const cv::Mat& orig_frame, detection::Detection& det,
+    const std::vector<std::int64_t>& drone_class_ids, float scale_x, float scale_y) -> void {
+    if (!initialized_ || orig_frame.empty() || det.bbox.area() <= 0.0f) return;
 
     const bool is_drone =
         std::find(drone_class_ids.begin(), drone_class_ids.end(), static_cast<std::int64_t>(det.id))
         != drone_class_ids.end();
     if (is_drone) return; // drones have no armor plate; keep L1 id
 
-    // Priority 1: L3 number classifier on the L1 ROI directly.
-    if (auto number = run_l3(frame, det.bbox)) {
+    // Map det.bbox from L1 model-input space to orig_frame space.
+    const cv::Rect2f orig_bbox(det.bbox.x * scale_x, det.bbox.y * scale_y, det.bbox.width * scale_x,
+        det.bbox.height * scale_y);
+
+    // Priority 1: L3 number classifier on the L1 ROI (in orig_frame).
+    if (auto number = run_l3(orig_frame, orig_bbox)) {
         if (auto id = l3_idx_to_class_id(number->first)) {
             det.id = *id;
             return;
         }
     }
 
-    // Priority 2: L2 plate detector (genre + color) on the L1 ROI.
-    if (auto plate = run_l2(frame, det.bbox)) {
-        // Re-run L3 on the tighter plate crop before falling back to genre.
-        if (auto number = run_l3(frame, plate->bbox)) {
+    // Priority 2: L2 plate detector (genre + color) on the L1 ROI (in orig_frame).
+    if (auto plate = run_l2(orig_frame, orig_bbox)) {
+        // Re-run L3 on the tighter plate crop (already in orig_frame space).
+        if (auto number = run_l3(orig_frame, plate->bbox)) {
             if (auto id = l3_idx_to_class_id(number->first)) {
                 det.id = *id;
                 return;
             }
         }
         ArmorColor color = plate->color;
-        if (color == ArmorColor::UNKNOWN) color = pixel_color(frame, plate->bbox);
+        if (color == ArmorColor::UNKNOWN) color = pixel_color(orig_frame, plate->bbox);
         if (auto id = l2_to_class_id(plate->genre, color)) {
             det.id = *id;
             return;
@@ -250,16 +254,9 @@ auto ArmorRefiner::run_l3(const cv::Mat& frame, const cv::Rect2f& plate)
     if (flat.size() < static_cast<size_t>(kL3Classes)) return std::nullopt;
     const float* logits = flat.data();
 
-    // Softmax over the 9 class logits to get a calibrated confidence.
-    float max_logit = logits[0];
-    for (int i = 1; i < kL3Classes; ++i)
-        max_logit = std::max(max_logit, logits[i]);
-    float sum = 0.0f;
-    for (int i = 0; i < kL3Classes; ++i)
-        sum += std::exp(logits[i] - max_logit);
-
+    // Model output is already softmax probabilities — use directly.
     const int idx = argmax(logits, kL3Classes);
-    const float p = std::exp(logits[idx] - max_logit) / sum;
+    const float p = logits[idx];
     if (p < number_config_.conf_threshold) return std::nullopt;
     return std::make_pair(idx, p);
 }
@@ -281,52 +278,52 @@ auto ArmorRefiner::pixel_color(const cv::Mat& frame, const cv::Rect2f& roi) -> A
 auto ArmorRefiner::l2_to_class_id(int genre, ArmorColor color) -> std::optional<int> {
     if (color == ArmorColor::UNKNOWN) return std::nullopt;
     // L2 genre remap: 1=hero,2=eng,3=inf3,4=inf4,6=sentry (others unmappable).
-    // L1 class ids: BLUE 0=hero,1=eng,2=inf3,3=inf4,4=sentry; RED = BLUE + 6.
-    int blue_id = -1;
+    // L1 class ids: RED 0=hero,1=eng,2=inf3,3=inf4,4=sentry; BLUE = RED + 6.
+    int red_id = -1;
     switch (genre) {
     case 1:
-        blue_id = 0;
+        red_id = 0;
         break; // hero
     case 2:
-        blue_id = 1;
+        red_id = 1;
         break; // engineer
     case 3:
-        blue_id = 2;
+        red_id = 2;
         break; // infantry3
     case 4:
-        blue_id = 3;
+        red_id = 3;
         break; // infantry4
     case 6:
-        blue_id = 4;
+        red_id = 4;
         break; // sentry
     default:
         return std::nullopt;
     }
-    return color == ArmorColor::BLUE ? blue_id : blue_id + 6;
+    return color == ArmorColor::RED ? red_id : red_id + 6;
 }
 
 auto ArmorRefiner::l3_idx_to_class_id(int idx) -> std::optional<int> {
     // L3 classes: 0=B1,1=B2,2=B3,3=B4,4=BS,5=R1,6=R2,7=R3,8=R4.
-    // L1 class ids: BLUE 0=hero..4=sentry; RED 6=hero..10=sentry.
+    // L1 class ids: RED 0=hero..4=sentry; BLUE 6=hero..10=sentry.
     switch (idx) {
     case 0:
-        return 0; // B1 blue hero
+        return 6; // B1 blue hero
     case 1:
-        return 1; // B2 blue engineer
+        return 7; // B2 blue engineer
     case 2:
-        return 2; // B3 blue infantry3
+        return 8; // B3 blue infantry3
     case 3:
-        return 3; // B4 blue infantry4
+        return 9; // B4 blue infantry4
     case 4:
-        return 4; // BS blue sentry
+        return 10; // BS blue sentry
     case 5:
-        return 6; // R1 red hero
+        return 0; // R1 red hero
     case 6:
-        return 7; // R2 red engineer
+        return 1; // R2 red engineer
     case 7:
-        return 8; // R3 red infantry3
+        return 2; // R3 red infantry3
     case 8:
-        return 9; // R4 red infantry4
+        return 3; // R4 red infantry4
     default:
         return std::nullopt;
     }

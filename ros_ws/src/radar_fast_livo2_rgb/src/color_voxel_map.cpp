@@ -22,9 +22,9 @@ namespace radar::fast_livo2::rgb {
 // -----------------------------------------------------------------------
 namespace {
 
-constexpr int64_t kHashP1 = 73856093;
-constexpr int64_t kHashP2 = 19349663;
-constexpr int64_t kHashP3 = 83492791;
+    constexpr int64_t kHashP1 = 73856093;
+    constexpr int64_t kHashP2 = 19349663;
+    constexpr int64_t kHashP3 = 83492791;
 
 } // anonymous namespace
 
@@ -33,8 +33,7 @@ constexpr int64_t kHashP3 = 83492791;
 // -----------------------------------------------------------------------
 
 ColorVoxelMap::ColorVoxelMap(double voxel_size)
-    : voxel_size_(voxel_size)
-{
+    : voxel_size_(voxel_size) {
     // voxel_size is assumed positive; no runtime check in release builds.
 }
 
@@ -42,8 +41,7 @@ ColorVoxelMap::ColorVoxelMap(double voxel_size)
 // Key computation
 // -----------------------------------------------------------------------
 
-VoxelKey ColorVoxelMap::make_key(const Eigen::Vector3d& position) const
-{
+VoxelKey ColorVoxelMap::make_key(const Eigen::Vector3d& position) const {
     // Floor-divide each coordinate to obtain integer voxel indices.
     // Using std::floor ensures deterministic negative-coordinate handling.
     int64_t ix = static_cast<int64_t>(std::floor(position.x() / voxel_size_));
@@ -59,10 +57,7 @@ VoxelKey ColorVoxelMap::make_key(const Eigen::Vector3d& position) const
 // -----------------------------------------------------------------------
 
 void ColorVoxelMap::insert_if_better(
-    const Eigen::Vector3d& position,
-    uint32_t rgb,
-    double quality)
-{
+    const Eigen::Vector3d& position, uint32_t rgb, double quality) {
     VoxelKey key = make_key(position);
 
     std::lock_guard<std::mutex> lock(mutex_);
@@ -70,17 +65,14 @@ void ColorVoxelMap::insert_if_better(
     auto it = voxels_.find(key);
     if (it == voxels_.end()) {
         // No existing voxel — insert unconditionally.
-        voxels_.emplace(key, ColorVoxel {
-            .position = position.cast<float>(),
-            .rgb = rgb,
-            .quality = quality
-        });
+        voxels_.emplace(
+            key, ColorVoxel { .position = position.cast<float>(), .rgb = rgb, .quality = quality });
     } else if (quality > it->second.quality) {
         // New observation is strictly better: replace colour, quality,
         // and position (keeps the cloud fresh as poses drift).
         it->second.position = position.cast<float>();
-        it->second.rgb = rgb;
-        it->second.quality = quality;
+        it->second.rgb      = rgb;
+        it->second.quality  = quality;
     }
     // Otherwise: keep the existing (better) observation.
 }
@@ -89,17 +81,16 @@ void ColorVoxelMap::insert_if_better(
 // PCL export (unlocked implementation — caller must hold mutex_)
 // -----------------------------------------------------------------------
 
-pcl::PointCloud<pcl::PointXYZRGB> ColorVoxelMap::to_point_cloud_impl() const
-{
+pcl::PointCloud<pcl::PointXYZRGB> ColorVoxelMap::to_point_cloud_impl() const {
     pcl::PointCloud<pcl::PointXYZRGB> cloud;
     cloud.reserve(voxels_.size());
 
     for (const auto& [key, voxel] : voxels_) {
         (void)key; // unused in the loop body
         pcl::PointXYZRGB pt;
-        pt.x = voxel.position.x();
-        pt.y = voxel.position.y();
-        pt.z = voxel.position.z();
+        pt.x   = voxel.position.x();
+        pt.y   = voxel.position.y();
+        pt.z   = voxel.position.z();
         pt.rgb = pack_rgb_for_pcl(voxel.rgb);
         cloud.push_back(pt);
     }
@@ -111,8 +102,7 @@ pcl::PointCloud<pcl::PointXYZRGB> ColorVoxelMap::to_point_cloud_impl() const
 // PCL export (public, thread-safe)
 // -----------------------------------------------------------------------
 
-pcl::PointCloud<pcl::PointXYZRGB> ColorVoxelMap::to_point_cloud() const
-{
+pcl::PointCloud<pcl::PointXYZRGB> ColorVoxelMap::to_point_cloud() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return to_point_cloud_impl();
 }
@@ -121,8 +111,7 @@ pcl::PointCloud<pcl::PointXYZRGB> ColorVoxelMap::to_point_cloud() const
 // PCD save (public, thread-safe)
 // -----------------------------------------------------------------------
 
-int ColorVoxelMap::save_binary_pcd(const std::string& filename) const
-{
+int ColorVoxelMap::save_binary_pcd(const std::string& filename) const {
     pcl::PointCloud<pcl::PointXYZRGB> cloud;
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -135,8 +124,7 @@ int ColorVoxelMap::save_binary_pcd(const std::string& filename) const
 // Size query
 // -----------------------------------------------------------------------
 
-std::size_t ColorVoxelMap::size() const
-{
+std::size_t ColorVoxelMap::size() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return voxels_.size();
 }

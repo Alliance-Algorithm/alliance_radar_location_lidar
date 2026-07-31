@@ -1,5 +1,5 @@
 # 红方雷达初始位姿（地图坐标系，中心原点）
-# 雷达站位于红方短边中轴线上，距地 4m，指向场地中心
+# 雷达站位于红方短边中轴线上，距地 4m，指向场地中心，俯仰向下 10°
 radar_lidar_node:
   ros__parameters:
     initial_pose_enabled: true
@@ -7,5 +7,5 @@ radar_lidar_node:
     initial_pose_ty: 0.0
     initial_pose_tz: 4.0
     initial_pose_roll: 0.0
-    initial_pose_pitch: 0.0
+    initial_pose_pitch: -0.17453  # -10° 向下
     initial_pose_yaw: 0.0

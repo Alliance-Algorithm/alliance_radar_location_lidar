@@ -2,7 +2,7 @@ radar_bridge_node:
   ros__parameters:
     # ZMQ
     zmq_pub_address: "tcp://*:5555"
-    zmq_sub_addresses: ["tcp://localhost:5556"]
+    zmq_sub_addresses: ["tcp://localhost:5558"]
     # Video stream
     shm_name: "/hikcamera_shm"
     video_pub_address: "tcp://*:5557"

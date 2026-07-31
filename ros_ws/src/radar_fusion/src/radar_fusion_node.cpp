@@ -42,8 +42,11 @@ RadarFusionNode::RadarFusionNode(const rclcpp::NodeOptions& options)
     this->declare_parameter("max_misses_before_delete", 2);
     this->declare_parameter("max_tracks", 20);
     this->declare_parameter("enable_camera_fusion", false);
+    this->declare_parameter("camera_timeout_sec", 1.5);
     this->declare_parameter("map_to_rm_offset_x", 14.0);
     this->declare_parameter("map_to_rm_offset_y", 7.5);
+    this->declare_parameter("default_positions_path", "");
+    this->declare_parameter("enemy_color", "blue");
 
     cfg_.gate_distance            = this->get_parameter("gate_distance").as_double();
     cfg_.track_timeout_sec        = this->get_parameter("track_timeout_sec").as_double();
@@ -51,8 +54,11 @@ RadarFusionNode::RadarFusionNode(const rclcpp::NodeOptions& options)
     cfg_.max_misses_before_delete = this->get_parameter("max_misses_before_delete").as_int();
     cfg_.max_tracks               = this->get_parameter("max_tracks").as_int();
     cfg_.enable_camera_fusion     = this->get_parameter("enable_camera_fusion").as_bool();
+    cfg_.camera_timeout_sec       = this->get_parameter("camera_timeout_sec").as_double();
     cfg_.map_to_rm_offset_x       = this->get_parameter("map_to_rm_offset_x").as_double();
     cfg_.map_to_rm_offset_y       = this->get_parameter("map_to_rm_offset_y").as_double();
+    default_positions_path_       = this->get_parameter("default_positions_path").as_string();
+    enemy_color_                  = this->get_parameter("enemy_color").as_string();
     tracks_.reserve(static_cast<std::size_t>(cfg_.max_tracks));
 
     sub_lidar_pose_ = this->create_subscription<PoseCov>(
@@ -68,6 +74,23 @@ RadarFusionNode::RadarFusionNode(const rclcpp::NodeOptions& options)
                 10, [this](const radar_interfaces::msg::CameraDetectionPose::SharedPtr msg) {
                     on_camera_detection(msg);
                 });
+    }
+
+    if (!default_positions_path_.empty()) {
+        if (radar_fusion::default_positions::load(default_positions_path_)) {
+            sub_game_state_ = this->create_subscription<radar_interfaces::msg::GameState>("/bridge/"
+                                                                                          "game_"
+                                                                                          "state",
+                10, [this](const radar_interfaces::msg::GameState::SharedPtr msg) {
+                    on_game_state(msg);
+                });
+            RCLCPP_INFO(get_logger(), "default positions loaded from '%s' (enemy=%s)",
+                default_positions_path_.c_str(), enemy_color_.c_str());
+        } else {
+            RCLCPP_WARN(get_logger(),
+                "failed to load default positions from '%s'; feature disabled",
+                default_positions_path_.c_str());
+        }
     }
 
     pub_tracks_ =
@@ -352,6 +375,48 @@ void RadarFusionNode::publish_fused_tracks(
     pub_fused_tracks_->publish(fused_markers);
 }
 
+void RadarFusionNode::on_game_state(const radar_interfaces::msg::GameState::SharedPtr msg) {
+    match_timer_.on_game_state(msg->game_progress, msg->stage_remain_time, steady_now_ns());
+}
+
+int64_t RadarFusionNode::steady_now_ns() {
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+}
+
+void RadarFusionNode::fill_default_positions(
+    radar_interfaces::msg::LidarLocation& msg, int64_t now_ns) {
+    if (default_positions_path_.empty()) return;
+    const auto t = match_timer_.elapsed_sec(now_ns);
+    if (t < 0) return;
+
+    const int enemy_camp = (enemy_color_ == "red") ? 0 : 1;
+    const int ally_camp  = 1 - enemy_camp;
+
+    // Confirmed tracks occupy opponent slots in track order (same loop and
+    // order as publish_lidar_location); remaining slots get defaults.
+    std::array<bool, 6> occupied_opponent { };
+    std::array<bool, 6> occupied_ally { };
+    std::size_t slot_idx = 0;
+    for (const auto& track : tracks_) {
+        const auto& s = track.state();
+        if (!s.is_confirmed()) continue;
+        if (slot_idx >= 6) break;
+        occupied_opponent[slot_idx] = true;
+        ++slot_idx;
+    }
+
+    const auto& query = radar_fusion::default_positions::query_clamped;
+    // Defaults are already in the official referee frame; no map_to_rm_offset.
+    radar_fusion::default_positions::fill_empty_slots(msg,
+        radar_fusion::default_positions::kOpponentSlots, occupied_opponent, enemy_camp,
+        static_cast<int>(t), query);
+    radar_fusion::default_positions::fill_empty_slots(msg,
+        radar_fusion::default_positions::kAllySlots, occupied_ally, ally_camp, static_cast<int>(t),
+        query);
+}
+
 void RadarFusionNode::publish_lidar_location(
     const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& tracks) {
     auto msg = radar_interfaces::msg::LidarLocation { };
@@ -378,10 +443,13 @@ void RadarFusionNode::publish_lidar_location(
         const auto& s = track.state();
         if (!s.is_confirmed()) continue;
         if (slot_idx >= 6) break;
-        *slots_x[slot_idx] = static_cast<uint16_t>((s.x(0) + cfg_.map_to_rm_offset_x) * 1000.0);
-        *slots_y[slot_idx] = static_cast<uint16_t>((s.x(1) + cfg_.map_to_rm_offset_y) * 1000.0);
+        // RoboMaster 0x0305 / radar-egui 约定: 厘米 (米 -> cm 乘 100)
+        *slots_x[slot_idx] = static_cast<uint16_t>((s.x(0) + cfg_.map_to_rm_offset_x) * 100.0);
+        *slots_y[slot_idx] = static_cast<uint16_t>((s.x(1) + cfg_.map_to_rm_offset_y) * 100.0);
         slot_idx++;
     }
+
+    fill_default_positions(msg, steady_now_ns());
 
     msg.cmd_id = radar_interfaces::msg::LidarLocation::CMD_ID;
     pub_lidar_location_->publish(msg);

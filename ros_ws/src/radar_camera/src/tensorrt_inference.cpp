@@ -1,7 +1,7 @@
 #include "radar_camera/tensorrt_inference.hpp"
 
-#include <cuda_runtime_api.h>
 #include <NvInferRuntime.h>
+#include <cuda_runtime_api.h>
 
 #include <fstream>
 #include <sstream>
@@ -11,21 +11,21 @@ namespace radar_camera::model_inference {
 
 namespace {
 
-class Logger final : public nvinfer1::ILogger {
-public:
-    void log(Severity severity, const char* message) noexcept override {
-        if (severity <= Severity::kERROR) last_message_ = message == nullptr ? "" : message;
+    class Logger final : public nvinfer1::ILogger {
+    public:
+        void log(Severity severity, const char* message) noexcept override {
+            if (severity <= Severity::kERROR) last_message_ = message == nullptr ? "" : message;
+        }
+
+        [[nodiscard]] auto last_message() const -> const std::string& { return last_message_; }
+
+    private:
+        std::string last_message_;
+    };
+
+    auto trt_error(cudaError_t code, const char* operation) -> std::string {
+        return std::string(operation) + ": " + cudaGetErrorString(code);
     }
-
-    [[nodiscard]] auto last_message() const -> const std::string& { return last_message_; }
-
-private:
-    std::string last_message_;
-};
-
-auto trt_error(cudaError_t code, const char* operation) -> std::string {
-    return std::string(operation) + ": " + cudaGetErrorString(code);
-}
 
 } // namespace
 
@@ -73,11 +73,13 @@ auto TensorRtInference::init(const std::string& engine_path) -> std::expected<vo
 
     impl_->runtime = nvinfer1::createInferRuntime(impl_->logger);
     if (impl_->runtime == nullptr) {
-        return std::unexpected("TensorRT createInferRuntime failed: " + impl_->logger.last_message());
+        return std::unexpected(
+            "TensorRT createInferRuntime failed: " + impl_->logger.last_message());
     }
     impl_->engine = impl_->runtime->deserializeCudaEngine(serialized.data(), serialized.size());
     if (impl_->engine == nullptr) {
-        return std::unexpected("TensorRT deserializeCudaEngine failed: " + impl_->logger.last_message());
+        return std::unexpected(
+            "TensorRT deserializeCudaEngine failed: " + impl_->logger.last_message());
     }
     impl_->context = impl_->engine->createExecutionContext();
     if (impl_->context == nullptr) return std::unexpected("TensorRT createExecutionContext failed");
@@ -125,7 +127,8 @@ auto TensorRtInference::init(const std::string& engine_path) -> std::expected<vo
 
     std::size_t input_count = 1;
     for (int32_t i = 0; i < input_dims.nbDims; ++i) {
-        if (input_dims.d[i] <= 0) return std::unexpected("TensorRT input shape is not fully resolved");
+        if (input_dims.d[i] <= 0)
+            return std::unexpected("TensorRT input shape is not fully resolved");
         input_count *= static_cast<std::size_t>(input_dims.d[i]);
     }
     if (!impl_->context->setInputShape(impl_->input_name.c_str(), input_dims)) {
@@ -137,7 +140,8 @@ auto TensorRtInference::init(const std::string& engine_path) -> std::expected<vo
     if (output_dims.nbDims < 1) return std::unexpected("TensorRT output shape is invalid");
     std::size_t output_count = 1;
     for (int32_t i = 0; i < output_dims.nbDims; ++i) {
-        if (output_dims.d[i] <= 0) return std::unexpected("TensorRT output shape is not fully resolved");
+        if (output_dims.d[i] <= 0)
+            return std::unexpected("TensorRT output shape is not fully resolved");
         output_count *= static_cast<std::size_t>(output_dims.d[i]);
     }
 
@@ -171,8 +175,8 @@ auto TensorRtInference::start(const float* input, std::size_t input_elements)
     if (input == nullptr || input_elements != impl_->input_count) {
         return std::unexpected("TensorRT input size mismatch");
     }
-    if (auto code = cudaMemcpyAsync(impl_->device_input, input,
-            impl_->input_count * sizeof(float), cudaMemcpyHostToDevice, impl_->stream);
+    if (auto code = cudaMemcpyAsync(impl_->device_input, input, impl_->input_count * sizeof(float),
+            cudaMemcpyHostToDevice, impl_->stream);
         code != cudaSuccess) {
         return std::unexpected(trt_error(code, "cudaMemcpyAsync input"));
     }

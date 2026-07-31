@@ -1,0 +1,52 @@
+#!/bin/bash
+# start-competition — 比赛全链路启动脚本
+#
+# 用法 (宿主机执行，在容器内运行 ROS2):
+#   bash .script/start-competition red
+#   bash .script/start-competition blue
+#   bash .script/start-competition red /workspace/model/generated/jinan_field_map_reg.pcd
+#   bash .script/start-competition red /workspace/model/generated/jinan_field_map_reg.pcd mid70
+#
+# 完整链路:
+#   相机驱动(SHM) → LiDAR GICP 定位 → radar_camera_node(L1/L2/L3)
+#   → radar_fusion_node → radar_bridge_node(ZMQ→裁判系统)
+
+set -euo pipefail
+
+SIDE="${1:-red}"
+MAP_PATH="${2:-/workspace/model/generated/jinan_field_map_reg.pcd}"
+SENSOR="${3:-odin}"
+CONTAINER="${RADAR_CONTAINER:-devcontainer-radar-develop-1}"
+
+# 参数校验
+if [[ "$SIDE" != "red" && "$SIDE" != "blue" ]]; then
+    echo "[ERROR] side 必须是 red 或 blue，当前: $SIDE" >&2
+    exit 1
+fi
+
+echo "========================================"
+echo "  比赛启动"
+echo "  side    : $SIDE  (enemy=$([ "$SIDE" = red ] && echo blue || echo red))"
+echo "  map     : $MAP_PATH"
+echo "  sensor  : $SENSOR"
+echo "  container: $CONTAINER"
+echo "========================================"
+
+# 确认容器在运行
+if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER}$"; then
+    echo "[ERROR] 容器 $CONTAINER 未运行" >&2
+    echo "  启动容器: RADAR_TENSORRT_STAGE=~/.local/radar_camera_trt \\" >&2
+    echo "    docker compose -f .devcontainer/docker-compose.yml up -d --force-recreate radar-develop" >&2
+    exit 1
+fi
+
+docker exec -it "$CONTAINER" bash -c '
+set -euo pipefail
+source /opt/ros/jazzy/setup.bash
+source /workspace/ros_ws/install/setup.bash
+
+exec ros2 launch radar_bringup competition.launch.py \
+    "side:=$1" \
+    "map_path:=$2" \
+    "sensor:=$3"
+' bash "$SIDE" "$MAP_PATH" "$SENSOR"

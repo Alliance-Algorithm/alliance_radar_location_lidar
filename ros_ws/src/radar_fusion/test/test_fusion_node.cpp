@@ -18,8 +18,11 @@
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 
+#include "radar_fusion/default_slots.hpp"
+#include "radar_fusion/match_timer.hpp"
 #include "radar_fusion/radar_fusion_node.hpp"
 #include "radar_interfaces/msg/camera_detection_pose.hpp"
+#include "radar_interfaces/msg/lidar_location.hpp"
 
 namespace {
 
@@ -561,4 +564,244 @@ TEST_F(FusionNodeTest, CameraSlotFilteringFiltersInvalidConfidenceAndNaN) {
 
     std::lock_guard<std::mutex> lock(mutex_);
     EXPECT_EQ(last_fused_track_marker_count_, 1u);
+}
+
+// ---------------------------------------------------------------------------
+// Task 3: match timer + default slot filling (pure unit tests, no ROS spin)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+using radar_fusion::default_positions::DefaultPosition;
+using radar_fusion::match_timer::MatchTimer;
+
+constexpr auto kSec = 1'000'000'000LL;
+
+// Fake query with the same signature as default_positions::query_clamped.
+auto make_fake_query() {
+    return [](int camp, const std::string& robot_class, int t, DefaultPosition& out) -> bool {
+        (void)t;
+        if (camp != 0) return false;
+        static const std::unordered_map<std::string, DefaultPosition> table = {
+            { "hero", { 5.5, 2.25, 20 } },
+            { "engineer", { 1.0, 1.0, 10 } },
+            { "infantry3", { 2.0, 2.0, 10 } },
+            { "infantry4", { 3.0, 3.0, 10 } },
+            { "aerial", { 4.0, 4.0, 10 } },
+            { "sentry", { 6.0, 6.0, 10 } },
+        };
+        const auto it = table.find(robot_class);
+        if (it == table.end()) return false;
+        out = it->second;
+        return true;
+    };
+}
+
+} // namespace
+
+TEST(FusionNode, MatchTimerStartsOnProgress4) {
+    MatchTimer mt;
+    EXPECT_FALSE(mt.started());
+    EXPECT_EQ(mt.elapsed_sec(0), -1);
+
+    mt.on_game_state(0, 0, 1 * kSec); // 未开始: no start
+    EXPECT_FALSE(mt.started());
+
+    mt.on_game_state(4, 300, 2 * kSec); // 比赛中: start
+    EXPECT_TRUE(mt.started());
+    EXPECT_EQ(mt.elapsed_sec(2 * kSec), 0);
+    EXPECT_EQ(mt.elapsed_sec(5 * kSec), 3);
+}
+
+TEST(FusionNode, MatchTimerStartsOnRemainAbove400) {
+    MatchTimer mt;
+    mt.on_game_state(0, 400, 1 * kSec); // exactly 400: no start
+    EXPECT_FALSE(mt.started());
+
+    mt.on_game_state(0, 401, 2 * kSec); // > 400: start
+    EXPECT_TRUE(mt.started());
+    EXPECT_EQ(mt.elapsed_sec(2 * kSec), 0);
+}
+
+TEST(FusionNode, MatchTimerNoFalseStartBeforeBattle) {
+    MatchTimer mt;
+    for (int progress = 0; progress <= 3; ++progress) {
+        mt.on_game_state(static_cast<uint8_t>(progress), 5, 1 * kSec);
+        EXPECT_FALSE(mt.started());
+        EXPECT_EQ(mt.elapsed_sec(1 * kSec), -1);
+    }
+    mt.on_game_state(3, 3, 2 * kSec); // 五秒倒计时 + small remain
+    EXPECT_FALSE(mt.started());
+}
+
+TEST(FusionNode, MatchTimerResetsOnProgress5) {
+    MatchTimer mt;
+    mt.on_game_state(4, 300, 1 * kSec);
+    ASSERT_TRUE(mt.started());
+
+    mt.on_game_state(5, 300, 1 * kSec + 100 * kSec); // 结算
+    EXPECT_FALSE(mt.started());
+    EXPECT_EQ(mt.elapsed_sec(1 * kSec + 100 * kSec), -1);
+}
+
+TEST(FusionNode, MatchTimerDoesNotResetDuringBattleLowRemain) {
+    MatchTimer mt;
+    mt.on_game_state(4, 300, 1 * kSec);
+    ASSERT_TRUE(mt.started());
+
+    // During the battle (progress 4) the remaining time counts down through
+    // <10 without ending the round: the timer keeps running.
+    mt.on_game_state(4, 10, 2 * kSec); // exactly 10: still running
+    EXPECT_TRUE(mt.started());
+
+    mt.on_game_state(4, 9, 3 * kSec); // < 10: still running (battle phase)
+    EXPECT_TRUE(mt.started());
+    EXPECT_EQ(mt.elapsed_sec(3 * kSec), 2);
+}
+
+TEST(FusionNode, MatchTimerResetsOnRemainBelow10OutsideBattle) {
+    MatchTimer mt;
+    mt.on_game_state(4, 300, 1 * kSec);
+    ASSERT_TRUE(mt.started());
+
+    // Round ends; the next message outside the battle phase with a small
+    // remain (e.g. 准备阶段 180 -> countdown tail) resets the timer.
+    mt.on_game_state(5, 0, 1 * kSec + 100 * kSec);
+    ASSERT_FALSE(mt.started());
+
+    mt.on_game_state(3, 5, 1 * kSec + 150 * kSec); // 五秒倒计时 tail: reset stays
+    EXPECT_FALSE(mt.started());
+    EXPECT_EQ(mt.elapsed_sec(1 * kSec + 150 * kSec), -1);
+}
+
+TEST(FusionNode, MatchTimerReentersFromZeroForSecondRound) {
+    MatchTimer mt;
+    mt.on_game_state(4, 300, 1 * kSec);
+    ASSERT_TRUE(mt.started());
+    mt.on_game_state(4, 250, 1 * kSec + 50 * kSec);
+    EXPECT_EQ(mt.elapsed_sec(1 * kSec + 60 * kSec), 60);
+
+    mt.on_game_state(5, 0, 1 * kSec + 100 * kSec); // round 1 ends
+    ASSERT_FALSE(mt.started());
+
+    mt.on_game_state(4, 420, 1 * kSec + 500 * kSec); // round 2 starts
+    ASSERT_TRUE(mt.started());
+    EXPECT_EQ(mt.elapsed_sec(1 * kSec + 500 * kSec), 0);
+    EXPECT_EQ(mt.elapsed_sec(1 * kSec + 505 * kSec), 5);
+}
+
+TEST(FusionNode, MatchTimerElapsedClampedAtZero) {
+    MatchTimer mt;
+    mt.on_game_state(4, 300, 10 * kSec);
+    ASSERT_TRUE(mt.started());
+
+    EXPECT_EQ(mt.elapsed_sec(10 * kSec - 5 * kSec), 0); // now before start
+    EXPECT_EQ(mt.elapsed_sec(10 * kSec), 0);
+}
+
+TEST(FusionNode, MatchTimerDoesNotRestartOnRoundEndingMessage) {
+    MatchTimer mt;
+    mt.on_game_state(4, 300, 1 * kSec);
+    ASSERT_TRUE(mt.started());
+
+    // Battle-phase low remain does not reset (and therefore cannot restart).
+    mt.on_game_state(4, 5, 2 * kSec);
+    EXPECT_TRUE(mt.started());
+
+    // 结算 message with remain > 400: reset, no restart
+    mt.on_game_state(5, 450, 3 * kSec);
+    EXPECT_FALSE(mt.started());
+    EXPECT_EQ(mt.elapsed_sec(3 * kSec), -1);
+}
+
+TEST(FusionNode, SlotFilledWhenNoTrack) {
+    radar_interfaces::msg::LidarLocation msg;
+    const std::array<bool, 6> occupied = { false, false, false, false, false, false };
+
+    radar_fusion::default_positions::fill_empty_slots(msg,
+        radar_fusion::default_positions::kOpponentSlots, occupied, /*camp=*/0, /*t=*/0,
+        make_fake_query());
+
+    // Defaults are in the official referee frame: plain (med * 100) centimeters,
+    // with NO map_to_rm_offset. A regression here (adding 14/7.5) shifts
+    // positions by half a field.
+    EXPECT_EQ(msg.opponent_hero_x, static_cast<uint16_t>(5.5 * 100.0));
+    EXPECT_EQ(msg.opponent_hero_y, static_cast<uint16_t>(2.25 * 100.0));
+    EXPECT_EQ(msg.opponent_engineer_x, static_cast<uint16_t>(1.0 * 100.0));
+    EXPECT_EQ(msg.opponent_infantry_3_x, static_cast<uint16_t>(2.0 * 100.0));
+    EXPECT_EQ(msg.opponent_infantry_4_x, static_cast<uint16_t>(3.0 * 100.0));
+    EXPECT_EQ(msg.opponent_aerial_x, static_cast<uint16_t>(4.0 * 100.0));
+    EXPECT_EQ(msg.opponent_sentry_x, static_cast<uint16_t>(6.0 * 100.0));
+    EXPECT_EQ(msg.opponent_sentry_y, static_cast<uint16_t>(6.0 * 100.0));
+}
+
+TEST(FusionNode, NegativeDefaultMediansClampToZero) {
+    radar_interfaces::msg::LidarLocation msg;
+    const std::array<bool, 6> occupied = { false, false, false, false, false, false };
+    const auto negative_query = [](int, const std::string&, int, DefaultPosition& out) -> bool {
+        out = DefaultPosition { -2.0, -0.5, 10 }; // padded-field clip allows -2 m
+        return true;
+    };
+
+    radar_fusion::default_positions::fill_empty_slots(msg,
+        radar_fusion::default_positions::kOpponentSlots, occupied, /*camp=*/0, /*t=*/0,
+        negative_query);
+
+    // Negative medians must clamp to 0, not wrap in uint16_t.
+    EXPECT_EQ(msg.opponent_hero_x, 0);
+    EXPECT_EQ(msg.opponent_hero_y, 0);
+    EXPECT_EQ(msg.opponent_sentry_x, 0);
+}
+
+TEST(FusionNode, OccupiedSlotsAreNotOverwritten) {
+    radar_interfaces::msg::LidarLocation msg;
+    msg.opponent_hero_x                = 111; // occupied -> preserved
+    msg.opponent_hero_y                = 222;
+    const std::array<bool, 6> occupied = { true, false, false, false, false, false };
+
+    radar_fusion::default_positions::fill_empty_slots(msg,
+        radar_fusion::default_positions::kOpponentSlots, occupied, /*camp=*/0, /*t=*/0,
+        make_fake_query());
+
+    EXPECT_EQ(msg.opponent_hero_x, 111);
+    EXPECT_EQ(msg.opponent_hero_y, 222);
+    EXPECT_EQ(msg.opponent_engineer_x, static_cast<uint16_t>(1.0 * 100.0));
+}
+
+TEST(FusionNode, QueryFailureLeavesSlotZero) {
+    radar_interfaces::msg::LidarLocation msg;
+    const std::array<bool, 6> occupied = { false, false, false, false, false, false };
+    const auto failing_query = [](int, const std::string&, int, DefaultPosition&) -> bool {
+        return false;
+    };
+
+    radar_fusion::default_positions::fill_empty_slots(msg,
+        radar_fusion::default_positions::kOpponentSlots, occupied, /*camp=*/0, /*t=*/0,
+        failing_query);
+
+    EXPECT_EQ(msg.opponent_hero_x, 0);
+    EXPECT_EQ(msg.opponent_hero_y, 0);
+    EXPECT_EQ(msg.opponent_sentry_x, 0);
+}
+
+TEST(FusionNode, AllySlotsFilledWithCampInjectedQuery) {
+    radar_interfaces::msg::LidarLocation msg;
+    const std::array<bool, 6> occupied = { false, false, false, false, false, false };
+
+    const auto ally_query = [](int camp, const std::string& robot_class, int t,
+                                DefaultPosition& out) -> bool {
+        (void)robot_class;
+        (void)t;
+        if (camp != 1) return false;
+        out = DefaultPosition { 20.0, 12.0, 15 };
+        return true;
+    };
+
+    radar_fusion::default_positions::fill_empty_slots(msg,
+        radar_fusion::default_positions::kAllySlots, occupied, /*camp=*/1, /*t=*/0, ally_query);
+
+    EXPECT_EQ(msg.ally_hero_x, static_cast<uint16_t>(20.0 * 100.0));
+    EXPECT_EQ(msg.ally_hero_y, static_cast<uint16_t>(12.0 * 100.0));
+    EXPECT_EQ(msg.ally_sentry_x, static_cast<uint16_t>(20.0 * 100.0));
+    EXPECT_EQ(msg.opponent_hero_x, 0);
 }

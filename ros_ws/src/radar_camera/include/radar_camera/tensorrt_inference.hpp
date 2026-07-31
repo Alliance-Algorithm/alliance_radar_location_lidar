@@ -20,8 +20,7 @@ public:
     TensorRtInference& operator=(TensorRtInference&&)      = delete;
 
     auto init(const std::string& engine_path) -> std::expected<void, std::string>;
-    auto start(const float* input, std::size_t input_elements)
-        -> std::expected<void, std::string>;
+    auto start(const float* input, std::size_t input_elements) -> std::expected<void, std::string>;
     auto wait() -> std::expected<std::reference_wrapper<const std::vector<float>>, std::string>;
 
     [[nodiscard]] auto input_elements() const noexcept -> std::size_t;

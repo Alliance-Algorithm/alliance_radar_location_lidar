@@ -15,9 +15,9 @@
 #include <pcl/point_types.h>
 
 // The function under test — will NOT compile before implementation (RED).
-#include "radar_fast_livo2_rgb/rgb_colorizer.hpp"
 #include "radar_fast_livo2_rgb/color_voxel_map.hpp"
 #include "radar_fast_livo2_rgb/pcd_trigger.hpp"
+#include "radar_fast_livo2_rgb/rgb_colorizer.hpp"
 #include "radar_fast_livo2_rgb/rgb_projection.hpp"
 
 using namespace radar::fast_livo2::rgb;
@@ -26,40 +26,32 @@ using namespace radar::fast_livo2::rgb;
 
 /// 4-arg overload: explicitly set intrinsics with arbitrary cx/cy.
 /// The 0-arg version in rgb_projection.hpp hardcodes cx=50,cy=40.
-inline auto make_identity_calibration(double fx, double fy,
-                                       double cx, double cy) -> Calibration
-{
-    return Calibration {
-        .fx = fx, .fy = fy, .cx = cx, .cy = cy,
-        .rotation_lidar_camera = Eigen::Matrix3d::Identity(),
-        .translation_lidar_camera = Eigen::Vector3d::Zero()
-    };
+inline auto make_identity_calibration(double fx, double fy, double cx, double cy) -> Calibration {
+    return Calibration { .fx      = fx,
+        .fy                       = fy,
+        .cx                       = cx,
+        .cy                       = cy,
+        .rotation_lidar_camera    = Eigen::Matrix3d::Identity(),
+        .translation_lidar_camera = Eigen::Vector3d::Zero() };
 }
 
 /// Convenience: vector of world-frame points from an initializer list.
-inline auto make_world_cloud(
-    std::initializer_list<Eigen::Vector3d> points)
-    -> std::vector<Eigen::Vector3d>
-{
+inline auto make_world_cloud(std::initializer_list<Eigen::Vector3d> points)
+    -> std::vector<Eigen::Vector3d> {
     return std::vector<Eigen::Vector3d>(points);
 }
 
 /// Identity odometry pose: T_world_lidar = I → lidar origin at world origin.
-inline auto identity_odom() -> Eigen::Isometry3d
-{
-    return Eigen::Isometry3d::Identity();
-}
+inline auto identity_odom() -> Eigen::Isometry3d { return Eigen::Isometry3d::Identity(); }
 
 // ════════════════════════════════════════════════════════════════════════
 // Core integration test (from task-5-brief Step 1)
 // ════════════════════════════════════════════════════════════════════════
 
-TEST(RgbColorizer, PublishesProjectedRgbForVisibleWorldPoint)
-{
+TEST(RgbColorizer, PublishesProjectedRgbForVisibleWorldPoint) {
     // Calibration with cx=1,cy=1 so (0,0,2) projects to pixel (1,1)
     // in the 3×3 test image.
-    const auto calibration =
-        make_identity_calibration(100.0, 100.0, 1.0, 1.0);
+    const auto calibration = make_identity_calibration(100.0, 100.0, 1.0, 1.0);
 
     // 3×3 BGR8 image — all black except centre pixel is (B=30,G=20,R=10).
     cv::Mat bgr(3, 3, CV_8UC3, cv::Scalar(0, 0, 0));
@@ -67,12 +59,8 @@ TEST(RgbColorizer, PublishesProjectedRgbForVisibleWorldPoint)
 
     // Single world point at (0, 0, 2) — with identity odometry this
     // is also the lidar-frame point.
-    const auto map = color_world_points(
-        make_world_cloud({Eigen::Vector3d{0.0, 0.0, 2.0}}),
-        bgr,
-        identity_odom(),
-        calibration,
-        QualityWeights{});
+    const auto map = color_world_points(make_world_cloud({ Eigen::Vector3d { 0.0, 0.0, 2.0 } }),
+        bgr, identity_odom(), calibration, QualityWeights { });
 
     const auto cloud = map.to_point_cloud();
     ASSERT_EQ(cloud.size(), 1U);
@@ -84,28 +72,23 @@ TEST(RgbColorizer, PublishesProjectedRgbForVisibleWorldPoint)
 // Occlusion: point behind another should not be colorized
 // ════════════════════════════════════════════════════════════════════════
 
-TEST(RgbColorizer, OccludedPointIsNotColorized)
-{
-    const auto calibration =
-        make_identity_calibration(100.0, 100.0, 1.0, 1.0);
+TEST(RgbColorizer, OccludedPointIsNotColorized) {
+    const auto calibration = make_identity_calibration(100.0, 100.0, 1.0, 1.0);
 
     // 3×3 BGR8 with distinct colours at (1,0) and (1,1).
     cv::Mat bgr(3, 3, CV_8UC3, cv::Scalar(0, 0, 0));
-    bgr.at<cv::Vec3b>(0, 1) = cv::Vec3b(255, 0, 0);    // blue
-    bgr.at<cv::Vec3b>(1, 1) = cv::Vec3b(0, 255, 0);    // green
+    bgr.at<cv::Vec3b>(0, 1) = cv::Vec3b(255, 0, 0); // blue
+    bgr.at<cv::Vec3b>(1, 1) = cv::Vec3b(0, 255, 0); // green
 
     // Two world points that project to the same pixel (1,1).
     // Point A: depth=2.0 (nearer) → should get green.
     // Point B: depth=3.0 (farther) → should be occluded.
-    const auto map = color_world_points(
-        make_world_cloud({
-            Eigen::Vector3d{0.0, 0.0, 2.0},   // depth = 2.0
-            Eigen::Vector3d{0.0, 0.0, 3.0}    // depth = 3.0, same u,v
-        }),
-        bgr,
-        identity_odom(),
-        calibration,
-        QualityWeights{});
+    const auto map =
+        color_world_points(make_world_cloud({
+                               Eigen::Vector3d { 0.0, 0.0, 2.0 }, // depth = 2.0
+                               Eigen::Vector3d { 0.0, 0.0, 3.0 }  // depth = 3.0, same u,v
+                           }),
+            bgr, identity_odom(), calibration, QualityWeights { });
 
     const auto cloud = map.to_point_cloud();
     ASSERT_EQ(cloud.size(), 1U);
@@ -117,13 +100,12 @@ TEST(RgbColorizer, OccludedPointIsNotColorized)
 // Multiple visible points in different pixels
 // ════════════════════════════════════════════════════════════════════════
 
-TEST(RgbColorizer, MultipleVisiblePointsEachGetTheirColor)
-{
+TEST(RgbColorizer, MultipleVisiblePointsEachGetTheirColor) {
     // Use a larger image and calibration so two distinct world points
     // project to two distinct pixels.
     cv::Mat bgr(20, 20, CV_8UC3, cv::Scalar(0, 0, 0));
-    bgr.at<cv::Vec3b>(5, 5) = cv::Vec3b(10, 20, 30);   // packed: 0x1E140A
-    bgr.at<cv::Vec3b>(5, 15) = cv::Vec3b(40, 50, 60);  // packed: 0x3C3228
+    bgr.at<cv::Vec3b>(5, 5)  = cv::Vec3b(10, 20, 30); // packed: 0x1E140A
+    bgr.at<cv::Vec3b>(5, 15) = cv::Vec3b(40, 50, 60); // packed: 0x3C3228
 
     // Calibration: fx=fy=100, cx=cy=10.
     // Point 1: lidar-frame (0, 0, 2) → u=10, v=10 → pixel (10,10).
@@ -135,18 +117,14 @@ TEST(RgbColorizer, MultipleVisiblePointsEachGetTheirColor)
     // 5 = 100*y/2 + 10 → y = -0.1
     // So point (-0.1, -0.1, 2.0) projects to (5, 5).
 
-    const auto calibration =
-        make_identity_calibration(100.0, 100.0, 10.0, 10.0);
+    const auto calibration = make_identity_calibration(100.0, 100.0, 10.0, 10.0);
 
     const auto map = color_world_points(
         make_world_cloud({
-            Eigen::Vector3d{-0.1, -0.1, 2.0},    // → pixel (5, 5)
-            Eigen::Vector3d{ 0.1, -0.1, 2.0}     // → pixel (15, 5), since u=100*0.1/2+10=15
+            Eigen::Vector3d { -0.1, -0.1, 2.0 }, // → pixel (5, 5)
+            Eigen::Vector3d { 0.1, -0.1, 2.0 }   // → pixel (15, 5), since u=100*0.1/2+10=15
         }),
-        bgr,
-        identity_odom(),
-        calibration,
-        QualityWeights{});
+        bgr, identity_odom(), calibration, QualityWeights { });
 
     const auto cloud = map.to_point_cloud();
     ASSERT_EQ(cloud.size(), 2U);
@@ -156,19 +134,17 @@ TEST(RgbColorizer, MultipleVisiblePointsEachGetTheirColor)
         colours.insert(unpack_rgb(pt));
     }
     EXPECT_EQ(colours.size(), 2U);
-    EXPECT_TRUE(colours.count(0x1E140AU));  // BGR(10,20,30) → RGB(30,20,10)
-    EXPECT_TRUE(colours.count(0x3C3228U));  // BGR(40,50,60) → RGB(60,50,40)
+    EXPECT_TRUE(colours.count(0x1E140AU)); // BGR(10,20,30) → RGB(30,20,10)
+    EXPECT_TRUE(colours.count(0x3C3228U)); // BGR(40,50,60) → RGB(60,50,40)
 }
 
 // ════════════════════════════════════════════════════════════════════════
 // Non-identity odometry transform
 // ════════════════════════════════════════════════════════════════════════
 
-TEST(RgbColorizer, RespectsOdometryTransform)
-{
+TEST(RgbColorizer, RespectsOdometryTransform) {
     // Camera at world origin looking down +Z. Same calibration as baseline.
-    const auto calibration =
-        make_identity_calibration(100.0, 100.0, 1.0, 1.0);
+    const auto calibration = make_identity_calibration(100.0, 100.0, 1.0, 1.0);
 
     cv::Mat bgr(3, 3, CV_8UC3, cv::Scalar(0, 0, 0));
     bgr.at<cv::Vec3b>(1, 1) = cv::Vec3b(30, 20, 10);
@@ -178,14 +154,10 @@ TEST(RgbColorizer, RespectsOdometryTransform)
     // A world point at (0, 0, 1) is (0, 0, 2) in lidar frame.
     // Projects to pixel (1,1) with cx=1,cy=1.
     Eigen::Isometry3d odom = Eigen::Isometry3d::Identity();
-    odom.translation() = Eigen::Vector3d(0.0, 0.0, -1.0);
+    odom.translation()     = Eigen::Vector3d(0.0, 0.0, -1.0);
 
-    const auto map = color_world_points(
-        make_world_cloud({Eigen::Vector3d{0.0, 0.0, 1.0}}),
-        bgr,
-        odom,
-        calibration,
-        QualityWeights{});
+    const auto map = color_world_points(make_world_cloud({ Eigen::Vector3d { 0.0, 0.0, 1.0 } }),
+        bgr, odom, calibration, QualityWeights { });
 
     const auto cloud = map.to_point_cloud();
     ASSERT_EQ(cloud.size(), 1U);
@@ -196,15 +168,11 @@ TEST(RgbColorizer, RespectsOdometryTransform)
 // Empty world cloud → empty map
 // ════════════════════════════════════════════════════════════════════════
 
-TEST(RgbColorizer, EmptyCloudReturnsEmptyMap)
-{
-    const auto calibration =
-        make_identity_calibration(100.0, 100.0, 50.0, 40.0);
+TEST(RgbColorizer, EmptyCloudReturnsEmptyMap) {
+    const auto calibration = make_identity_calibration(100.0, 100.0, 50.0, 40.0);
     cv::Mat bgr(100, 100, CV_8UC3, cv::Scalar(0, 0, 0));
 
-    const auto map = color_world_points(
-        {}, bgr, identity_odom(), calibration,
-        QualityWeights{});
+    const auto map = color_world_points({ }, bgr, identity_odom(), calibration, QualityWeights { });
 
     EXPECT_EQ(map.size(), 0U);
 }
@@ -216,38 +184,32 @@ TEST(RgbColorizer, EmptyCloudReturnsEmptyMap)
 // call order.
 // ════════════════════════════════════════════════════════════════════════
 
-TEST(RgbColorizer, HigherQualityReplacesLowerAcrossCalls)
-{
+TEST(RgbColorizer, HigherQualityReplacesLowerAcrossCalls) {
     // Same calibration as baseline: (0,0,2) → pixel (1,1) in 3×3.
-    const auto calibration =
-        make_identity_calibration(100.0, 100.0, 1.0, 1.0);
+    const auto calibration = make_identity_calibration(100.0, 100.0, 1.0, 1.0);
 
     // Call 1: low-quality colour at pixel (1,1).
     cv::Mat bgr1(3, 3, CV_8UC3, cv::Scalar(0, 0, 0));
-    bgr1.at<cv::Vec3b>(1, 1) = cv::Vec3b(10, 10, 10);  // grey, ~packed 0x0A0A0A
+    bgr1.at<cv::Vec3b>(1, 1) = cv::Vec3b(10, 10, 10); // grey, ~packed 0x0A0A0A
 
-    auto map1 = color_world_points(
-        make_world_cloud({Eigen::Vector3d{0.0, 0.0, 2.0}}),
-        bgr1, identity_odom(), calibration, QualityWeights{});
+    auto map1 = color_world_points(make_world_cloud({ Eigen::Vector3d { 0.0, 0.0, 2.0 } }), bgr1,
+        identity_odom(), calibration, QualityWeights { });
 
     // Call 2: different colour at same pixel, same point → higher quality
     // because we use a brighter image (larger gradient = higher quality).
     cv::Mat bgr2(3, 3, CV_8UC3, cv::Scalar(0, 0, 0));
-    bgr2.at<cv::Vec3b>(1, 1) = cv::Vec3b(30, 20, 10);  // same as baseline, 0x0A141E
-    bgr2.at<cv::Vec3b>(0, 0) = cv::Vec3b(255, 255, 255);  // create high gradient
+    bgr2.at<cv::Vec3b>(1, 1) = cv::Vec3b(30, 20, 10);    // same as baseline, 0x0A141E
+    bgr2.at<cv::Vec3b>(0, 0) = cv::Vec3b(255, 255, 255); // create high gradient
 
-    auto map2 = color_world_points(
-        make_world_cloud({Eigen::Vector3d{0.0, 0.0, 2.0}}),
-        bgr2, identity_odom(), calibration, QualityWeights{});
+    auto map2 = color_world_points(make_world_cloud({ Eigen::Vector3d { 0.0, 0.0, 2.0 } }), bgr2,
+        identity_odom(), calibration, QualityWeights { });
 
     // Merge into a global map — order: low-quality first, then high.
     ColorVoxelMap global(0.10);
-    map1.for_each_voxel([&](const Eigen::Vector3d& pos,
-                             uint32_t rgb, double quality) {
+    map1.for_each_voxel([&](const Eigen::Vector3d& pos, uint32_t rgb, double quality) {
         global.insert_if_better(pos, rgb, quality);
     });
-    map2.for_each_voxel([&](const Eigen::Vector3d& pos,
-                             uint32_t rgb, double quality) {
+    map2.for_each_voxel([&](const Eigen::Vector3d& pos, uint32_t rgb, double quality) {
         global.insert_if_better(pos, rgb, quality);
     });
 
@@ -263,34 +225,28 @@ TEST(RgbColorizer, HigherQualityReplacesLowerAcrossCalls)
 // The first (higher quality) colour must survive.
 // ════════════════════════════════════════════════════════════════════════
 
-TEST(RgbColorizer, LowerQualityDoesNotReplaceHigherAcrossCalls)
-{
-    const auto calibration =
-        make_identity_calibration(100.0, 100.0, 1.0, 1.0);
+TEST(RgbColorizer, LowerQualityDoesNotReplaceHigherAcrossCalls) {
+    const auto calibration = make_identity_calibration(100.0, 100.0, 1.0, 1.0);
 
     // Call 1: high quality (bright image context).
     cv::Mat bgr_high(3, 3, CV_8UC3, cv::Scalar(0, 0, 0));
     bgr_high.at<cv::Vec3b>(1, 1) = cv::Vec3b(30, 20, 10);
     bgr_high.at<cv::Vec3b>(0, 0) = cv::Vec3b(255, 255, 255);
 
-    auto map_high = color_world_points(
-        make_world_cloud({Eigen::Vector3d{0.0, 0.0, 2.0}}),
-        bgr_high, identity_odom(), calibration, QualityWeights{});
+    auto map_high = color_world_points(make_world_cloud({ Eigen::Vector3d { 0.0, 0.0, 2.0 } }),
+        bgr_high, identity_odom(), calibration, QualityWeights { });
 
     // Call 2: low quality (flat image).
     cv::Mat bgr_low(3, 3, CV_8UC3, cv::Scalar(50, 50, 50));
 
-    auto map_low = color_world_points(
-        make_world_cloud({Eigen::Vector3d{0.0, 0.0, 2.0}}),
-        bgr_low, identity_odom(), calibration, QualityWeights{});
+    auto map_low = color_world_points(make_world_cloud({ Eigen::Vector3d { 0.0, 0.0, 2.0 } }),
+        bgr_low, identity_odom(), calibration, QualityWeights { });
 
     ColorVoxelMap global(0.10);
-    map_high.for_each_voxel([&](const Eigen::Vector3d& pos,
-                                 uint32_t rgb, double quality) {
+    map_high.for_each_voxel([&](const Eigen::Vector3d& pos, uint32_t rgb, double quality) {
         global.insert_if_better(pos, rgb, quality);
     });
-    map_low.for_each_voxel([&](const Eigen::Vector3d& pos,
-                                uint32_t rgb, double quality) {
+    map_low.for_each_voxel([&](const Eigen::Vector3d& pos, uint32_t rgb, double quality) {
         global.insert_if_better(pos, rgb, quality);
     });
 
@@ -303,26 +259,20 @@ TEST(RgbColorizer, LowerQualityDoesNotReplaceHigherAcrossCalls)
 // M5: PCD trigger transition logic
 // ════════════════════════════════════════════════════════════════════════
 
-TEST(PcdTriggerTransition, NoTriggerReturnsFalse)
-{
+TEST(PcdTriggerTransition, NoTriggerReturnsFalse) {
     EXPECT_FALSE(pcd_trigger_transition(false, 0));
     EXPECT_FALSE(pcd_trigger_transition(false, -1));
 }
 
-TEST(PcdTriggerTransition, SuccessResetsTrigger)
-{
-    EXPECT_FALSE(pcd_trigger_transition(true, 0));
-}
+TEST(PcdTriggerTransition, SuccessResetsTrigger) { EXPECT_FALSE(pcd_trigger_transition(true, 0)); }
 
-TEST(PcdTriggerTransition, FailureRetainsTrigger)
-{
+TEST(PcdTriggerTransition, FailureRetainsTrigger) {
     EXPECT_TRUE(pcd_trigger_transition(true, -1));
     EXPECT_TRUE(pcd_trigger_transition(true, 1));
     EXPECT_TRUE(pcd_trigger_transition(true, 42));
 }
 
-TEST(PcdTriggerTransition, IdempotentWhenAlreadyFalse)
-{
+TEST(PcdTriggerTransition, IdempotentWhenAlreadyFalse) {
     EXPECT_FALSE(pcd_trigger_transition(false, 0));
     EXPECT_FALSE(pcd_trigger_transition(false, 0));
 }
@@ -331,72 +281,58 @@ TEST(PcdTriggerTransition, IdempotentWhenAlreadyFalse)
 // Time-tolerance helper (used by find_nearest_odom)
 // ════════════════════════════════════════════════════════════════════════
 
-TEST(TimeTolerance, ZeroDeltaWithinAnyNominalTolerance)
-{
+TEST(TimeTolerance, ZeroDeltaWithinAnyNominalTolerance) {
     EXPECT_TRUE(within_tolerance_ns(0, 50'000'000));
     EXPECT_TRUE(within_tolerance_ns(0, 0));
 }
 
-TEST(TimeTolerance, DeltaWithinTolerancePasses)
-{
+TEST(TimeTolerance, DeltaWithinTolerancePasses) {
     EXPECT_TRUE(within_tolerance_ns(49'000'000, 50'000'000));
     EXPECT_TRUE(within_tolerance_ns(50'000'000, 50'000'000));
 }
 
-TEST(TimeTolerance, DeltaExceedingToleranceFails)
-{
+TEST(TimeTolerance, DeltaExceedingToleranceFails) {
     EXPECT_FALSE(within_tolerance_ns(50'000'001, 50'000'000));
     EXPECT_FALSE(within_tolerance_ns(100'000'000, 50'000'000));
 }
 
-TEST(TimeTolerance, NegativeDeltaFails)
-{
-    EXPECT_FALSE(within_tolerance_ns(-1, 50'000'000));
-}
+TEST(TimeTolerance, NegativeDeltaFails) { EXPECT_FALSE(within_tolerance_ns(-1, 50'000'000)); }
 
 // ══════════════════════════════════════════════════════════════════
 // Regression: colour sampling with RGB vs BGR source order
 // ══════════════════════════════════════════════════════════════════
 
-TEST(RgbColorizer, PacksCorrectRGBFromBGRSource)
-{
+TEST(RgbColorizer, PacksCorrectRGBFromBGRSource) {
     // Replay mode (BGR source): cv::Vec3b(30, 20, 10) = B=30,G=20,R=10
     // pack_rgb() treats ch2 as R=10, ch1 as G=20, ch0 as B=30 → 0x0A141E
-    const auto calibration =
-        make_identity_calibration(100.0, 100.0, 1.0, 1.0);
+    const auto calibration = make_identity_calibration(100.0, 100.0, 1.0, 1.0);
 
     cv::Mat bgr(3, 3, CV_8UC3, cv::Scalar(0, 0, 0));
-    bgr.at<cv::Vec3b>(1, 1) = cv::Vec3b(30, 20, 10);  // B=30, G=20, R=10
+    bgr.at<cv::Vec3b>(1, 1) = cv::Vec3b(30, 20, 10); // B=30, G=20, R=10
 
-    const auto map = color_world_points(
-        make_world_cloud({Eigen::Vector3d{0.0, 0.0, 2.0}}),
-        bgr, identity_odom(), calibration,
-        QualityWeights{}, 0.10, ColorFormat::BGR);
+    const auto map = color_world_points(make_world_cloud({ Eigen::Vector3d { 0.0, 0.0, 2.0 } }),
+        bgr, identity_odom(), calibration, QualityWeights { }, 0.10, ColorFormat::BGR);
 
     const auto cloud = map.to_point_cloud();
     ASSERT_EQ(cloud.size(), 1U);
     EXPECT_EQ(unpack_rgb(cloud.front()), 0x0A141EU);
 }
 
-TEST(RgbColorizer, PacksCorrectRGBFromRGBSource)
-{
+TEST(RgbColorizer, PacksCorrectRGBFromRGBSource) {
     // Live SHM mode (RGB source): pixel is R=10, G=20, B=30.
     // SHM stores bytes [R=10, G=20, B=30]; after memcpy to cv::Mat
     // the channels are [10, 20, 30] which OpenCV interprets as
     // B=10, G=20, R=30 — i.e. Vec3b(10, 20, 30).
     // pack_rgb_from_rgb_order() treats ch0 as R=10, ch1 as G=20,
     // ch2 as B=30 → packed 0x0A141E.
-    const auto calibration =
-        make_identity_calibration(100.0, 100.0, 1.0, 1.0);
+    const auto calibration = make_identity_calibration(100.0, 100.0, 1.0, 1.0);
 
     cv::Mat rgb(3, 3, CV_8UC3, cv::Scalar(0, 0, 0));
     // SHM RGB data: R=10,G=20,B=30 → cv::Mat Vec3b(10, 20, 30)
     rgb.at<cv::Vec3b>(1, 1) = cv::Vec3b(10, 20, 30);
 
-    const auto map = color_world_points(
-        make_world_cloud({Eigen::Vector3d{0.0, 0.0, 2.0}}),
-        rgb, identity_odom(), calibration,
-        QualityWeights{}, 0.10, ColorFormat::RGB);
+    const auto map = color_world_points(make_world_cloud({ Eigen::Vector3d { 0.0, 0.0, 2.0 } }),
+        rgb, identity_odom(), calibration, QualityWeights { }, 0.10, ColorFormat::RGB);
 
     const auto cloud = map.to_point_cloud();
     ASSERT_EQ(cloud.size(), 1U);
@@ -404,30 +340,24 @@ TEST(RgbColorizer, PacksCorrectRGBFromRGBSource)
     EXPECT_EQ(unpack_rgb(cloud.front()), 0x0A141EU);
 }
 
-TEST(RgbColorizer, RGBvsBGRSourceProducesSamePackedColor)
-{
+TEST(RgbColorizer, RGBvsBGRSourceProducesSamePackedColor) {
     // Same logical colour R=10,G=20,B=30, provided in both formats,
     // should produce identical packed RGB regardless of source order.
-    const auto calibration =
-        make_identity_calibration(100.0, 100.0, 1.0, 1.0);
+    const auto calibration = make_identity_calibration(100.0, 100.0, 1.0, 1.0);
 
     // BGR source: cv::Vec3b(30, 20, 10) = B=30,G=20,R=10 → 0x0A141E
     cv::Mat bgr(3, 3, CV_8UC3, cv::Scalar(0, 0, 0));
     bgr.at<cv::Vec3b>(1, 1) = cv::Vec3b(30, 20, 10);
 
-    const auto map_bgr = color_world_points(
-        make_world_cloud({Eigen::Vector3d{0.0, 0.0, 2.0}}),
-        bgr, identity_odom(), calibration,
-        QualityWeights{}, 0.10, ColorFormat::BGR);
+    const auto map_bgr = color_world_points(make_world_cloud({ Eigen::Vector3d { 0.0, 0.0, 2.0 } }),
+        bgr, identity_odom(), calibration, QualityWeights { }, 0.10, ColorFormat::BGR);
 
     // RGB source: SHM R=10,G=20,B=30 → cv::Mat Vec3b(10, 20, 30) → 0x0A141E
     cv::Mat rgb(3, 3, CV_8UC3, cv::Scalar(0, 0, 0));
     rgb.at<cv::Vec3b>(1, 1) = cv::Vec3b(10, 20, 30);
 
-    const auto map_rgb = color_world_points(
-        make_world_cloud({Eigen::Vector3d{0.0, 0.0, 2.0}}),
-        rgb, identity_odom(), calibration,
-        QualityWeights{}, 0.10, ColorFormat::RGB);
+    const auto map_rgb = color_world_points(make_world_cloud({ Eigen::Vector3d { 0.0, 0.0, 2.0 } }),
+        rgb, identity_odom(), calibration, QualityWeights { }, 0.10, ColorFormat::RGB);
 
     const auto cloud_bgr = map_bgr.to_point_cloud();
     const auto cloud_rgb = map_rgb.to_point_cloud();
@@ -437,8 +367,7 @@ TEST(RgbColorizer, RGBvsBGRSourceProducesSamePackedColor)
     EXPECT_EQ(unpack_rgb(cloud_bgr.front()), 0x0A141EU);
 }
 
-int main(int argc, char** argv)
-{
+int main(int argc, char** argv) {
     testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

@@ -29,6 +29,8 @@ tools/jinan_to_scan/build/
 /model/yolo/*
 !/model/**/.gitkeep
 /model/generated/
+!/model/generated/field_zup.obj
+!/model/generated/jinan_field_map_reg.pcd
 
 # Learnlog (local only)
 learnlog.md
@@ -44,3 +46,7 @@ learnlog.md
 
 # Script backups
 *.bak
+
+# Local agent worktrees
+/.worktrees/
+tools/armor_verify/build/

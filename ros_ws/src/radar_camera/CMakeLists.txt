@@ -28,6 +28,9 @@ find_package(ament_cmake_auto REQUIRED)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs dnn calib3d)
 find_package(Eigen3 REQUIRED)
 find_package(assimp REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
+    libavcodec libavformat libavutil libswscale)
 
 if(RADAR_CAMERA_ENABLE_TENSORRT)
     set(TENSORRT_ROOT "$ENV{RADAR_CAMERA_TENSORRT_ROOT}" CACHE PATH
@@ -50,6 +53,8 @@ add_library(${PROJECT_NAME}_core STATIC
     src/model_inference.cpp
     src/armor_refine.cpp
     src/projector.cpp
+    src/raw_shm_reader.cpp
+    src/raw_video_recorder.cpp
 )
 if(RADAR_CAMERA_ENABLE_TENSORRT)
     target_sources(${PROJECT_NAME}_core PRIVATE src/tensorrt_inference.cpp)
@@ -70,6 +75,7 @@ target_link_libraries(${PROJECT_NAME}_core
         openvino::runtime
         Eigen3::Eigen
         assimp::assimp
+        PkgConfig::FFMPEG
 )
 if(RADAR_CAMERA_ENABLE_TENSORRT)
     target_include_directories(${PROJECT_NAME}_core PRIVATE
@@ -98,8 +104,13 @@ if(BUILD_TESTING)
 
   find_package(ament_cmake_gtest REQUIRED)
   ament_add_gtest(radar_camera_tests
+      src/radar_camera_node.cpp
+      test/test_camera_recording_contract.cpp
       test/test_model_inference.cpp
       test/test_projector.cpp
+      test/test_recording_fifo.cpp
+      test/test_raw_shm_reader.cpp
+      test/test_raw_video_recorder.cpp
   )
   target_link_libraries(radar_camera_tests ${PROJECT_NAME}_core)
   target_compile_definitions(radar_camera_tests PRIVATE

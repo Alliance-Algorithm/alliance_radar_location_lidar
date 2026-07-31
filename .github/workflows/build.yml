@@ -28,8 +28,14 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends \
             wget gnupg \
-            libopencv-dev libassimp-dev libeigen3-dev \
-            libzmq3-dev libyaml-cpp-dev libomp-dev libpcl-dev
+             libopencv-dev libassimp-dev libeigen3-dev \
+             libavcodec-dev libavformat-dev libavutil-dev libswscale-dev ffmpeg pkg-config \
+             libzmq3-dev libyaml-cpp-dev libomp-dev libpcl-dev
+          pkg-config --modversion libavcodec libavformat libavutil libswscale
+          # grep -q would close the pipe early and SIGPIPE-kill ffmpeg (exit 141);
+          # write to a file first. h264_nvenc is unavailable without GPU — not fatal.
+          ffmpeg -hide_banner -encoders > /tmp/ff_encoders.txt 2>&1 || true
+          grep -q h264_nvenc /tmp/ff_encoders.txt || echo "note: h264_nvenc unavailable (no GPU in CI)"
           mkdir -p /etc/apt/keyrings
           wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | \
             gpg --dearmor -o /etc/apt/keyrings/apt.llvm.org.gpg

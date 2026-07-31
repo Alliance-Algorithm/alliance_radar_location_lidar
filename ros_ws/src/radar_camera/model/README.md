@@ -9,7 +9,7 @@ The competition model is `best_fixed_names_1280_fp16.engine`.
 - Input: `images`, `1x3x1280x1280`, `float32`
 - Output: `output0`, `1x300x6`, `float32`
 - Row format: `x1,y1,x2,y2,confidence,class_id`
-- Class order: `0-5` blue (`hero`, `engineer`, `infantry3`, `infantry4`, `sentry`, `drone`), `6-11` red in the same order
+- Class order: `0-5` red (`hero`, `engineer`, `infantry3`, `infantry4`, `sentry`, `drone`), `6-11` blue in the same order
 - Live SHM preprocessing: RGB8 bytes, resize to `1280x1280`, divide by `255`, NCHW
 - Offline JPEG preprocessing: `cv::imread` BGR is converted to RGB first to match SHM bytes
 - `blobFromImage` uses `swapRB=false` because the live SHM buffer is already RGB

@@ -26,15 +26,14 @@ using namespace radar::fast_livo2::rgb;
 // Best-observation replacement (brief Step 1)
 // ════════════════════════════════════════════════════════════════════════
 
-TEST(ColorVoxelMap, ReplacesVoxelColorOnlyWithHigherQualityObservation)
-{
-    ColorVoxelMap map(0.10);  // 10 cm voxels
+TEST(ColorVoxelMap, ReplacesVoxelColorOnlyWithHigherQualityObservation) {
+    ColorVoxelMap map(0.10); // 10 cm voxels
 
     // All three points fall into the same voxel (0.02, 0.02, 0.02)
     // because floor(0.02/0.10)=0, floor(0.03/0.10)=0, floor(0.04/0.10)=0.
-    map.insert_if_better(Eigen::Vector3d{0.02, 0.02, 0.02}, 0x112233U, 0.4);
-    map.insert_if_better(Eigen::Vector3d{0.03, 0.02, 0.02}, 0x445566U, 0.3);
-    map.insert_if_better(Eigen::Vector3d{0.04, 0.02, 0.02}, 0x778899U, 0.9);
+    map.insert_if_better(Eigen::Vector3d { 0.02, 0.02, 0.02 }, 0x112233U, 0.4);
+    map.insert_if_better(Eigen::Vector3d { 0.03, 0.02, 0.02 }, 0x445566U, 0.3);
+    map.insert_if_better(Eigen::Vector3d { 0.04, 0.02, 0.02 }, 0x778899U, 0.9);
 
     const auto cloud = map.to_point_cloud();
     ASSERT_EQ(cloud.size(), 1U);
@@ -46,10 +45,9 @@ TEST(ColorVoxelMap, ReplacesVoxelColorOnlyWithHigherQualityObservation)
 // PCL PointXYZRGB export (brief Step 1)
 // ════════════════════════════════════════════════════════════════════════
 
-TEST(ColorVoxelMap, ExportsPclPointXyzRgb)
-{
+TEST(ColorVoxelMap, ExportsPclPointXyzRgb) {
     ColorVoxelMap map(0.10);
-    map.insert_if_better(Eigen::Vector3d{1.0, 2.0, 3.0}, 0xA0B0C0U, 1.0);
+    map.insert_if_better(Eigen::Vector3d { 1.0, 2.0, 3.0 }, 0xA0B0C0U, 1.0);
 
     const auto cloud = map.to_point_cloud();
     ASSERT_EQ(cloud.size(), 1U);
@@ -63,40 +61,37 @@ TEST(ColorVoxelMap, ExportsPclPointXyzRgb)
 // Edge cases
 // ════════════════════════════════════════════════════════════════════════
 
-TEST(ColorVoxelMap, LowerQualityDoesNotReplaceBetterObservation)
-{
+TEST(ColorVoxelMap, LowerQualityDoesNotReplaceBetterObservation) {
     ColorVoxelMap map(0.10);
 
-    map.insert_if_better(Eigen::Vector3d{0.05, 0.05, 0.05}, 0xFF0000U, 0.8);
+    map.insert_if_better(Eigen::Vector3d { 0.05, 0.05, 0.05 }, 0xFF0000U, 0.8);
     // Lower quality — should NOT replace.
-    map.insert_if_better(Eigen::Vector3d{0.06, 0.05, 0.05}, 0x00FF00U, 0.5);
+    map.insert_if_better(Eigen::Vector3d { 0.06, 0.05, 0.05 }, 0x00FF00U, 0.5);
 
     const auto cloud = map.to_point_cloud();
     ASSERT_EQ(cloud.size(), 1U);
     EXPECT_EQ(unpack_rgb(cloud.front()), 0xFF0000U);
 }
 
-TEST(ColorVoxelMap, EqualQualityDoesNotReplace)
-{
+TEST(ColorVoxelMap, EqualQualityDoesNotReplace) {
     ColorVoxelMap map(0.10);
 
-    map.insert_if_better(Eigen::Vector3d{0.05, 0.05, 0.05}, 0xFF0000U, 0.8);
+    map.insert_if_better(Eigen::Vector3d { 0.05, 0.05, 0.05 }, 0xFF0000U, 0.8);
     // Equal quality — should NOT replace (strictly greater required).
-    map.insert_if_better(Eigen::Vector3d{0.06, 0.05, 0.05}, 0x00FF00U, 0.8);
+    map.insert_if_better(Eigen::Vector3d { 0.06, 0.05, 0.05 }, 0x00FF00U, 0.8);
 
     const auto cloud = map.to_point_cloud();
     ASSERT_EQ(cloud.size(), 1U);
     EXPECT_EQ(unpack_rgb(cloud.front()), 0xFF0000U);
 }
 
-TEST(ColorVoxelMap, MultipleVoxelsInDifferentCells)
-{
+TEST(ColorVoxelMap, MultipleVoxelsInDifferentCells) {
     ColorVoxelMap map(0.10);
 
     // Three points in different voxels (separated by >= voxel size).
-    map.insert_if_better(Eigen::Vector3d{0.01, 0.01, 0.01}, 0x111111U, 0.5);
-    map.insert_if_better(Eigen::Vector3d{0.11, 0.01, 0.01}, 0x222222U, 0.5);
-    map.insert_if_better(Eigen::Vector3d{0.01, 0.11, 0.01}, 0x333333U, 0.5);
+    map.insert_if_better(Eigen::Vector3d { 0.01, 0.01, 0.01 }, 0x111111U, 0.5);
+    map.insert_if_better(Eigen::Vector3d { 0.11, 0.01, 0.01 }, 0x222222U, 0.5);
+    map.insert_if_better(Eigen::Vector3d { 0.01, 0.11, 0.01 }, 0x333333U, 0.5);
 
     const auto cloud = map.to_point_cloud();
     ASSERT_EQ(cloud.size(), 3U);
@@ -108,20 +103,18 @@ TEST(ColorVoxelMap, MultipleVoxelsInDifferentCells)
     EXPECT_EQ(colours.size(), 3U);
 }
 
-TEST(ColorVoxelMap, EmptyMapReturnsEmptyCloud)
-{
+TEST(ColorVoxelMap, EmptyMapReturnsEmptyCloud) {
     ColorVoxelMap map(0.10);
     const auto cloud = map.to_point_cloud();
     EXPECT_EQ(cloud.size(), 0U);
 }
 
-TEST(ColorVoxelMap, SaveBinaryPcdProducesNonEmptyFile)
-{
+TEST(ColorVoxelMap, SaveBinaryPcdProducesNonEmptyFile) {
     ColorVoxelMap map(0.10);
-    map.insert_if_better(Eigen::Vector3d{1.0, 2.0, 3.0}, 0xAABBCCU, 1.0);
+    map.insert_if_better(Eigen::Vector3d { 1.0, 2.0, 3.0 }, 0xAABBCCU, 1.0);
 
     const std::string tmp_file = "/tmp/test_color_voxel_map.pcd";
-    int save_result = map.save_binary_pcd(tmp_file);
+    int save_result            = map.save_binary_pcd(tmp_file);
 
     // save_binary_pcd must report success (0).
     EXPECT_EQ(save_result, 0);
@@ -141,8 +134,7 @@ TEST(ColorVoxelMap, SaveBinaryPcdProducesNonEmptyFile)
 // Thread safety: concurrent insert and export must not crash
 // ════════════════════════════════════════════════════════════════════════
 
-TEST(ColorVoxelMap, ConcurrentInsertAndExportDoesNotCrash)
-{
+TEST(ColorVoxelMap, ConcurrentInsertAndExportDoesNotCrash) {
     ColorVoxelMap map(0.10);
     std::atomic<bool> running { true };
     std::atomic<int> insert_count { 0 };
@@ -151,11 +143,11 @@ TEST(ColorVoxelMap, ConcurrentInsertAndExportDoesNotCrash)
     std::thread inserter([&]() {
         int i = 0;
         while (running.load(std::memory_order_relaxed)) {
-            double x = static_cast<double>(i) * 0.01;
-            double y = static_cast<double>(i % 100) * 0.01;
-            double z = static_cast<double>(i / 100) * 0.01;
+            double x        = static_cast<double>(i) * 0.01;
+            double y        = static_cast<double>(i % 100) * 0.01;
+            double z        = static_cast<double>(i / 100) * 0.01;
             uint32_t colour = 0xFF0000U | (static_cast<uint32_t>(i) & 0xFFFF);
-            map.insert_if_better(Eigen::Vector3d{x, y, z}, colour, 0.5);
+            map.insert_if_better(Eigen::Vector3d { x, y, z }, colour, 0.5);
             ++i;
             insert_count.store(i, std::memory_order_relaxed);
         }
@@ -187,14 +179,15 @@ TEST(ColorVoxelMap, ConcurrentInsertAndExportDoesNotCrash)
 // Regression: raw PCL byte layout preserves R/G/B channels correctly
 // ════════════════════════════════════════════════════════════════════════
 
-TEST(ColorVoxelMap, PclByteLayoutPreservesPureRed)
-{
+TEST(ColorVoxelMap, PclByteLayoutPreservesPureRed) {
     // Manually construct a PointXYZRGB whose float stores the uint32
     // 0x00FF0000 — PCL convention: R at bits 16-23, G at bits 8-15,
     // B at bits 0-7 of the underlying uint32. 0x00FF0000 thus means
     // R=255, G=0, B=0 (pure red).
     pcl::PointXYZRGB pt;
-    pt.x = 0.0f; pt.y = 0.0f; pt.z = 0.0f;
+    pt.x              = 0.0f;
+    pt.y              = 0.0f;
+    pt.z              = 0.0f;
     uint32_t raw_rgba = 0x00FF0000U;
     std::memcpy(&pt.rgb, &raw_rgba, sizeof(pt.rgb));
 
@@ -202,8 +195,7 @@ TEST(ColorVoxelMap, PclByteLayoutPreservesPureRed)
     EXPECT_EQ(unpack_rgb(pt), 0x00FF0000U);
 }
 
-int main(int argc, char** argv)
-{
+int main(int argc, char** argv) {
     testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

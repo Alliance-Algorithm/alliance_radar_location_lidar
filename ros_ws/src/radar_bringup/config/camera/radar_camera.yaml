@@ -1,19 +1,19 @@
 radar_camera_node:
   ros__parameters:
     enemy_color: "blue"
-    # Class ids must match the fixed-name export (blue 0-5, red 6-11)
-    hero_blue: 0
-    engineer_blue: 1
-    infantry3_blue: 2
-    infantry4_blue: 3
-    sentry_blue: 4
-    drone_blue: 5
-    hero_red: 6
-    engineer_red: 7
-    infantry3_red: 8
-    infantry4_red: 9
-    sentry_red: 10
-    drone_red: 11
+    # Class ids must match the fixed-name export (red 0-5, blue 6-11)
+    hero_blue: 6
+    engineer_blue: 7
+    infantry3_blue: 8
+    infantry4_blue: 9
+    sentry_blue: 10
+    drone_blue: 11
+    hero_red: 0
+    engineer_red: 1
+    infantry3_red: 2
+    infantry4_red: 3
+    sentry_red: 4
+    drone_red: 5
     model_path: "/workspace/ros_ws/src/radar_camera/model/best_fixed_names_1280_fp16.engine"
     backend: "tensorrt"
     device_name: "CPU"
@@ -28,16 +28,31 @@ radar_camera_node:
     use_openvino: false
     num_classes: 12
     # Set this to the deployment map mesh when projection is enabled.
-    mesh_path: ""
+    mesh_path: "/workspace/model/generated/field_zup.obj"
     # L2 plate detector + L3 number classifier. Leave paths empty to disable.
     armor_model_path: "/workspace/ros_ws/src/radar_camera/model/shenzhen-0708_fp16.engine"
     armor_score_threshold: 0.8
     armor_nms_threshold: 0.3
     number_model_path: "/workspace/ros_ws/src/radar_camera/model/armor-number_fp16.engine"
     number_conf_threshold: 0.8
-    camera_matrix: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+    # 内参来源: odin_livo2.yaml camera_calib.json @5472x3648 全分辨率
+    # fx = 3376.849308×2, fy = 3368.725055×2, cx = 1310.374137×2, cy = 962.031135×2
+    camera_matrix: [6753.698616, 0.0, 2620.748274,
+                    0.0, 6737.450110, 1924.062270,
+                    0.0, 0.0, 1.0]
+    # TODO: 畸变系数未入库。重跑 .script/calibrate-camera 取结果填入 [k1, k2, p1, p2, k3]
     distortion_coefficients: [0.0, 0.0, 0.0, 0.0, 0.0]
     rotation: [0.0, 0.0, 0.0]
     translation: [0.0, 0.0, 0.0]
     pub_topic_name: "/radar_camera/robot_pose"
-    sub_topic_name: "/camera/image_raw"
+    enable_raw_recording: false
+    recording_output_dir: "/model/devio"
+    recording_width: 5472
+    recording_height: 3648
+    recording_fps: 20
+    recording_bitrate: 40000000
+    recording_gop: 20
+    recording_encoder: "h264_nvenc"
+    recording_segment_duration_sec: 60
+    recording_buffer_pool_frames: 8
+    recording_max_buffer_bytes: 480000000

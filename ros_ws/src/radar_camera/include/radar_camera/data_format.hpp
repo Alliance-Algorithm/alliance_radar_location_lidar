@@ -41,7 +41,7 @@ namespace radar_camera::inference_config {
 
 struct InferenceConfig {
     std::string model_path;
-    std::string backend              = "openvino";
+    std::string backend               = "openvino";
     std::string device_name           = "CPU";
     int model_input_width             = 1280;
     int model_input_height            = 1280;
