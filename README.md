@@ -88,6 +88,34 @@ docker exec -it RADAR zsh
 
 ## 构建 & 运行
 
+### 比赛一键启动与原始录制
+
+录制关闭时运行标准比赛链路。该模式不会创建原始录制 FIFO、SHM reader、编码器或输出文件：
+
+```bash
+ros2 launch radar_bringup competition.launch.py \
+  side:=red map_path:=/workspace/model/generated/map.pcd \
+  enable_raw_recording:=false
+```
+
+需要采集原始相机视频时显式开启录制。默认值为 5472x3648、20 FPS、40 Mbps、
+H.264 NVENC，分段 60 秒，输出到 `/data/competition/recordings`：
+
+```bash
+ros2 launch radar_bringup competition.launch.py \
+  side:=red map_path:=/workspace/model/generated/map.pcd \
+  enable_raw_recording:=true \
+  recording_output_dir:=/data/competition/recordings
+```
+
+启用录制的硬件阻塞条件：
+
+- 必须连接并可访问 Hik 相机及其 SDK/SHM 写入端；没有真实相机 SHM 源时，`radar_camera_node` 无法完成录制链路。
+- 必须使用带 NVIDIA GPU、驱动和 `h264_nvenc` 编码器的主机；没有 NVENC 时节点会在启动预检阶段失败。
+- 必须存在可加载的 TensorRT 模型和对应 CUDA/TensorRT 运行时；默认模型路径见 `radar_bringup/config/camera/radar_camera.yaml`。
+- 必须连接所选 LiDAR 并启动对应驱动；`sensor:=odin` 或 `sensor:=mid70` 不能替代驱动和硬件。
+- `map_path` 必须指向可读地图，录制目录必须可创建且有足够磁盘空间；静态测试不覆盖这些现场条件。
+
 ### 快捷脚本
 
 | 命令 | 说明 |
