@@ -27,6 +27,10 @@
 
   <test_depend>ament_cmake_pytest</test_depend>
   <test_depend>launch_testing</test_depend>
+  <test_depend>radar_bridge</test_depend>
+  <test_depend>radar_fusion</test_depend>
+  <test_depend>sensor_msgs_py</test_depend>
+  <test_depend>python3-zmq</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

@@ -1,0 +1,218 @@
+import csv
+import json
+import os
+import socket
+import subprocess
+import tempfile
+import time
+from pathlib import Path
+
+import rclpy
+import yaml
+import zmq
+from geometry_msgs.msg import Point
+from radar_interfaces.msg import CameraDetectionPose, LidarLocation
+from rclpy.node import Node
+from sensor_msgs.msg import PointCloud2
+from sensor_msgs_py import point_cloud2
+
+
+LIDAR_LOCATION_FIELDS = (
+    "cmd_id",
+    "opponent_hero_x",
+    "opponent_hero_y",
+    "opponent_engineer_x",
+    "opponent_engineer_y",
+    "opponent_infantry_3_x",
+    "opponent_infantry_3_y",
+    "opponent_infantry_4_x",
+    "opponent_infantry_4_y",
+    "opponent_aerial_x",
+    "opponent_aerial_y",
+    "opponent_sentry_x",
+    "opponent_sentry_y",
+    "ally_hero_x",
+    "ally_hero_y",
+    "ally_engineer_x",
+    "ally_engineer_y",
+    "ally_infantry_3_x",
+    "ally_infantry_3_y",
+    "ally_infantry_4_x",
+    "ally_infantry_4_y",
+    "ally_aerial_x",
+    "ally_aerial_y",
+    "ally_sentry_x",
+    "ally_sentry_y",
+)
+
+
+def free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def read_replay_rows(csv_path: Path, image_dir: Path):
+    selected = {}
+    with csv_path.open(newline="") as stream:
+        for row in csv.DictReader(stream):
+            if row["hit_ok"] != "1" or row["class_name"] not in {"hero_b", "eng_r", "inf3_b"}:
+                continue
+            selected.setdefault(row["class_name"], row)
+
+    missing = [row["path"] for row in selected.values() if not (image_dir / row["path"]).is_file()]
+    assert not missing, f"CSV replay images missing: {missing}"
+    assert set(selected) == {"hero_b", "eng_r", "inf3_b"}, selected
+    return selected
+
+
+def set_pose(msg: CameraDetectionPose, name: str, row: dict) -> None:
+    position = Point()
+    position.x = float(row["map_x"])
+    position.y = float(row["map_y"])
+    position.z = 0.0
+    confidence = float(row["conf"])
+    if name == "hero_b":
+        msg.hero_position, msg.hero_confidence = position, confidence
+    elif name == "eng_r":
+        msg.engine_position, msg.engine_confidence = position, confidence
+    else:
+        msg.infantry_3_position, msg.infantry_3_confidence = position, confidence
+
+
+def lidar_location_fields(msg: LidarLocation) -> dict:
+    return {field: int(getattr(msg, field)) for field in LIDAR_LOCATION_FIELDS}
+
+
+def bridge_fields(payload: dict) -> dict:
+    return {key: int(value) for key, value in payload.items() if key != "cmd_id"}
+
+
+class ReplayNode(Node):
+    def __init__(self):
+        super().__init__("fusion_bridge_csv_replay")
+        self.camera_pub = self.create_publisher(CameraDetectionPose, "/camera/detection", 10)
+        self.cluster_pub = self.create_publisher(PointCloud2, "/lidar/cluster", 10)
+        self.location = None
+        self.location_sub = self.create_subscription(
+            LidarLocation, "/lidar/location", lambda msg: setattr(self, "location", msg), 10
+        )
+
+    def publish_frame(self, rows: dict, stamp):
+        camera = CameraDetectionPose()
+        camera.header.stamp = stamp.to_msg()
+        camera.header.frame_id = "map"
+        for name, row in rows.items():
+            set_pose(camera, name, row)
+        self.camera_pub.publish(camera)
+
+        points = [(float(row["map_x"]), float(row["map_y"]), 0.0) for row in rows.values()]
+        cloud = point_cloud2.create_cloud_xyz32(camera.header, points)
+        self.cluster_pub.publish(cloud)
+
+
+def test_csv_replay_fusion_and_bridge_transport():
+    csv_path = Path(os.environ["RADAR_CAMERA_RAY_CSV"])
+    image_dir = Path(os.environ["RADAR_REPLAY_IMAGE_DIR"])
+    rows = read_replay_rows(csv_path, image_dir)
+    expected_cm = {
+        name: (float(row["rm_x_cm"]), float(row["rm_y_cm"])) for name, row in rows.items()
+    }
+
+    pub_port = free_port()
+    sub_port = free_port()
+    with tempfile.TemporaryDirectory(prefix="radar_replay_") as tmp:
+        tmp_path = Path(tmp)
+        fusion_yaml = tmp_path / "fusion.yaml"
+        fusion_yaml.write_text(
+            yaml.safe_dump(
+                {
+                    "radar_fusion_node": {
+                        "ros__parameters": {
+                            "gate_distance": 2.0,
+                            "track_timeout_sec": 2.0,
+                            "min_hits_to_confirm": 1,
+                            "max_misses_before_delete": 2,
+                            "max_tracks": 20,
+                            "enable_camera_fusion": True,
+                            "camera_timeout_sec": 2.0,
+                            "map_to_rm_offset_x": 14.0,
+                            "map_to_rm_offset_y": 7.5,
+                        }
+                    }
+                }
+            )
+        )
+        bridge_yaml = tmp_path / "bridge.yaml"
+        bridge_yaml.write_text(
+            yaml.safe_dump(
+                {
+                    "radar_bridge_node": {
+                        "ros__parameters": {
+                            "zmq_pub_address": f"tcp://127.0.0.1:{pub_port}",
+                            "zmq_sub_addresses": [f"tcp://127.0.0.1:{sub_port}"],
+                            "shm_name": "/unused_replay_shm",
+                            "video_pub_address": "tcp://127.0.0.1:59999",
+                            "image_topic": "/unused",
+                            "video_width": 5472,
+                            "video_height": 3648,
+                            "enable_video_stream": False,
+                        }
+                    }
+                }
+            )
+        )
+
+        context = zmq.Context()
+        subscriber = context.socket(zmq.SUB)
+        subscriber.connect(f"tcp://127.0.0.1:{pub_port}")
+        subscriber.setsockopt_string(zmq.SUBSCRIBE, "")
+        fusion = subprocess.Popen(["ros2", "run", "radar_fusion", "radar_fusion_node", "--ros-args", "--params-file", str(fusion_yaml)])
+        bridge = subprocess.Popen(["ros2", "run", "radar_bridge", "radar_bridge_node", "--ros-args", "--params-file", str(bridge_yaml)])
+        try:
+            rclpy.init()
+            node = ReplayNode()
+            deadline = time.monotonic() + 20.0
+            while time.monotonic() < deadline and (node.camera_pub.get_subscription_count() < 1 or node.cluster_pub.get_subscription_count() < 1):
+                rclpy.spin_once(node, timeout_sec=0.1)
+            assert node.camera_pub.get_subscription_count() >= 1
+            assert node.cluster_pub.get_subscription_count() >= 1
+
+            for _ in range(5):
+                node.publish_frame(rows, node.get_clock().now())
+                rclpy.spin_once(node, timeout_sec=0.15)
+
+            deadline = time.monotonic() + 10.0
+            payload = None
+            while time.monotonic() < deadline:
+                rclpy.spin_once(node, timeout_sec=0.1)
+                if node.location is not None:
+                    try:
+                        payload = json.loads(subscriber.recv_string(flags=zmq.NOBLOCK))
+                        break
+                    except zmq.Again:
+                        pass
+            assert node.location is not None, "fusion did not publish /lidar/location"
+            assert payload is not None, "bridge did not publish ZMQ location JSON"
+            assert payload["cmd_id"] == 0x2001
+
+            ros_fields = lidar_location_fields(node.location)
+            assert bridge_fields(payload) == {key: value for key, value in ros_fields.items() if key != "cmd_id"}
+
+            observed = {
+                "opponent_hero": (ros_fields["opponent_hero_x"], ros_fields["opponent_hero_y"]),
+                "opponent_engineer": (ros_fields["opponent_engineer_x"], ros_fields["opponent_engineer_y"]),
+                "opponent_infantry_3": (ros_fields["opponent_infantry_3_x"], ros_fields["opponent_infantry_3_y"]),
+            }
+            print(f"CSV official cm oracle: {expected_cm}")
+            print(f"Fusion output fields: {observed}")
+            print("Diagnostic: bridge transport is field-for-field; semantic slot/unit correctness is not asserted by this current-state test.")
+        finally:
+            node.destroy_node()
+            rclpy.shutdown()
+            fusion.terminate()
+            bridge.terminate()
+            fusion.wait(timeout=5)
+            bridge.wait(timeout=5)
+            subscriber.close()
+            context.term()
