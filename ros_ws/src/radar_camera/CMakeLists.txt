@@ -49,6 +49,7 @@ ament_auto_find_build_dependencies()
 add_library(${PROJECT_NAME}_core STATIC
     src/model_inference.cpp
     src/projector.cpp
+    src/raw_shm_reader.cpp
 )
 if(RADAR_CAMERA_ENABLE_TENSORRT)
     target_sources(${PROJECT_NAME}_core PRIVATE src/tensorrt_inference.cpp)
@@ -100,6 +101,7 @@ if(BUILD_TESTING)
       test/test_model_inference.cpp
       test/test_projector.cpp
       test/test_recording_fifo.cpp
+      test/test_raw_shm_reader.cpp
   )
   target_link_libraries(radar_camera_tests ${PROJECT_NAME}_core)
   target_compile_definitions(radar_camera_tests PRIVATE
