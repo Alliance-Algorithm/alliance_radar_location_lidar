@@ -57,6 +57,7 @@ def test_median_and_classes(tmp_path, fixture_db):
     con.close()
 
     assert cols == ["camp", "robot_id", "robot_class", "t", "x_med", "y_med",
+                    "cell_gx", "cell_gy", "x_mode", "y_mode",
                     "x_p25", "x_p75", "y_p25", "y_p75", "n"]
 
     # 2 games x 3 robots x 3 seconds of fixture rows are aggregated across
@@ -84,6 +85,25 @@ def test_median_and_classes(tmp_path, fixture_db):
     # every robot id from the fixture appears at each of the 3 seconds
     assert {r[1] for r in rows} == {1, 2, 101}
     assert {r[0] for r in rows} == {"红", "蓝"}
+
+
+def test_mode_cells(tmp_path, fixture_db):
+    out = tmp_path / "out.sqlite"
+    run_build(fixture_db, out)
+    con = sqlite3.connect(out)
+    mode_rows = con.execute(
+        "SELECT camp, robot_id, robot_class, t, cell_gx, cell_gy, x_mode, y_mode "
+        "FROM default_positions ORDER BY camp, robot_id, t").fetchall()
+    con.close()
+    by_key = {(r[0], r[1], r[3]): r for r in mode_rows}
+    # red hero t=1: both games at x=6.0, y=2.0 -> cell (6, 2), center (6.5, 2.5)
+    r = by_key[("红", 1, 1)]
+    assert (r[4], r[5]) == (6, 2)
+    assert r[6] == 6.5 and r[7] == 2.5
+    # blue hero t=1: x=22.0, y=13.0 -> cell (22, 13), center (22.5, 13.5)
+    r = by_key[("蓝", 101, 1)]
+    assert (r[4], r[5]) == (22, 13)
+    assert r[6] == 22.5 and r[7] == 13.5
 
 
 def run_build_expect_failure(db, out):

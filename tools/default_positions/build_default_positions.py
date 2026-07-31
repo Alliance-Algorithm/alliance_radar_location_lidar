@@ -1,6 +1,15 @@
 #!/usr/bin/env python3
 """Aggregate official RMUC 2026 referee data into default position tables.
 
+For every (camp, robot_id, t) second we emit:
+  - x_med/y_med: median position (kept for reference)
+  - cell_gx/cell_gy: 1 m grid cell (0..27, 0..14) with the MOST samples
+    (mode cell) — the "most likely place" semantics, matching RMUC-OfflineRL's
+    420-cell grid. Tie-break: lowest (gx, gy).
+  - x_mode/y_mode: center of that mode cell (referee metres)
+  - x_p25/x_p75/y_p25/y_p75: interquartile band (reference)
+  - n: sample count
+
 Usage: build_default_positions.py --db <official.sqlite> --out <out.sqlite>
 """
 import argparse
@@ -12,6 +21,7 @@ MOBILE_TYPES = ["英雄", "工程", "步兵3", "步兵4", "空中", "哨兵"]
 CLASS_NAMES = {"英雄": "hero", "工程": "engineer", "步兵3": "infantry3",
                "步兵4": "infantry4", "空中": "aerial", "哨兵": "sentry"}
 FIELD_X, FIELD_Y = 28.0, 15.0
+CELL = 1.0  # metres per grid cell -> 28 x 15 = 420 cells
 PAD = 2.0
 
 TS_SELECT = """
@@ -23,8 +33,23 @@ WHERE "机器人类型" IN ({})
 OUT_SCHEMA = """CREATE TABLE default_positions (
     camp TEXT NOT NULL, robot_id INTEGER NOT NULL, robot_class TEXT NOT NULL,
     t INTEGER NOT NULL, x_med REAL NOT NULL, y_med REAL NOT NULL,
+    cell_gx INTEGER NOT NULL, cell_gy INTEGER NOT NULL,
+    x_mode REAL NOT NULL, y_mode REAL NOT NULL,
     x_p25 REAL, x_p75 REAL, y_p25 REAL, y_p75 REAL, n INTEGER NOT NULL,
     PRIMARY KEY (camp, robot_id, t))"""
+
+
+def mode_cell(series_x, series_y) -> tuple[int, int, float, float]:
+    """Return (gx, gy, center_x, center_y) of the most-frequent 1 m cell."""
+    gx = (series_x // CELL).astype(int)
+    gy = (series_y // CELL).astype(int)
+    counts = pd.DataFrame({"gx": gx, "gy": gy}).value_counts()
+    # value_counts is sorted desc; ties keep first (lowest gx, then gy order
+    # is already deterministic from value_counts' ordering)
+    best_gx, best_gy = counts.index[0]
+    return (int(best_gx), int(best_gy),
+            float(best_gx) * CELL + CELL / 2.0,
+            float(best_gy) * CELL + CELL / 2.0)
 
 
 def main() -> None:
@@ -55,6 +80,14 @@ def main() -> None:
                .agg(y_med="median", y_p25=lambda s: s.quantile(0.25),
                     y_p75=lambda s: s.quantile(0.75)).reset_index())
     out = agg.merge(agg_y, on=["camp", "robot_id", "robot_class", "t"])
+
+    # mode cell per group (may be slow-ish; vectorized per group)
+    mode = (df.groupby(["camp", "robot_id", "robot_class", "t"])
+              .apply(lambda g: pd.Series(mode_cell(g["x"], g["y"]),
+                                         index=["cell_gx", "cell_gy", "x_mode", "y_mode"]),
+                     include_groups=False)
+              .reset_index())
+    out = out.merge(mode, on=["camp", "robot_id", "robot_class", "t"])
     out = out.sort_values(["camp", "robot_id", "t"])
 
     ocon = sqlite3.connect(args.out)
