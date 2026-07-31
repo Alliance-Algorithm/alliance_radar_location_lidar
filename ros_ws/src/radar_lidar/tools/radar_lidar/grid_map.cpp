@@ -2,8 +2,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <format>
+#include <fstream>
 #include <limits>
+#include <string>
 
 namespace radar_lidar::grid_map {
 
@@ -121,6 +124,46 @@ auto rasterize(const pcl::PointCloud<pcl::PointXYZ>& cloud, const GridMapParams&
     }
 
     return result;
+}
+
+namespace {
+
+constexpr unsigned char kObstacleGray = 0;
+constexpr unsigned char kUnknownGray  = 205;
+constexpr unsigned char kFreeGray     = 254;
+
+} // namespace
+
+auto save_pgm_yaml(const std::string& output_prefix, const GridMapResult& result)
+    -> std::expected<void, std::string> {
+    const auto pgm_path  = output_prefix + ".pgm";
+    const auto yaml_path = output_prefix + ".yaml";
+
+    std::ofstream pgm(pgm_path, std::ios::binary);
+    if (!pgm) return std::unexpected(std::format("Cannot open file: {}", pgm_path));
+    pgm << "P5\n" << result.width << ' ' << result.height << "\n255\n";
+    for (int row = 0; row < result.height; ++row) {
+        const auto iy = result.height - 1 - row; // 行 0 = 世界系 y 最大
+        for (int ix = 0; ix < result.width; ++ix) {
+            const auto v = result.data[static_cast<std::size_t>(iy) * result.width + ix];
+            const auto gray = v < 0 ? kUnknownGray : (v == 0 ? kObstacleGray : kFreeGray);
+            pgm.put(static_cast<char>(gray));
+        }
+    }
+    if (!pgm) return std::unexpected(std::format("Failed writing PGM: {}", pgm_path));
+
+    std::ofstream yaml(yaml_path);
+    if (!yaml) return std::unexpected(std::format("Cannot open file: {}", yaml_path));
+    const auto image_name = std::filesystem::path(pgm_path).filename().string();
+    yaml << "image: " << image_name << "\n"
+         << "mode: trinary\n"
+         << "resolution: " << result.resolution << "\n"
+         << "origin: [" << result.origin_x << ", " << result.origin_y << ", 0.0]\n"
+         << "negate: 0\n"
+         << "occupied_thresh: 0.65\n"
+         << "free_thresh: 0.196\n";
+    if (!yaml) return std::unexpected(std::format("Failed writing YAML: {}", yaml_path));
+    return { };
 }
 
 } // namespace radar_lidar::grid_map

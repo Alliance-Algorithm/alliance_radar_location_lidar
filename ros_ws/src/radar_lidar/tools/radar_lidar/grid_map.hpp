@@ -36,4 +36,8 @@ struct GridMapResult {
 auto rasterize(const pcl::PointCloud<pcl::PointXYZ>& cloud, const GridMapParams& params,
     const std::optional<Bounds>& bounds) -> std::expected<GridMapResult, std::string>;
 
+// 写 map_server 标准 PGM(P5)+YAML。PGM 行 0 = 世界系 y 最大。
+auto save_pgm_yaml(const std::string& output_prefix, const GridMapResult& result)
+    -> std::expected<void, std::string>;
+
 } // namespace radar_lidar::grid_map

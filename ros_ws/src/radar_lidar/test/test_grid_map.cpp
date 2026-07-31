@@ -3,7 +3,11 @@
 
 #include <algorithm>
 #include <expected>
+#include <filesystem>
+#include <fstream>
 #include <optional>
+#include <sstream>
+#include <string>
 
 #include <gtest/gtest.h>
 
@@ -131,4 +135,66 @@ TEST(GridMapTest, InvalidParamsFail) {
     cloud->is_dense = true;
     EXPECT_FALSE(rasterize(*cloud, GridMapParams { .resolution = 0.0 }, std::nullopt).has_value());
     EXPECT_FALSE(rasterize(*cloud, GridMapParams { .min_points = 0 }, std::nullopt).has_value());
+}
+
+namespace {
+
+auto read_file(const std::filesystem::path& path) -> std::string {
+    std::ifstream f(path, std::ios::binary);
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    return ss.str();
+}
+
+} // namespace
+
+TEST(GridMapTest, SavePgmYamlWritesValidFiles) {
+    GridMapResult map;
+    map.width      = 4;
+    map.height     = 4;
+    map.origin_x   = -0.1;
+    map.origin_y   = -0.2;
+    map.resolution = 0.05;
+    // iy=0: 空闲,空闲,未知,未知; iy=1..2: 全未知; iy=3 (y 最大): 障碍,障碍,未知,未知
+    map.data = { 100, 100, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, 0, -1, -1 };
+
+    const auto tmp = std::filesystem::temp_directory_path() / "grid_map_test";
+    std::filesystem::create_directories(tmp);
+    const auto prefix = (tmp / "test_map").string();
+    const auto result = save_pgm_yaml(prefix, map);
+    ASSERT_TRUE(result.has_value()) << result.error();
+
+    const auto pgm = read_file(tmp / "test_map.pgm");
+    // "P5\n4 4\n255\n" 头部 = 11 字节, 之后 16 个灰度字节
+    ASSERT_GT(pgm.size(), 11u);
+    EXPECT_EQ(pgm.substr(0, 11), "P5\n4 4\n255\n");
+    const auto body = pgm.substr(11);
+    ASSERT_EQ(body.size(), 16u);
+    // 行 0 = 世界系 y 最大 -> data 的 iy=3 (两障碍格 0,0)
+    EXPECT_EQ(static_cast<unsigned char>(body[0]), 0u);
+    EXPECT_EQ(static_cast<unsigned char>(body[1]), 0u);
+    // 最后一行 = 世界系 y 最小 -> data 的 iy=0 (空闲格 100 -> 254)
+    EXPECT_EQ(static_cast<unsigned char>(body[12]), 254u);
+    EXPECT_EQ(static_cast<unsigned char>(body[13]), 254u);
+    // 未知格 -> 205
+    EXPECT_EQ(static_cast<unsigned char>(body[2]), 205u);
+
+    const auto yaml = read_file(tmp / "test_map.yaml");
+    EXPECT_TRUE(yaml.find("image: test_map.pgm") != std::string::npos);
+    EXPECT_TRUE(yaml.find("resolution: 0.05") != std::string::npos);
+    EXPECT_TRUE(yaml.find("origin: [-0.1, -0.2, 0.0]") != std::string::npos);
+    EXPECT_TRUE(yaml.find("negate: 0") != std::string::npos);
+    EXPECT_TRUE(yaml.find("occupied_thresh: 0.65") != std::string::npos);
+    EXPECT_TRUE(yaml.find("free_thresh: 0.196") != std::string::npos);
+    EXPECT_TRUE(yaml.find("mode: trinary") != std::string::npos);
+}
+
+TEST(GridMapTest, SavePgmYamlFailsOnBadPath) {
+    GridMapResult map;
+    map.width    = 1;
+    map.height   = 1;
+    map.data     = { -1 };
+    map.resolution = 0.05;
+    const auto result = save_pgm_yaml("/nonexistent_dir_xyz/out", map);
+    EXPECT_FALSE(result.has_value());
 }
