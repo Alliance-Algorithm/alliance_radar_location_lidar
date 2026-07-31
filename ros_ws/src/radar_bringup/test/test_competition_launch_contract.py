@@ -59,16 +59,81 @@ class CompetitionLaunchContract(unittest.TestCase):
         self.assertIn("radar_bridge.launch.py", self.source)
 
     def test_forwards_every_recording_parameter(self):
-        launch_configurations = {
-            node.args[0].value
+        recording_parameters = self._recording_parameters_assignment()
+        parameter_names = {
+            key.value
+            for key, value in self._dict_entries(recording_parameters.value)
+            if isinstance(key, ast.Constant)
+            and isinstance(value, ast.Call)
+            and isinstance(value.func, ast.Name)
+            and value.func.id == "LaunchConfiguration"
+            and len(value.args) == 1
+            and isinstance(value.args[0], ast.Constant)
+        }
+
+        self.assertEqual(parameter_names, set(EXPECTED_DEFAULTS))
+
+        radar_camera_node = self._radar_camera_node()
+        parameters = self._keyword_value(radar_camera_node, "parameters")
+        self.assertIsInstance(parameters, ast.List)
+        self.assertTrue(self._contains_name(parameters.elts, "recording_parameters"))
+
+    def test_disabled_mode_uses_exact_default_on_radar_camera_override_path(self):
+        disabled_default = next(
+            node
             for node in ast.walk(self.tree)
             if isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)
-            and node.func.id == "LaunchConfiguration"
-            and len(node.args) == 1
+            and node.func.id == "DeclareLaunchArgument"
+            and node.args
             and isinstance(node.args[0], ast.Constant)
-        }
-        self.assertTrue(set(EXPECTED_DEFAULTS).issubset(launch_configurations))
+            and node.args[0].value == "enable_raw_recording"
+        )
+        self.assertEqual(
+            self._keyword_value(disabled_default, "default_value").value,
+            "false",
+        )
+
+        radar_parameters = self._keyword_value(self._radar_camera_node(), "parameters")
+        self.assertTrue(self._contains_name(radar_parameters.elts, "recording_parameters"))
+
+    def _recording_parameters_assignment(self):
+        return next(
+            node
+            for node in ast.walk(self.tree)
+            if isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name)
+                and target.id == "recording_parameters"
+                for target in node.targets
+            )
+        )
+
+    def _radar_camera_node(self):
+        return next(
+            node
+            for node in ast.walk(self.tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "Node"
+            and self._keyword_string(node, "name") == "radar_camera_node"
+        )
+
+    @staticmethod
+    def _dict_entries(dictionary):
+        return zip(dictionary.keys, dictionary.values)
+
+    @staticmethod
+    def _keyword_value(call, name):
+        return next(keyword.value for keyword in call.keywords if keyword.arg == name)
+
+    def _keyword_string(self, call, name):
+        value = self._keyword_value(call, name)
+        return value.value if isinstance(value, ast.Constant) else None
+
+    @staticmethod
+    def _contains_name(nodes, name):
+        return any(isinstance(node, ast.Name) and node.id == name for node in nodes)
 
 
 if __name__ == "__main__":
