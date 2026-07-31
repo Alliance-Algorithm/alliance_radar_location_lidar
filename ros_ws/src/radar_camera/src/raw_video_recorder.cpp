@@ -46,12 +46,25 @@ namespace {
         ~Segment() {
             if (format != nullptr && format->oformat != nullptr
                 && !(format->oformat->flags & AVFMT_NOFILE)) {
+                // Destruction cannot report an I/O error; normal shutdown uses close_output().
                 avio_closep(&format->pb);
             }
             av_frame_free(&frame);
             sws_freeContext(scaler);
             avcodec_free_context(&codec);
             avformat_free_context(format);
+        }
+
+        auto close_output() -> std::expected<void, std::string> {
+            if (format == nullptr || format->oformat == nullptr
+                || (format->oformat->flags & AVFMT_NOFILE) || format->pb == nullptr) {
+                return { };
+            }
+            const auto result = avio_closep(&format->pb);
+            if (result < 0) {
+                return std::unexpected("MPEG-TS output close failed: " + ffmpeg_error(result));
+            }
+            return { };
         }
     };
 
@@ -73,7 +86,10 @@ namespace {
                 return false;
             }
             if (result == AVERROR_EOF) {
-                return true;
+                if (flushing) {
+                    return true;
+                }
+                return std::unexpected("NVENC packet receive reached EOF before flush");
             }
             if (result < 0) {
                 return std::unexpected("NVENC packet receive failed: " + ffmpeg_error(result));
@@ -118,6 +134,9 @@ namespace {
             result = av_write_trailer(segment.format);
             if (result < 0) {
                 return std::unexpected("MPEG-TS trailer write failed: " + ffmpeg_error(result));
+            }
+            if (const auto closed = segment.close_output(); !closed) {
+                return std::unexpected(closed.error());
             }
         }
         if (segment.sidecar.is_open()) {
@@ -379,6 +398,10 @@ void RawVideoRecorder::loop() {
         av_packet_free(&packet);
         if (!drained) {
             fail(drained.error(), false);
+            break;
+        }
+        if (*drained) {
+            fail("NVENC packet receive reached EOF before flush", false);
             break;
         }
         ++frame_index;
