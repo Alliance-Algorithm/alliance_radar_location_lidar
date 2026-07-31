@@ -32,3 +32,40 @@ It is blocked before compilation because this environment does not provide `Open
 
 - Hardware NVENC execution, full-resolution output, sustained rollover, MPEG-TS decode, sidecar contents, and intentional encoder slowdown still require a host with the camera package dependencies and NVIDIA runtime. The opt-in test is intentionally bounded and does not change SDK, driver, or SHM-writer code.
 - The current public FIFO API exposes only a boolean overrun state, so the recorder preserves the detailed reason internally through the existing request path but callers cannot retrieve that string yet.
+
+## Task 3 Re-review Fix Report
+
+### Fixes
+
+- Added `Segment::close_output()` as an explicit fallible finalization step. It calls `avio_closep`, checks the return value, and propagates close failures through `finalize_segment()` and `RawVideoRecorder::fail()`. The destructor only performs best-effort cleanup for residual resources.
+- Normal `drain_packets()` now treats `AVERROR_EOF` as a recorder failure before flush. Other negative terminal receive results already propagate as errors. The loop checks the drain result before writing sidecar metadata or incrementing `encoded`, so a failed drain cannot count the frame.
+- `ConsumesFramesInFifoOrder` now parses persisted JSONL sequence records, sorts records by deterministic segment filename, and asserts the actual sequence order `[1, 2]`.
+- The opt-in hardware test is bounded to two full-resolution frames across two one-second MPEG-TS segments. It requires successful encoding, exact two-segment/two-sidecar rollover, fatal `ffprobe` success, exact `h264,5472,3648` stream metadata, and sidecar sequence content.
+
+### Verification
+
+Implementation commit:
+
+```text
+f07000e fix(camera): address raw recorder review findings
+```
+
+Commands and results:
+
+```text
+git diff --check
+exit status: 0
+
+source /opt/ros/jazzy/setup.bash && colcon build --packages-select radar_camera --cmake-args -DBUILD_TESTING=ON
+exit status: 1
+Failed before compilation: OpenVINOConfig.cmake/openvino-config.cmake was not available.
+```
+
+The recorder test executable could not be built or run in this environment because the package configure step is blocked by the missing OpenVINO development package. The opt-in hardware test was therefore not executed locally. No SDK, driver, or SHM-writer files were changed.
+
+### Return Status, Hash, Tests, Concerns
+
+- Return status: implementation commit created; package verification blocked by environment dependency.
+- Implementation hash: `f07000e`.
+- Tests: `git diff --check` passed; `colcon build --packages-select radar_camera --cmake-args -DBUILD_TESTING=ON` failed at `find_package(OpenVINO)` before compilation.
+- Concerns: NVENC execution, `ffprobe` validation, full-resolution conversion, MPEG-TS readability, rollover, and sidecar assertions still require a host with OpenVINO, OpenCV, FFmpeg development libraries, NVIDIA NVENC, and the camera runtime. The final test suite remains bounded and does not alter SDK, driver, or SHM-writer behavior.
