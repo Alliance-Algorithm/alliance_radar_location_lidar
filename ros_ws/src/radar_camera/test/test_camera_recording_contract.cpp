@@ -1,5 +1,6 @@
 #include <memory>
 #include <string>
+#include <vector>
 
 #include <gtest/gtest.h>
 #include <rclcpp/rclcpp.hpp>
@@ -55,6 +56,28 @@ TEST_F(CameraRecordingContract, RejectsInvalidEnabledRecordingConfiguration) {
         radar_camera::node::ConfigsLoader(*node, camera, inference, projection, recording);
     ASSERT_FALSE(result);
     EXPECT_NE(result.error().find("recording"), std::string::npos);
+}
+
+TEST_F(CameraRecordingContract, StartsInferenceBeforeRecordingLifecycle) {
+    const std::vector<std::string> events =
+        radar_camera::node::RadarCameraNode::recording_lifecycle_order_for_test();
+
+    ASSERT_EQ(events, (std::vector<std::string> { "inference", "recorder", "reader", "monitor" }));
+}
+
+TEST_F(CameraRecordingContract, ConstructorCleanupStopsEveryStartedComponent) {
+    const auto cleanup = radar_camera::node::RadarCameraNode::constructor_cleanup_for_test(
+        { "shm", "inference", "recorder", "reader", "monitor" });
+
+    EXPECT_EQ(cleanup,
+        (std::vector<std::string> { "monitor", "reader", "recorder", "inference", "shm" }));
+}
+
+TEST_F(CameraRecordingContract, ConstructorCleanupClosesShmWhenInferenceNeverStarts) {
+    const auto cleanup = radar_camera::node::RadarCameraNode::constructor_cleanup_for_test({ "sh"
+                                                                                             "m" });
+
+    EXPECT_EQ(cleanup, (std::vector<std::string> { "shm" }));
 }
 
 } // namespace

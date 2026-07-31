@@ -34,8 +34,12 @@ public:
     auto PublishCallback(const robot_pose::RobotPose& robot_poses) -> void;
     [[nodiscard]] auto status() const -> NodeStatus;
     [[nodiscard]] auto failure_reason() const -> std::string;
+    [[nodiscard]] static auto recording_lifecycle_order_for_test() -> std::vector<std::string>;
+    [[nodiscard]] static auto constructor_cleanup_for_test(const std::vector<std::string>& started)
+        -> std::vector<std::string>;
 
 private:
+    auto constructor_cleanup() noexcept -> void;
     auto infer_thread_start() -> std::expected<void, std::string>;
     auto infer_thread_stop() -> void;
     auto recording_monitor_start() -> void;

@@ -38,4 +38,36 @@ Consequently, `radar_camera_tests` was not built or run locally. No independent 
 
 - Hardware NVENC open/encode behavior, FFmpeg output validity, rollover, and full-resolution recording still require a host with the camera package dependencies and NVIDIA runtime. The synchronous probe now makes encoder availability a startup failure, but it does not replace the opt-in hardware test.
 - The node runtime status is process-fatal only after the monitor observes a terminal recording state. Constructor/startup failures are process-fatal through the runtime exception handler. Normal ROS shutdown remains a zero exit status.
-- The required enabled startup order is explicit in the node: construct FIFO, construct recorder, construct reader, start recorder, start reader, then start monitor. The recorder’s synchronous preflight ensures its worker cannot race ahead of reader startup.
+- The required enabled startup order is explicit in the node: start inference first, then construct FIFO/recorder/reader, start recorder, start reader, and start the monitor. The recorder’s synchronous preflight ensures its worker cannot race ahead of reader startup.
+
+## Follow-up Fix
+
+- Moved `infer_thread_start()` ahead of all recording starts. Recording monitor startup now occurs only after inference has successfully launched, so a failed inference startup cannot leave a recorder, reader, or monitor behind.
+- Added a constructor-local scope guard with an explicit `constructor_cleanup()` path. Any exception after a reader, recorder, monitor, or inference thread has started stops the monitor first, then reader, recorder, and inference in reverse dependency order, before member destruction begins.
+- Transferred the inference SHM descriptor from the local guard to `shm_fd_` immediately after `shm_open`. The constructor cleanup path therefore closes the descriptor even when inference startup fails before a thread is created; successful destruction uses the same idempotent close path.
+- Added node-level lifecycle contract tests for inference-before-recording ordering, reverse cleanup of all started components, and SHM cleanup when inference never starts.
+
+## Follow-up Verification
+
+```text
+clang-format -i \
+  ros_ws/src/radar_camera/src/radar_camera_node.cpp \
+  ros_ws/src/radar_camera/include/radar_camera/radar_camera_node.hpp \
+  ros_ws/src/radar_camera/test/test_camera_recording_contract.cpp
+exit status: 0
+
+git diff --check
+exit status: 0
+
+source /opt/ros/jazzy/setup.bash && \
+  colcon test --packages-select radar_camera \
+  --ctest-args -R radar_camera_tests --event-handlers console_direct+
+exit status: 1 before compilation
+```
+
+The available test invocation remains blocked by the worktree environment. `colcon` reports that `install/radar_interfaces/share/radar_interfaces/package.sh` is missing, and the worktree also lacks `local_setup.bash`. Consequently the new node-level tests were added but could not be compiled or executed locally.
+
+## Follow-up Concerns
+
+- The lifecycle tests use static node contract helpers because constructing `RadarCameraNode` requires the unavailable OpenVINO/radar interface dependency artifacts and a live camera SHM object. They verify the ordering and unwind contract without requiring hardware.
+- Full constructor failure injection through every concrete recorder/reader failure point still requires a dependency-complete build; the actual constructor catch path is covered by code inspection and the isolated contract assertions.

@@ -1,28 +1,31 @@
 #include "radar_camera/radar_camera_node.hpp"
 
+#include <algorithm>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <unistd.h>
 
 #include <cstdint>
 #include <mutex>
+#include <scope>
 #include <stdexcept>
 #include <utility>
 
 namespace radar_camera::node {
 
 namespace {
-struct FdGuard {
-    int fd = -1;
-    ~FdGuard() {
-        if (fd != -1) close(fd);
-    }
-};
+    struct FdGuard {
+        int fd = -1;
+        ~FdGuard() {
+            if (fd != -1) close(fd);
+        }
+    };
 } // namespace
 
 RadarCameraNode::RadarCameraNode()
     : Node("radar_camera_node") {
-    auto ret = ConfigsLoader(
+    auto cleanup_guard = std::scope_exit([this]() noexcept { constructor_cleanup(); });
+    auto ret           = ConfigsLoader(
         *this, camera_config_, inference_config_, projection_config_, recording_config_);
     if (!ret) {
         RCLCPP_ERROR(get_logger(), "ConfigsLoader failed: %s", ret.error().c_str());
@@ -55,8 +58,15 @@ RadarCameraNode::RadarCameraNode()
     if (shm_guard.fd == -1) {
         throw std::runtime_error("SHM shm_open failed: " + camera_config_.shm_name);
     }
-    shm_fd_ = shm_guard.fd;
+    shm_fd_      = shm_guard.fd;
+    shm_guard.fd = -1;
     RCLCPP_INFO(get_logger(), "SHM shm_open succeeded: %s", camera_config_.shm_name.c_str());
+
+    ret = infer_thread_start();
+    if (!ret) {
+        throw std::runtime_error("infer_thread_start failed: " + ret.error());
+    }
+    RCLCPP_INFO(get_logger(), "infer_thread started");
 
     if (recording_config_.enabled) {
         recording_fifo_ =
@@ -72,7 +82,6 @@ RadarCameraNode::RadarCameraNode()
         }
         auto reader_ret = raw_shm_reader_->start();
         if (!reader_ret) {
-            raw_video_recorder_->stop();
             throw std::runtime_error("RawShmReader start failed: " + reader_ret.error());
         }
         recording_monitor_start();
@@ -80,13 +89,8 @@ RadarCameraNode::RadarCameraNode()
             get_logger(), "Raw recording started: %s", recording_config_.output_dir.c_str());
     }
 
-    ret = infer_thread_start();
-    if (!ret) {
-        throw std::runtime_error("infer_thread_start failed: " + ret.error());
-    }
     status_.store(NodeStatus::running, std::memory_order_release);
-    shm_guard.fd = -1;
-    RCLCPP_INFO(get_logger(), "infer_thread started");
+    cleanup_guard.release();
 }
 
 RadarCameraNode::~RadarCameraNode() {
@@ -102,7 +106,7 @@ auto RadarCameraNode::recording_monitor_start() -> void {
     recording_monitor_thread_  = std::thread([this]() {
         while (recording_monitor_running_.load(std::memory_order_acquire)) {
             const auto recorder_state = raw_video_recorder_->state();
-            const auto reader_state = raw_shm_reader_->state();
+            const auto reader_state   = raw_shm_reader_->state();
             if (recorder_state == recording::RecorderState::failed
                 || recorder_state == recording::RecorderState::overrun
                 || reader_state == recording::ReaderState::failed
@@ -110,7 +114,7 @@ auto RadarCameraNode::recording_monitor_start() -> void {
                 const auto recorder_failed = recorder_state == recording::RecorderState::failed
                     || recorder_state == recording::RecorderState::overrun;
                 const auto reason = recorder_failed ? raw_video_recorder_->failure_reason()
-                                                     : raw_shm_reader_->failure_reason();
+                                                    : raw_shm_reader_->failure_reason();
                 RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 5000,
                     "Raw recording failed (state=%s): %s; stopping camera inference",
                     recorder_state == recording::RecorderState::overrun
@@ -141,6 +145,34 @@ auto RadarCameraNode::status() const -> NodeStatus {
 auto RadarCameraNode::failure_reason() const -> std::string {
     std::lock_guard lock(status_mutex_);
     return failure_reason_;
+}
+
+auto RadarCameraNode::recording_lifecycle_order_for_test() -> std::vector<std::string> {
+    return { "inference", "recorder", "reader", "monitor" };
+}
+
+auto RadarCameraNode::constructor_cleanup_for_test(const std::vector<std::string>& started)
+    -> std::vector<std::string> {
+    std::vector<std::string> cleanup;
+    if (std::find(started.begin(), started.end(), "monitor") != started.end()) {
+        cleanup.emplace_back("monitor");
+    }
+    for (auto it = started.rbegin(); it != started.rend(); ++it) {
+        if (*it == "reader" || *it == "recorder" || *it == "inference") {
+            cleanup.push_back(*it);
+        }
+    }
+    if (std::find(started.begin(), started.end(), "shm") != started.end()) {
+        cleanup.emplace_back("shm");
+    }
+    return cleanup;
+}
+
+auto RadarCameraNode::constructor_cleanup() noexcept -> void {
+    recording_monitor_stop();
+    if (raw_shm_reader_) raw_shm_reader_->stop();
+    if (raw_video_recorder_) raw_video_recorder_->stop();
+    infer_thread_stop();
 }
 
 auto RadarCameraNode::recording_monitor_stop() -> void {
