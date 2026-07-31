@@ -25,8 +25,11 @@ TEST_F(CameraRecordingContract, DeclaresDisabledRecordingDefaults) {
     radar_camera::inference_config::InferenceConfig inference;
     radar_camera::projection_config::ProjectionConfig projection;
     radar_camera::recording::RecordingConfig recording { };
+    radar_camera::armor_refine::ArmorRefineConfig armor;
+    radar_camera::armor_refine::NumberRefineConfig number;
 
-    ASSERT_TRUE(radar_camera::node::ConfigsLoader(*node, camera, inference, projection, recording));
+    ASSERT_TRUE(radar_camera::node::ConfigsLoader(
+        *node, camera, inference, projection, recording, armor, number));
     EXPECT_FALSE(recording.enabled);
     EXPECT_EQ(recording.output_dir, "/data/competition/recordings");
     EXPECT_EQ(recording.width, 5472);
@@ -51,9 +54,11 @@ TEST_F(CameraRecordingContract, RejectsInvalidEnabledRecordingConfiguration) {
     radar_camera::inference_config::InferenceConfig inference;
     radar_camera::projection_config::ProjectionConfig projection;
     radar_camera::recording::RecordingConfig recording { };
+    radar_camera::armor_refine::ArmorRefineConfig armor;
+    radar_camera::armor_refine::NumberRefineConfig number;
 
-    const auto result =
-        radar_camera::node::ConfigsLoader(*node, camera, inference, projection, recording);
+    const auto result = radar_camera::node::ConfigsLoader(
+        *node, camera, inference, projection, recording, armor, number);
     ASSERT_FALSE(result);
     EXPECT_NE(result.error().find("recording"), std::string::npos);
 }
