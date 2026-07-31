@@ -4,6 +4,15 @@ namespace radar_bridge::node {
 
 auto ConfigsLoader(rclcpp::Node& node, BridgeConfig& config) -> std::expected<void, std::string> {
     try {
+        node.declare_parameter("zmq_pub_address", std::string("tcp://*:5555"));
+        node.declare_parameter(
+            "zmq_sub_addresses", std::vector<std::string> { "tcp://localhost:5558" });
+        node.declare_parameter("shm_name", std::string("/hikcamera_shm"));
+        node.declare_parameter("video_pub_address", std::string("tcp://*:5557"));
+        node.declare_parameter("image_topic", std::string("/hikcamera_image"));
+        node.declare_parameter("video_width", 4096);
+        node.declare_parameter("video_height", 3000);
+
         config.zmq_pub_address   = node.get_parameter("zmq_pub_address").as_string();
         config.zmq_sub_addresses = node.get_parameter("zmq_sub_addresses").as_string_array();
         config.shm_name          = node.get_parameter("shm_name").as_string();
