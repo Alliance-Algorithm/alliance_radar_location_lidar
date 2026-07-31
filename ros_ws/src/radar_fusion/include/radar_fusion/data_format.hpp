@@ -20,6 +20,8 @@ struct FusionConfig {
     int max_tracks               = 20;
     bool enable_camera_fusion    = false;
     double camera_timeout_sec    = 1.5;
+    double camera_lidar_consistency_distance = 1.0;
+    double identity_retention_sec = 1.5;
     double map_to_rm_offset_x    = 14.0;
     double map_to_rm_offset_y    = 7.5;
 };

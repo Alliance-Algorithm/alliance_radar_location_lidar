@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <stdexcept>
 #include <string_view>
 #include <tuple>
 
@@ -42,6 +43,8 @@ RadarFusionNode::RadarFusionNode(const rclcpp::NodeOptions& options)
     this->declare_parameter("max_misses_before_delete", 2);
     this->declare_parameter("max_tracks", 20);
     this->declare_parameter("enable_camera_fusion", false);
+    this->declare_parameter("camera_lidar_consistency_distance", 1.0);
+    this->declare_parameter("identity_retention_sec", 1.5);
     this->declare_parameter("map_to_rm_offset_x", 14.0);
     this->declare_parameter("map_to_rm_offset_y", 7.5);
 
@@ -51,8 +54,18 @@ RadarFusionNode::RadarFusionNode(const rclcpp::NodeOptions& options)
     cfg_.max_misses_before_delete = this->get_parameter("max_misses_before_delete").as_int();
     cfg_.max_tracks               = this->get_parameter("max_tracks").as_int();
     cfg_.enable_camera_fusion     = this->get_parameter("enable_camera_fusion").as_bool();
+    cfg_.camera_lidar_consistency_distance =
+        this->get_parameter("camera_lidar_consistency_distance").as_double();
+    cfg_.identity_retention_sec = this->get_parameter("identity_retention_sec").as_double();
     cfg_.map_to_rm_offset_x       = this->get_parameter("map_to_rm_offset_x").as_double();
     cfg_.map_to_rm_offset_y       = this->get_parameter("map_to_rm_offset_y").as_double();
+    if (!std::isfinite(cfg_.camera_lidar_consistency_distance)
+        || cfg_.camera_lidar_consistency_distance <= 0.0) {
+        throw std::invalid_argument("camera_lidar_consistency_distance must be positive");
+    }
+    if (!std::isfinite(cfg_.identity_retention_sec) || cfg_.identity_retention_sec <= 0.0) {
+        throw std::invalid_argument("identity_retention_sec must be positive");
+    }
     tracks_.reserve(static_cast<std::size_t>(cfg_.max_tracks));
 
     sub_lidar_pose_ = this->create_subscription<PoseCov>(
@@ -105,8 +118,9 @@ void RadarFusionNode::on_camera_detection(
         const auto team = static_cast<Team>(detection.team);
         const auto semantic_class = static_cast<SemanticClass>(detection.semantic_class);
         if (team == Team::UNKNOWN || semantic_class == SemanticClass::UNKNOWN
-            || detection.confidence <= 0.0f || !std::isfinite(detection.position.x)
-            || !std::isfinite(detection.position.y)) {
+            || !std::isfinite(detection.confidence) || detection.confidence <= 0.0f
+            || !std::isfinite(detection.position.x) || !std::isfinite(detection.position.y)
+            || !std::isfinite(detection.position.z)) {
             continue;
         }
         latest_camera_observations_.push_back({
@@ -117,6 +131,17 @@ void RadarFusionNode::on_camera_detection(
             .team = team,
             .semantic_class = semantic_class,
         });
+    }
+
+    for (const auto& observation : latest_camera_observations_) {
+        const auto slot = find_semantic_slot(observation.team, observation.semantic_class);
+        if (slot.has_value()) {
+            semantic_slots_[*slot].position = Eigen::Vector2d(observation.x, observation.y);
+            semantic_slots_[*slot].last_update_ns = stamp.nanoseconds();
+        } else {
+            semantic_slots_.push_back({ observation.team, observation.semantic_class,
+                Eigen::Vector2d(observation.x, observation.y), stamp.nanoseconds() });
+        }
     }
 
     update_fusion_mode(latest_camera_stamp_ns_);
@@ -140,7 +165,7 @@ void RadarFusionNode::on_camera_detection(
 
     publish_tracks(tracks_, stamp);
     publish_fused_tracks(tracks_, stamp);
-    publish_lidar_location(tracks_);
+    publish_lidar_location(tracks_, stamp.nanoseconds());
     publish_status(stamp);
 }
 
@@ -226,7 +251,8 @@ void RadarFusionNode::on_cluster(const sensor_msgs::msg::PointCloud2::SharedPtr 
 
     publish_tracks(tracks_, stamp);
     publish_fused_tracks(tracks_, stamp);
-    publish_lidar_location(tracks_);
+    update_semantic_slots_from_lidar(measurements, now_ns);
+    publish_lidar_location(tracks_, now_ns);
     publish_status(stamp);
 }
 
@@ -363,7 +389,7 @@ void RadarFusionNode::publish_fused_tracks(
 }
 
 void RadarFusionNode::publish_lidar_location(
-    const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& tracks) {
+    const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& tracks, int64_t stamp_ns) {
     auto msg = radar_interfaces::msg::LidarLocation { };
 
     uint16_t* const opponent_x[] = {
@@ -399,25 +425,70 @@ void RadarFusionNode::publish_lidar_location(
         &msg.ally_sentry_y,
     };
 
-    for (const auto& track : tracks) {
-        const auto& s = track.state();
-        if (!s.is_confirmed() || s.team == radar_fusion::camera_observation::Team::UNKNOWN
-            || s.semantic_class == radar_fusion::camera_observation::SemanticClass::UNKNOWN) {
+    expire_semantic_slots(stamp_ns);
+    for (const auto& slot : semantic_slots_) {
+        if (slot.team == radar_fusion::camera_observation::Team::UNKNOWN
+            || slot.semantic_class == radar_fusion::camera_observation::SemanticClass::UNKNOWN) {
             continue;
         }
-        const bool opponent = s.team == radar_fusion::camera_observation::Team::BLUE;
-        const int class_idx = static_cast<int>(s.semantic_class) - 1;
+        const bool opponent = slot.team == radar_fusion::camera_observation::Team::BLUE;
+        const int class_idx = static_cast<int>(slot.semantic_class) - 1;
         if (class_idx < 0 || class_idx >= 6) continue;
         auto* slots_x = opponent ? opponent_x : ally_x;
         auto* slots_y = opponent ? opponent_y : ally_y;
         *slots_x[class_idx] = radar_fusion::location::meters_to_cm(
-            s.x(0), cfg_.map_to_rm_offset_x);
+            slot.position.x(), cfg_.map_to_rm_offset_x);
         *slots_y[class_idx] = radar_fusion::location::meters_to_cm(
-            s.x(1), cfg_.map_to_rm_offset_y);
+            slot.position.y(), cfg_.map_to_rm_offset_y);
     }
 
     msg.cmd_id = radar_interfaces::msg::LidarLocation::CMD_ID;
     pub_lidar_location_->publish(msg);
+}
+
+auto RadarFusionNode::find_semantic_slot(camera_observation::Team team,
+    camera_observation::SemanticClass semantic_class) -> std::optional<std::size_t> {
+    for (std::size_t index = 0; index < semantic_slots_.size(); ++index) {
+        if (semantic_slots_[index].team == team
+            && semantic_slots_[index].semantic_class == semantic_class) {
+            return index;
+        }
+    }
+    return std::nullopt;
+}
+
+void RadarFusionNode::expire_semantic_slots(int64_t now_ns) {
+    const auto retention_ns = static_cast<int64_t>(cfg_.identity_retention_sec * 1e9);
+    semantic_slots_.erase(std::remove_if(semantic_slots_.begin(), semantic_slots_.end(),
+                              [&](const SemanticSlot& slot) {
+                                  return now_ns - slot.last_update_ns > retention_ns;
+                              }),
+        semantic_slots_.end());
+}
+
+void RadarFusionNode::update_semantic_slots_from_lidar(
+    const std::vector<Eigen::Vector2d>& measurements, int64_t stamp_ns) {
+    expire_semantic_slots(stamp_ns);
+    const double consistency_sq =
+        cfg_.camera_lidar_consistency_distance * cfg_.camera_lidar_consistency_distance;
+    std::vector<bool> used(measurements.size(), false);
+    for (auto& slot : semantic_slots_) {
+        std::size_t best = measurements.size();
+        double best_distance = consistency_sq;
+        for (std::size_t index = 0; index < measurements.size(); ++index) {
+            if (used[index] || !measurements[index].allFinite()) continue;
+            const double distance = (measurements[index] - slot.position).squaredNorm();
+            if (distance <= best_distance) {
+                best = index;
+                best_distance = distance;
+            }
+        }
+        if (best != measurements.size()) {
+            slot.position = measurements[best];
+            slot.last_update_ns = stamp_ns;
+            used[best] = true;
+        }
+    }
 }
 
 void RadarFusionNode::publish_localization_pose(

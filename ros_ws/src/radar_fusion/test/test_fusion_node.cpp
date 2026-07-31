@@ -20,6 +20,7 @@
 
 #include "radar_fusion/radar_fusion_node.hpp"
 #include "radar_interfaces/msg/camera_detection_array.hpp"
+#include "radar_interfaces/msg/lidar_location.hpp"
 
 namespace {
 
@@ -91,7 +92,15 @@ protected:
                     last_status_ = *msg;
                     ++status_gen_;
                     cv_.notify_all();
-                });
+                 });
+        location_sub_ = subscriber_node_->create_subscription<radar_interfaces::msg::LidarLocation>(
+            "/lidar/location", 10,
+            [this](const radar_interfaces::msg::LidarLocation::SharedPtr msg) {
+                std::lock_guard<std::mutex> lock(mutex_);
+                last_location_ = *msg;
+                ++location_gen_;
+                cv_.notify_all();
+            });
 
         executor_.add_node(fusion_node_);
         executor_.add_node(publisher_node_);
@@ -174,6 +183,26 @@ protected:
         return cv_.wait_for(lock, timeout, [&]() { return status_gen_ >= expected; });
     }
 
+    auto wait_for_location_gen(std::uint64_t expected, std::chrono::milliseconds timeout) -> bool {
+        std::unique_lock<std::mutex> lock(mutex_);
+        return cv_.wait_for(lock, timeout, [&]() { return location_gen_ >= expected; });
+    }
+
+    void enable_camera_fusion(double retention_sec = 1.5, double camera_timeout_sec = 1.5) {
+        auto enabled_node = std::make_shared<radar_fusion::node::RadarFusionNode>(
+            rclcpp::NodeOptions()
+                .append_parameter_override("enable_camera_fusion", true)
+                .append_parameter_override("min_hits_to_confirm", 3)
+                .append_parameter_override("camera_lidar_consistency_distance", 1.0)
+                .append_parameter_override("camera_timeout_sec", camera_timeout_sec)
+                .append_parameter_override("identity_retention_sec", retention_sec));
+        executor_.remove_node(fusion_node_);
+        fusion_node_.reset();
+        fusion_node_ = enabled_node;
+        executor_.add_node(fusion_node_);
+        ASSERT_TRUE(wait_for_discovery(true)) << "ROS entities failed to rediscover after enabling camera fusion";
+    }
+
     auto make_cluster_msg(double x, double y, double z, int32_t sec, uint32_t nanosec)
         -> sensor_msgs::msg::PointCloud2 {
         return make_cluster_array_msg({ { x, y, z } }, sec, nanosec);
@@ -239,6 +268,7 @@ protected:
     rclcpp::Subscription<visualization_msgs::msg::MarkerArray>::SharedPtr tracks_sub_;
     rclcpp::Subscription<visualization_msgs::msg::MarkerArray>::SharedPtr fused_tracks_sub_;
     rclcpp::Subscription<diagnostic_msgs::msg::DiagnosticStatus>::SharedPtr status_sub_;
+    rclcpp::Subscription<radar_interfaces::msg::LidarLocation>::SharedPtr location_sub_;
     std::thread spin_thread_;
 
     std::mutex mutex_;
@@ -248,11 +278,13 @@ protected:
     std::uint64_t track_pub_gen_       = 0;
     std::uint64_t fused_track_pub_gen_ = 0;
     std::uint64_t status_gen_          = 0;
+    std::uint64_t location_gen_        = 0;
     // Per-callback snapshot fields (reset in TearDown).
     std::size_t last_track_marker_count_       = 0;
     std::size_t last_fused_track_marker_count_ = 0;
     geometry_msgs::msg::PoseWithCovarianceStamped last_pose_;
     diagnostic_msgs::msg::DiagnosticStatus last_status_;
+    radar_interfaces::msg::LidarLocation last_location_;
 };
 
 }
@@ -564,4 +596,86 @@ TEST_F(FusionNodeTest, CameraSlotFilteringFiltersInvalidConfidenceAndNaN) {
 
     std::lock_guard<std::mutex> lock(mutex_);
     EXPECT_EQ(last_fused_track_marker_count_, 1u);
+}
+
+TEST_F(FusionNodeTest, CameraOnlySemanticDetectionPublishesOfficialSlotImmediately) {
+    enable_camera_fusion();
+    auto bl = location_gen_;
+
+    camera_detection_pub_->publish(make_camera_detection(1.0, 2.0, 10, 0u));
+    ASSERT_TRUE(wait_for_location_gen(bl + 1, 500ms));
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    EXPECT_EQ(last_location_.opponent_hero_x, 1500u);
+    EXPECT_EQ(last_location_.opponent_hero_y, 950u);
+}
+
+TEST_F(FusionNodeTest, CloseLidarUpdatesExistingSemanticSlot) {
+    enable_camera_fusion();
+    auto bl = location_gen_;
+
+    camera_detection_pub_->publish(make_camera_detection(1.0, 2.0, 10, 0u));
+    ASSERT_TRUE(wait_for_location_gen(bl + 1, 500ms));
+    cluster_pub_->publish(make_cluster_msg(1.2, 2.1, 0.0, 10, 100000000u));
+    ASSERT_TRUE(wait_for_location_gen(bl + 2, 500ms));
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    EXPECT_EQ(last_location_.opponent_hero_x, 1520u);
+    EXPECT_EQ(last_location_.opponent_hero_y, 959u);
+}
+
+TEST_F(FusionNodeTest, MissingLidarRetainsTrustedCameraPosition) {
+    enable_camera_fusion();
+    auto bl = location_gen_;
+
+    camera_detection_pub_->publish(make_camera_detection(1.0, 2.0, 10, 0u));
+    ASSERT_TRUE(wait_for_location_gen(bl + 1, 500ms));
+    cluster_pub_->publish(make_empty_cluster_msg(10, 100000000u));
+    ASSERT_TRUE(wait_for_location_gen(bl + 2, 500ms));
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    EXPECT_EQ(last_location_.opponent_hero_x, 1500u);
+    EXPECT_EQ(last_location_.opponent_hero_y, 950u);
+}
+
+TEST_F(FusionNodeTest, FarLidarDoesNotOverwriteTrustedCameraPosition) {
+    enable_camera_fusion();
+    auto bl = location_gen_;
+
+    camera_detection_pub_->publish(make_camera_detection(1.0, 2.0, 10, 0u));
+    ASSERT_TRUE(wait_for_location_gen(bl + 1, 500ms));
+    cluster_pub_->publish(make_cluster_msg(3.0, 2.0, 0.0, 10, 100000000u));
+    ASSERT_TRUE(wait_for_location_gen(bl + 2, 500ms));
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    EXPECT_EQ(last_location_.opponent_hero_x, 1500u);
+    EXPECT_EQ(last_location_.opponent_hero_y, 950u);
+}
+
+TEST_F(FusionNodeTest, CloseLidarRetainsIdentityAfterCameraTimeout) {
+    enable_camera_fusion(1.5, 0.5);
+    auto bl = location_gen_;
+
+    camera_detection_pub_->publish(make_camera_detection(1.0, 2.0, 10, 0u));
+    ASSERT_TRUE(wait_for_location_gen(bl + 1, 500ms));
+    cluster_pub_->publish(make_cluster_msg(1.3, 2.0, 0.0, 11, 0u));
+    ASSERT_TRUE(wait_for_location_gen(bl + 2, 500ms));
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    EXPECT_EQ(last_location_.opponent_hero_x, 1529u);
+    EXPECT_EQ(last_location_.opponent_hero_y, 950u);
+}
+
+TEST_F(FusionNodeTest, SemanticSlotExpiresAfterIdentityRetention) {
+    enable_camera_fusion(0.5);
+    auto bl = location_gen_;
+
+    camera_detection_pub_->publish(make_camera_detection(1.0, 2.0, 10, 0u));
+    ASSERT_TRUE(wait_for_location_gen(bl + 1, 500ms));
+    cluster_pub_->publish(make_empty_cluster_msg(11, 600000000u));
+    ASSERT_TRUE(wait_for_location_gen(bl + 2, 500ms));
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    EXPECT_EQ(last_location_.opponent_hero_x, 0u);
+    EXPECT_EQ(last_location_.opponent_hero_y, 0u);
 }

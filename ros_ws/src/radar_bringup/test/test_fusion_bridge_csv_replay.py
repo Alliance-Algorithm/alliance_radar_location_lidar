@@ -111,7 +111,7 @@ class ReplayNode(Node):
         self.location = msg
         self.locations.append(msg)
 
-    def publish_frame(self, rows: dict, stamp):
+    def publish_frame(self, rows: dict, stamp, lidar_points=None):
         camera = CameraDetectionArray()
         camera.header.stamp = stamp.to_msg()
         camera.header.frame_id = "map"
@@ -119,7 +119,9 @@ class ReplayNode(Node):
             camera.detections.append(camera_detection(name, row))
         self.camera_pub.publish(camera)
 
-        points = [(float(row["map_x"]), float(row["map_y"]), 0.0) for row in rows.values()]
+        points = lidar_points
+        if points is None:
+            points = [(float(row["map_x"]), float(row["map_y"]), 0.0) for row in rows.values()]
         cloud = point_cloud2.create_cloud_xyz32(camera.header, points)
         self.cluster_pub.publish(cloud)
 
@@ -149,6 +151,8 @@ def test_csv_replay_fusion_and_bridge_transport():
                             "max_tracks": 20,
                             "enable_camera_fusion": True,
                             "camera_timeout_sec": 2.0,
+                            "camera_lidar_consistency_distance": 1.0,
+                            "identity_retention_sec": 1.5,
                             "map_to_rm_offset_x": 14.0,
                             "map_to_rm_offset_y": 7.5,
                         }
@@ -190,6 +194,23 @@ def test_csv_replay_fusion_and_bridge_transport():
                 rclpy.spin_once(node, timeout_sec=0.1)
             assert node.camera_pub.get_subscription_count() >= 1
             assert node.cluster_pub.get_subscription_count() >= 1
+
+            node.publish_frame(rows, node.get_clock().now(), lidar_points=[])
+            rclpy.spin_once(node, timeout_sec=0.2)
+            assert node.location is not None, "camera-only replay did not publish a location"
+            camera_only = lidar_location_fields(node.location)
+            assert camera_only["opponent_hero_x"] == int(expected_cm["hero_b"][0])
+            assert camera_only["opponent_hero_y"] == int(expected_cm["hero_b"][1])
+
+            far_lidar = [(float(rows["hero_b"]["map_x"]) + 5.0,
+                          float(rows["hero_b"]["map_y"]), 0.0)]
+            node.publish_frame({}, node.get_clock().now(), lidar_points=far_lidar)
+            rclpy.spin_once(node, timeout_sec=0.2)
+            assert node.location is not None
+            far_lidar_fields = lidar_location_fields(node.location)
+            assert (far_lidar_fields["opponent_hero_x"], far_lidar_fields["opponent_hero_y"]) == (
+                camera_only["opponent_hero_x"], camera_only["opponent_hero_y"]
+            )
 
             for _ in range(5):
                 node.publish_frame(rows, node.get_clock().now())

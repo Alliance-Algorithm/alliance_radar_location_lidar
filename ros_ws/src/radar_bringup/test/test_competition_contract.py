@@ -186,6 +186,8 @@ def test_all_default_runtime_configs_are_installed():
         "max_tracks": 20,
         "enable_camera_fusion": True,
         "camera_timeout_sec": 1.5,
+        "camera_lidar_consistency_distance": 1.0,
+        "identity_retention_sec": 1.5,
         "map_to_rm_offset_x": 14.0,
         "map_to_rm_offset_y": 7.5,
     }
