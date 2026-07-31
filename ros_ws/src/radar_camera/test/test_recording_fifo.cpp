@@ -1,5 +1,6 @@
 #include <limits>
 #include <string>
+#include <utility>
 
 #include <gtest/gtest.h>
 #include <opencv2/core.hpp>
@@ -10,7 +11,7 @@
 
 namespace {
 
-auto make_image(uchar value) -> cv::Mat {
+auto make_image(unsigned char value) -> cv::Mat {
     return cv::Mat(2, 2, CV_8UC3, cv::Scalar(value, value, value)).clone();
 }
 
