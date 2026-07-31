@@ -25,9 +25,9 @@ namespace radar::fast_livo2::rgb {
 
 /// A single colour voxel storing the best-quality observation.
 struct ColorVoxel {
-    Eigen::Vector3f position;  ///< World position (float for dense storage)
-    uint32_t rgb;              ///< Packed 0xRRGGBB colour
-    double quality;            ///< Best quality score seen so far
+    Eigen::Vector3f position; ///< World position (float for dense storage)
+    uint32_t rgb;             ///< Packed 0xRRGGBB colour
+    double quality;           ///< Best quality score seen so far
 };
 
 /// Hash key for voxel indexing (int64_t from floor-divided coordinates).
@@ -45,8 +45,8 @@ public:
     ColorVoxelMap(ColorVoxelMap&& other) noexcept
         : voxel_size_(other.voxel_size_)
         , voxels_(std::move(other.voxels_))
-        , mutex_()   // default-constructed; moved-from object has its own mutex
-    {}
+        , mutex_() // default-constructed; moved-from object has its own mutex
+    { }
 
     /// Insert or update a colour observation at the given world position.
     ///
@@ -57,8 +57,7 @@ public:
     /// \param position  World position of the point (double for precision).
     /// \param rgb       Packed 0xRRGGBB colour (e.g. 0xA0B0C0).
     /// \param quality   Quality score for this observation.
-    void insert_if_better(const Eigen::Vector3d& position,
-                          uint32_t rgb, double quality);
+    void insert_if_better(const Eigen::Vector3d& position, uint32_t rgb, double quality);
 
     /// Export the entire voxel map as a PCL point cloud.
     ///
@@ -80,15 +79,11 @@ public:
     /// quality scores.  The callback receives (position, packed_rgb, quality).
     /// This is the safe way to merge per-voxel qualities from one map into
     /// another.
-    template <typename Visitor>
-    void for_each_voxel(Visitor&& visitor) const
-    {
+    template <typename Visitor> void for_each_voxel(Visitor&& visitor) const {
         std::lock_guard<std::mutex> lock(mutex_);
         for (const auto& [key, voxel] : voxels_) {
             (void)key;
-            visitor(voxel.position.cast<double>(),
-                    voxel.rgb,
-                    voxel.quality);
+            visitor(voxel.position.cast<double>(), voxel.rgb, voxel.quality);
         }
     }
 
@@ -114,8 +109,7 @@ private:
 /// PCL stores the `rgba` uint32 with R at bits 16-23, G at bits 8-15,
 /// B at bits 0-7 — bit-identical to our 0xRRGGBB convention, so the
 /// value is memcpy'd directly with no channel swapping.
-inline float pack_rgb_for_pcl(uint32_t rgb)
-{
+inline float pack_rgb_for_pcl(uint32_t rgb) {
     float result;
     std::memcpy(&result, &rgb, sizeof(result));
     return result;
@@ -123,8 +117,7 @@ inline float pack_rgb_for_pcl(uint32_t rgb)
 
 /// Unpack a PCL PointXYZRGB rgb float back into 0xRRGGBB.
 /// Intended for test assertions.  Inverse of pack_rgb_for_pcl.
-inline uint32_t unpack_rgb(const pcl::PointXYZRGB& pt)
-{
+inline uint32_t unpack_rgb(const pcl::PointXYZRGB& pt) {
     uint32_t rgb;
     std::memcpy(&rgb, &pt.rgb, sizeof(rgb));
     return rgb;

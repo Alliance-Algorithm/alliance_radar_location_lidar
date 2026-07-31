@@ -262,8 +262,8 @@ auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
             cv::Mat orig_frame;
             std::chrono::steady_clock::time_point ts;
             // Read at full sensor resolution (dst_w=0 → no internal resize).
-            auto ret = hikcamera::SHMRead(shm_fd_, orig_frame, ts,
-                camera_config_.width, camera_config_.height, 0, 0);
+            auto ret = hikcamera::SHMRead(
+                shm_fd_, orig_frame, ts, camera_config_.width, camera_config_.height, 0, 0);
             if (!ret.has_value()) {
                 RCLCPP_WARN(get_logger(), "SHMRead failed: %s", ret.error().c_str());
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -274,8 +274,8 @@ auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
             // Resize to L1 model input separately; L2/L3 will crop from orig_frame.
             cv::Mat frame;
             cv::resize(orig_frame, frame,
-                cv::Size(inference_config_.model_input_width,
-                    inference_config_.model_input_height));
+                cv::Size(
+                    inference_config_.model_input_width, inference_config_.model_input_height));
 
             auto tensor = model_inference_->infer_preprocess(frame,
                 static_cast<size_t>(inference_config_.model_input_width),

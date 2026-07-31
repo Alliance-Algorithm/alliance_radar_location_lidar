@@ -16,16 +16,14 @@ namespace radar::fast_livo2::rgb {
 /// \param trigger       Current trigger state (true = save requested).
 /// \param save_result   0 = success, non-zero = failure.
 /// \return              New trigger state to write back.
-inline auto pcd_trigger_transition(bool trigger, int save_result) -> bool
-{
+inline auto pcd_trigger_transition(bool trigger, int save_result) -> bool {
     if (!trigger) return false;
     return (save_result != 0);
 }
 
 /// Check whether a timestamp delta (in nanoseconds, absolute value)
 /// falls within a configured tolerance window.
-inline auto within_tolerance_ns(int64_t delta_ns, int64_t tolerance_ns) -> bool
-{
+inline auto within_tolerance_ns(int64_t delta_ns, int64_t tolerance_ns) -> bool {
     return delta_ns >= 0 && delta_ns <= tolerance_ns;
 }
 

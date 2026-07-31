@@ -13,7 +13,8 @@ namespace radar_camera::recording {
 
 class RecordingFifo {
 public:
-    explicit RecordingFifo(std::size_t capacity) : capacity_(capacity) {}
+    explicit RecordingFifo(std::size_t capacity)
+        : capacity_(capacity) { }
 
     [[nodiscard]] auto capacity() const -> std::size_t { return capacity_; }
 
@@ -63,13 +64,13 @@ public:
         std::lock_guard lock(mutex_);
         queue_.clear();
         overrun_ = false;
-        closed_ = false;
+        closed_  = false;
         overrun_reason_.clear();
     }
 
 private:
     void request_overrun_locked(std::string reason) {
-        overrun_ = true;
+        overrun_        = true;
         overrun_reason_ = std::move(reason);
     }
 
@@ -77,7 +78,7 @@ private:
     mutable std::mutex mutex_;
     std::deque<RawFrame> queue_;
     bool overrun_ = false;
-    bool closed_ = false;
+    bool closed_  = false;
     std::string overrun_reason_;
 };
 

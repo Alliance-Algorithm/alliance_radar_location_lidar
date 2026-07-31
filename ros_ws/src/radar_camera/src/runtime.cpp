@@ -12,8 +12,8 @@ auto main(int argc, char* argv[]) -> int {
         node = std::make_shared<radar_camera::node::RadarCameraNode>();
         rclcpp::spin(node);
     } catch (const std::exception& error) {
-        RCLCPP_ERROR(rclcpp::get_logger("radar_camera_runtime"),
-            "radar_camera startup failed: %s", error.what());
+        RCLCPP_ERROR(rclcpp::get_logger("radar_camera_runtime"), "radar_camera startup failed: %s",
+            error.what());
         rclcpp::shutdown();
         return 1;
     }

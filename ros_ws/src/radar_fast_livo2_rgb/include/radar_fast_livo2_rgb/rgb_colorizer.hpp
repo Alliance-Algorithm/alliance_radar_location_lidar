@@ -35,13 +35,12 @@ namespace radar::fast_livo2::rgb {
 /// maximum of a 3×3 Sobel on uint8 data (1020 * sqrt(2) ≈ 1442.5).
 ///
 /// Returns a value in approximately [0, 1] — higher means stronger edge.
-inline auto compute_normalized_gradient(
-    const cv::Mat& color, int col, int row, ColorFormat fmt) -> double
-{
-    constexpr int kHalfPatch = 2;   // 5×5 patch
+inline auto compute_normalized_gradient(const cv::Mat& color, int col, int row, ColorFormat fmt)
+    -> double {
+    constexpr int kHalfPatch      = 2;                           // 5×5 patch
     constexpr double kMaxSobelMag = 1020.0 * 1.4142135623730951; // ≈ 1442.5
 
-    const int width = color.cols;
+    const int width  = color.cols;
     const int height = color.rows;
 
     int x0 = std::max(0, col - kHalfPatch);
@@ -61,10 +60,10 @@ inline auto compute_normalized_gradient(
     cv::Sobel(patch_gray, grad_x, CV_32F, 1, 0, 3);
     cv::Sobel(patch_gray, grad_y, CV_32F, 0, 1, 3);
 
-    int cx = col - x0;
-    int cy = row - y0;
-    float dx = grad_x.at<float>(cy, cx);
-    float dy = grad_y.at<float>(cy, cx);
+    int cx    = col - x0;
+    int cy    = row - y0;
+    float dx  = grad_x.at<float>(cy, cx);
+    float dy  = grad_y.at<float>(cy, cx);
     float mag = std::sqrt(dx * dx + dy * dy);
 
     return static_cast<double>(mag) / kMaxSobelMag;
@@ -86,28 +85,22 @@ inline auto compute_normalized_gradient(
 /// \return A ColorVoxelMap containing the best-quality visible observations.
 ///         Points behind the camera, outside the image, or occluded are
 ///         silently skipped.
-inline auto color_world_points(
-    const std::vector<Eigen::Vector3d>& world_points,
-    const cv::Mat& color,
-    const Eigen::Isometry3d& odom_pose,
-    const Calibration& calibration,
-    const QualityWeights& quality_weights,
-    double voxel_size = 0.10,
-    ColorFormat fmt = ColorFormat::BGR)
-    -> ColorVoxelMap
-{
+inline auto color_world_points(const std::vector<Eigen::Vector3d>& world_points,
+    const cv::Mat& color, const Eigen::Isometry3d& odom_pose, const Calibration& calibration,
+    const QualityWeights& quality_weights, double voxel_size = 0.10,
+    ColorFormat fmt = ColorFormat::BGR) -> ColorVoxelMap {
     ColorVoxelMap map(voxel_size);
 
     if (world_points.empty() || color.empty()) return map;
 
     // Set quality weights into a copy of calibration for the score call.
-    Calibration cal_with_weights = calibration;
+    Calibration cal_with_weights     = calibration;
     cal_with_weights.quality_weights = quality_weights;
 
     // Inverse odometry: world point → lidar point.
     const Eigen::Isometry3d lidar_pose = odom_pose.inverse();
 
-    const int width = color.cols;
+    const int width  = color.cols;
     const int height = color.rows;
 
     // ── Pass 1: depth buffer ──────────────────────────────────────────
@@ -123,7 +116,7 @@ inline auto color_world_points(
 
     for (const auto& p_world : world_points) {
         Eigen::Vector3d p_lidar = lidar_pose * p_world;
-        auto proj = project_lidar_point(p_lidar, calibration);
+        auto proj               = project_lidar_point(p_lidar, calibration);
         if (!proj.has_value()) continue;
 
         int col = static_cast<int>(std::round(proj->u));
@@ -131,9 +124,8 @@ inline auto color_world_points(
 
         if (col < 0 || col >= width || row < 0 || row >= height) continue;
 
-        update_nearest_depth(depth_buffer, col, row,
-                             static_cast<float>(proj->depth));
-        candidates.push_back({p_world, p_lidar, *proj});
+        update_nearest_depth(depth_buffer, col, row, static_cast<float>(proj->depth));
+        candidates.push_back({ p_world, p_lidar, *proj });
     }
 
     // ── Pass 2: visibility → colour → quality → insert ────────────────
@@ -141,23 +133,19 @@ inline auto color_world_points(
         int col = static_cast<int>(std::round(c.proj.u));
         int row = static_cast<int>(std::round(c.proj.v));
 
-        if (!is_visible(depth_buffer, col, row,
-                        static_cast<float>(c.proj.depth))) {
+        if (!is_visible(depth_buffer, col, row, static_cast<float>(c.proj.depth))) {
             continue;
         }
 
         // Sample colour and compute packed RGB.
         cv::Vec3b pixel = color.at<cv::Vec3b>(row, col);
-        uint32_t packed = (fmt == ColorFormat::RGB)
-            ? pack_rgb_from_rgb_order(pixel)
-            : pack_rgb(pixel);
+        uint32_t packed =
+            (fmt == ColorFormat::RGB) ? pack_rgb_from_rgb_order(pixel) : pack_rgb(pixel);
 
         // Compute local gradient for the quality score.
         double gradient = compute_normalized_gradient(color, col, row, fmt);
 
-        double score = quality_score(
-            c.lidar, c.proj, cal_with_weights,
-            width, height, gradient);
+        double score = quality_score(c.lidar, c.proj, cal_with_weights, width, height, gradient);
 
         map.insert_if_better(c.world, packed, score);
     }

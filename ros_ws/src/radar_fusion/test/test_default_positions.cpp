@@ -1,6 +1,6 @@
-#include <gtest/gtest.h>
 #include <filesystem>
 #include <fstream>
+#include <gtest/gtest.h>
 #include <sqlite3.h>
 
 #include "radar_fusion/default_positions.hpp"
@@ -13,19 +13,21 @@ void make_db(std::string& path) {
     sqlite3* db = nullptr;
     ASSERT_EQ(sqlite3_open(path.c_str(), &db), SQLITE_OK);
     const char* schema = "CREATE TABLE default_positions ("
-        "camp TEXT NOT NULL, robot_id INTEGER NOT NULL, robot_class TEXT NOT NULL,"
-        "t INTEGER NOT NULL, x_med REAL NOT NULL, y_med REAL NOT NULL,"
-        "cell_gx INTEGER NOT NULL, cell_gy INTEGER NOT NULL,"
-        "x_mode REAL NOT NULL, y_mode REAL NOT NULL,"
-        "x_p25 REAL, x_p75 REAL, y_p25 REAL, y_p75 REAL, n INTEGER NOT NULL,"
-        "PRIMARY KEY (camp, robot_id, t));";
+                         "camp TEXT NOT NULL, robot_id INTEGER NOT NULL, robot_class TEXT NOT NULL,"
+                         "t INTEGER NOT NULL, x_med REAL NOT NULL, y_med REAL NOT NULL,"
+                         "cell_gx INTEGER NOT NULL, cell_gy INTEGER NOT NULL,"
+                         "x_mode REAL NOT NULL, y_mode REAL NOT NULL,"
+                         "x_p25 REAL, x_p75 REAL, y_p25 REAL, y_p75 REAL, n INTEGER NOT NULL,"
+                         "PRIMARY KEY (camp, robot_id, t));";
     ASSERT_EQ(sqlite3_exec(db, schema, nullptr, nullptr, nullptr), SQLITE_OK);
-    ASSERT_EQ(sqlite3_exec(db, "INSERT INTO default_positions VALUES "
-        "('红',1,'hero',1,5.5,2.25,5,2,5.5,2.5,5.0,6.0,2.0,2.5,20),"
-        "('蓝',101,'hero',1,22.5,12.75,22,12,22.5,12.5,22.0,23.0,12.5,13.0,18),"
-        "('红',1,'hero',5,6.0,2.5,6,2,6.5,2.5,5.5,6.5,2.25,2.75,25),"
-        "('蓝',101,'hero',5,23.0,13.0,23,12,23.5,12.5,22.5,23.5,12.75,13.25,22);",
-        nullptr, nullptr, nullptr), SQLITE_OK);
+    ASSERT_EQ(sqlite3_exec(db,
+                  "INSERT INTO default_positions VALUES "
+                  "('红',1,'hero',1,5.5,2.25,5,2,5.5,2.5,5.0,6.0,2.0,2.5,20),"
+                  "('蓝',101,'hero',1,22.5,12.75,22,12,22.5,12.5,22.0,23.0,12.5,13.0,18),"
+                  "('红',1,'hero',5,6.0,2.5,6,2,6.5,2.5,5.5,6.5,2.25,2.75,25),"
+                  "('蓝',101,'hero',5,23.0,13.0,23,12,23.5,12.5,22.5,23.5,12.75,13.25,22);",
+                  nullptr, nullptr, nullptr),
+        SQLITE_OK);
     sqlite3_close(db);
 }
 
@@ -90,18 +92,26 @@ bool make_corrupt_db(std::string& path) {
     // WITHOUT ROWID: the PRIMARY KEY is the rowid, so no trailing autoindex
     // B-tree exists and the last file page is the table's last leaf page.
     const char* schema = "CREATE TABLE default_positions ("
-        "camp TEXT NOT NULL, robot_id INTEGER NOT NULL, robot_class TEXT NOT NULL,"
-        "t INTEGER NOT NULL, x_med REAL NOT NULL, y_med REAL NOT NULL,"
-        "cell_gx INTEGER NOT NULL, cell_gy INTEGER NOT NULL,"
-        "x_mode REAL NOT NULL, y_mode REAL NOT NULL,"
-        "x_p25 REAL, x_p75 REAL, y_p25 REAL, y_p75 REAL, n INTEGER NOT NULL,"
-        "PRIMARY KEY (camp, robot_id, t)) WITHOUT ROWID;";
-    if (sqlite3_exec(db, schema, nullptr, nullptr, nullptr) != SQLITE_OK) { sqlite3_close(db); return false; }
+                         "camp TEXT NOT NULL, robot_id INTEGER NOT NULL, robot_class TEXT NOT NULL,"
+                         "t INTEGER NOT NULL, x_med REAL NOT NULL, y_med REAL NOT NULL,"
+                         "cell_gx INTEGER NOT NULL, cell_gy INTEGER NOT NULL,"
+                         "x_mode REAL NOT NULL, y_mode REAL NOT NULL,"
+                         "x_p25 REAL, x_p75 REAL, y_p25 REAL, y_p75 REAL, n INTEGER NOT NULL,"
+                         "PRIMARY KEY (camp, robot_id, t)) WITHOUT ROWID;";
+    if (sqlite3_exec(db, schema, nullptr, nullptr, nullptr) != SQLITE_OK) {
+        sqlite3_close(db);
+        return false;
+    }
     if (sqlite3_exec(db,
-        "INSERT INTO default_positions "
-        "WITH RECURSIVE cnt(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM cnt WHERE x < 500) "
-        "SELECT '红', x, 'hero', 1, 5.5, 2.25, 5, 2, 5.5, 2.5, NULL, NULL, NULL, NULL, 20 FROM cnt;",
-        nullptr, nullptr, nullptr) != SQLITE_OK) { sqlite3_close(db); return false; }
+            "INSERT INTO default_positions "
+            "WITH RECURSIVE cnt(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM cnt WHERE x < 500) "
+            "SELECT '红', x, 'hero', 1, 5.5, 2.25, 5, 2, 5.5, 2.5, NULL, NULL, NULL, NULL, 20 FROM "
+            "cnt;",
+            nullptr, nullptr, nullptr)
+        != SQLITE_OK) {
+        sqlite3_close(db);
+        return false;
+    }
     if (sqlite3_close(db) != SQLITE_OK) return false;
 
     std::ifstream in(path, std::ios::binary);
@@ -133,10 +143,12 @@ TEST(DefaultPositions, UnscannableTableReturnsFalse) {
     sqlite3* raw = nullptr;
     ASSERT_EQ(sqlite3_open(db.c_str(), &raw), SQLITE_OK);
     sqlite3_stmt* stmt = nullptr;
-    ASSERT_EQ(sqlite3_prepare_v2(raw, "SELECT 1 FROM default_positions", -1, &stmt, nullptr), SQLITE_OK);
-    int rc = SQLITE_OK;
+    ASSERT_EQ(
+        sqlite3_prepare_v2(raw, "SELECT 1 FROM default_positions", -1, &stmt, nullptr), SQLITE_OK);
+    int rc   = SQLITE_OK;
     int rows = 0;
-    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) ++rows;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW)
+        ++rows;
     ASSERT_EQ(rc, SQLITE_CORRUPT);
     ASSERT_GT(rows, 0);
     sqlite3_finalize(stmt);

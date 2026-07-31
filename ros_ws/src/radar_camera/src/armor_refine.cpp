@@ -96,8 +96,7 @@ auto ArmorRefiner::init(const ArmorRefineConfig& armor_config,
 }
 
 auto ArmorRefiner::refine(const cv::Mat& orig_frame, detection::Detection& det,
-    const std::vector<std::int64_t>& drone_class_ids,
-    float scale_x, float scale_y) -> void {
+    const std::vector<std::int64_t>& drone_class_ids, float scale_x, float scale_y) -> void {
     if (!initialized_ || orig_frame.empty() || det.bbox.area() <= 0.0f) return;
 
     const bool is_drone =
@@ -106,9 +105,8 @@ auto ArmorRefiner::refine(const cv::Mat& orig_frame, detection::Detection& det,
     if (is_drone) return; // drones have no armor plate; keep L1 id
 
     // Map det.bbox from L1 model-input space to orig_frame space.
-    const cv::Rect2f orig_bbox(
-        det.bbox.x * scale_x, det.bbox.y * scale_y,
-        det.bbox.width * scale_x, det.bbox.height * scale_y);
+    const cv::Rect2f orig_bbox(det.bbox.x * scale_x, det.bbox.y * scale_y, det.bbox.width * scale_x,
+        det.bbox.height * scale_y);
 
     // Priority 1: L3 number classifier on the L1 ROI (in orig_frame).
     if (auto number = run_l3(orig_frame, orig_bbox)) {

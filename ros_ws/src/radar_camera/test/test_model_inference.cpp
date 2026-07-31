@@ -133,9 +133,24 @@ TEST(FilterDetectionsTest, RejectsShortBuffer) {
 TEST(FilterDetectionsTest, KeepsHighestConfidencePerClass) {
     auto cfg = make_config();
     std::vector<float> rows {
-        100.f, 100.f, 300.f, 300.f, 0.70f, 2.f,
-        120.f, 120.f, 320.f, 320.f, 0.90f, 2.f,
-        400.f, 400.f, 600.f, 600.f, 0.80f, 3.f,
+        100.f,
+        100.f,
+        300.f,
+        300.f,
+        0.70f,
+        2.f,
+        120.f,
+        120.f,
+        320.f,
+        320.f,
+        0.90f,
+        2.f,
+        400.f,
+        400.f,
+        600.f,
+        600.f,
+        0.80f,
+        3.f,
     };
     auto dets = radar_camera::model_inference::filter_detections(rows, 3, 6, 1280, 1280, cfg);
     ASSERT_TRUE(dets.has_value()) << dets.error();
@@ -148,9 +163,24 @@ TEST(FilterDetectionsTest, KeepsHighestConfidencePerClass) {
 TEST(FilterDetectionsTest, KeepsEachClassOnceWithoutNms) {
     auto cfg = make_config();
     std::vector<float> rows {
-        100.f, 100.f, 300.f, 300.f, 0.80f, 2.f,
-        101.f, 101.f, 301.f, 301.f, 0.70f, 2.f,
-        100.f, 100.f, 300.f, 300.f, 0.75f, 3.f,
+        100.f,
+        100.f,
+        300.f,
+        300.f,
+        0.80f,
+        2.f,
+        101.f,
+        101.f,
+        301.f,
+        301.f,
+        0.70f,
+        2.f,
+        100.f,
+        100.f,
+        300.f,
+        300.f,
+        0.75f,
+        3.f,
     };
     auto dets = radar_camera::model_inference::filter_detections(rows, 3, 6, 1280, 1280, cfg);
     ASSERT_TRUE(dets.has_value()) << dets.error();

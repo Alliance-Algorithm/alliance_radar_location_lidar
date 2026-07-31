@@ -572,8 +572,8 @@ TEST_F(FusionNodeTest, CameraSlotFilteringFiltersInvalidConfidenceAndNaN) {
 
 namespace {
 
-using radar_fusion::match_timer::MatchTimer;
 using radar_fusion::default_positions::DefaultPosition;
+using radar_fusion::match_timer::MatchTimer;
 
 constexpr auto kSec = 1'000'000'000LL;
 
@@ -738,8 +738,7 @@ TEST(FusionNode, SlotFilledWhenNoTrack) {
 TEST(FusionNode, NegativeDefaultMediansClampToZero) {
     radar_interfaces::msg::LidarLocation msg;
     const std::array<bool, 6> occupied = { false, false, false, false, false, false };
-    const auto negative_query =
-        [](int, const std::string&, int, DefaultPosition& out) -> bool {
+    const auto negative_query = [](int, const std::string&, int, DefaultPosition& out) -> bool {
         out = DefaultPosition { -2.0, -0.5, 10 }; // padded-field clip allows -2 m
         return true;
     };
@@ -756,8 +755,8 @@ TEST(FusionNode, NegativeDefaultMediansClampToZero) {
 
 TEST(FusionNode, OccupiedSlotsAreNotOverwritten) {
     radar_interfaces::msg::LidarLocation msg;
-    msg.opponent_hero_x = 111; // occupied -> preserved
-    msg.opponent_hero_y = 222;
+    msg.opponent_hero_x                = 111; // occupied -> preserved
+    msg.opponent_hero_y                = 222;
     const std::array<bool, 6> occupied = { true, false, false, false, false, false };
 
     radar_fusion::default_positions::fill_empty_slots(msg,
@@ -772,8 +771,9 @@ TEST(FusionNode, OccupiedSlotsAreNotOverwritten) {
 TEST(FusionNode, QueryFailureLeavesSlotZero) {
     radar_interfaces::msg::LidarLocation msg;
     const std::array<bool, 6> occupied = { false, false, false, false, false, false };
-    const auto failing_query =
-        [](int, const std::string&, int, DefaultPosition&) -> bool { return false; };
+    const auto failing_query = [](int, const std::string&, int, DefaultPosition&) -> bool {
+        return false;
+    };
 
     radar_fusion::default_positions::fill_empty_slots(msg,
         radar_fusion::default_positions::kOpponentSlots, occupied, /*camp=*/0, /*t=*/0,
@@ -789,7 +789,7 @@ TEST(FusionNode, AllySlotsFilledWithCampInjectedQuery) {
     const std::array<bool, 6> occupied = { false, false, false, false, false, false };
 
     const auto ally_query = [](int camp, const std::string& robot_class, int t,
-                               DefaultPosition& out) -> bool {
+                                DefaultPosition& out) -> bool {
         (void)robot_class;
         (void)t;
         if (camp != 1) return false;
@@ -798,8 +798,7 @@ TEST(FusionNode, AllySlotsFilledWithCampInjectedQuery) {
     };
 
     radar_fusion::default_positions::fill_empty_slots(msg,
-        radar_fusion::default_positions::kAllySlots, occupied, /*camp=*/1, /*t=*/0,
-        ally_query);
+        radar_fusion::default_positions::kAllySlots, occupied, /*camp=*/1, /*t=*/0, ally_query);
 
     EXPECT_EQ(msg.ally_hero_x, static_cast<uint16_t>(20.0 * 100.0));
     EXPECT_EQ(msg.ally_hero_y, static_cast<uint16_t>(12.0 * 100.0));

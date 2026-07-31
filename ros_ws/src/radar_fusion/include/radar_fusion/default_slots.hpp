@@ -14,8 +14,8 @@ namespace radar_fusion::default_positions {
 // One LidarLocation slot: the x/y fields it writes and the robot class it
 // queries defaults for.
 struct SlotSpec {
-    std::uint16_t radar_interfaces::msg::LidarLocation::*x;
-    std::uint16_t radar_interfaces::msg::LidarLocation::*y;
+    std::uint16_t radar_interfaces::msg::LidarLocation::* x;
+    std::uint16_t radar_interfaces::msg::LidarLocation::* y;
     const char* robot_class;
 };
 
@@ -49,8 +49,8 @@ inline constexpr std::array<SlotSpec, 6> kAllySlots = {
         &radar_interfaces::msg::LidarLocation::ally_sentry_y, "sentry" },
 };
 
-using SlotQuery = std::function<bool(int camp, const std::string& robot_class, int t,
-    DefaultPosition& out)>;
+using SlotQuery =
+    std::function<bool(int camp, const std::string& robot_class, int t, DefaultPosition& out)>;
 
 // Fill every unoccupied slot with the default position for its robot class.
 // Occupied slots are left untouched. Defaults are already in the official

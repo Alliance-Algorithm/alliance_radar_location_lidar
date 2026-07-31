@@ -48,7 +48,8 @@ auto make_ground_and_wall(double wall_x0, double wall_x1, double wall_height)
 // bounds 取 {0,0,2,2} (40x40 格), 留出 [1,2]x[1,2] 空区域验证 unknown
 TEST(GridMapTest, GroundAndWall) {
     const auto cloud = make_ground_and_wall(0.5, 0.6, 1.0);
-    const auto result = rasterize(*cloud, GridMapParams {}, std::optional<Bounds> { { 0, 0, 2, 2 } });
+    const auto result =
+        rasterize(*cloud, GridMapParams { }, std::optional<Bounds> { { 0, 0, 2, 2 } });
     ASSERT_TRUE(result.has_value()) << result.error();
     const auto& map = *result;
     EXPECT_EQ(map.width, 40);
@@ -64,12 +65,14 @@ TEST(GridMapTest, GroundAndWall) {
 
 TEST(GridMapTest, HeightThresholdBoundary) {
     const auto short_wall = make_ground_and_wall(0.5, 0.6, 0.25);
-    const auto short_map  = rasterize(*short_wall, GridMapParams {}, std::optional<Bounds> { { 0, 0, 2, 2 } });
+    const auto short_map =
+        rasterize(*short_wall, GridMapParams { }, std::optional<Bounds> { { 0, 0, 2, 2 } });
     ASSERT_TRUE(short_map.has_value());
     EXPECT_EQ(short_map->data[10 * 40 + 10], 100) << "wall 0.25m < threshold 0.3 -> free";
 
     const auto tall_wall = make_ground_and_wall(0.5, 0.6, 0.45);
-    const auto tall_map  = rasterize(*tall_wall, GridMapParams {}, std::optional<Bounds> { { 0, 0, 2, 2 } });
+    const auto tall_map =
+        rasterize(*tall_wall, GridMapParams { }, std::optional<Bounds> { { 0, 0, 2, 2 } });
     ASSERT_TRUE(tall_map.has_value());
     EXPECT_EQ(tall_map->data[10 * 40 + 10], 0) << "wall 0.45m > threshold 0.3 -> obstacle";
 }
@@ -78,11 +81,11 @@ TEST(GridMapTest, MinPointsFiltersIsolatedHighPoint) {
     // 单个离群点(很高)在空白区域, 点数不足 min_points -> 判 free 而非 obstacle
     auto cloud = pcl::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
     cloud->emplace_back(0.025f, 0.025f, 2.0f);
-    cloud->width = 1;
-    cloud->height = 1;
-    cloud->is_dense = true;
-    const auto result = rasterize(*cloud, GridMapParams { .min_points = 3 },
-        std::optional<Bounds> { { 0, 0, 2, 2 } });
+    cloud->width      = 1;
+    cloud->height     = 1;
+    cloud->is_dense   = true;
+    const auto result = rasterize(
+        *cloud, GridMapParams { .min_points = 3 }, std::optional<Bounds> { { 0, 0, 2, 2 } });
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(result->data[0], 100) << "single point below min_points -> free, not obstacle";
 }
@@ -103,11 +106,11 @@ TEST(GridMapTest, DilateExpandsObstacles) {
 TEST(GridMapTest, CoordinateMappingYFlip) {
     auto cloud = pcl::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
     cloud->emplace_back(0.025f, 0.975f, 2.0f); // 世界系 y 最大处
-    cloud->width = 1;
-    cloud->height = 1;
-    cloud->is_dense = true;
-    const auto result = rasterize(*cloud, GridMapParams { .min_points = 1 },
-        std::optional<Bounds> { { 0, 0, 2, 2 } });
+    cloud->width      = 1;
+    cloud->height     = 1;
+    cloud->is_dense   = true;
+    const auto result = rasterize(
+        *cloud, GridMapParams { .min_points = 1 }, std::optional<Bounds> { { 0, 0, 2, 2 } });
     ASSERT_TRUE(result.has_value());
     // iy = floor(0.975/0.05) = 19 (y 最大); PGM 行 0 = y 最大, 由写文件逻辑翻转
     EXPECT_EQ(result->data[19 * 40 + 0], 100);
@@ -116,22 +119,23 @@ TEST(GridMapTest, CoordinateMappingYFlip) {
 
 TEST(GridMapTest, EmptyCloudWithBoundsGivesAllUnknown) {
     auto cloud = pcl::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
-    const auto result = rasterize(*cloud, GridMapParams {}, std::optional<Bounds> { { 0, 0, 2, 2 } });
+    const auto result =
+        rasterize(*cloud, GridMapParams { }, std::optional<Bounds> { { 0, 0, 2, 2 } });
     ASSERT_TRUE(result.has_value());
     EXPECT_TRUE(std::ranges::all_of(result->data, [](int8_t v) { return v == -1; }));
 }
 
 TEST(GridMapTest, EmptyCloudWithoutBoundsFails) {
-    auto cloud = pcl::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
-    const auto result = rasterize(*cloud, GridMapParams {}, std::nullopt);
+    auto cloud        = pcl::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
+    const auto result = rasterize(*cloud, GridMapParams { }, std::nullopt);
     ASSERT_FALSE(result.has_value());
 }
 
 TEST(GridMapTest, InvalidParamsFail) {
     auto cloud = pcl::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
     cloud->emplace_back(0.0f, 0.0f, 0.0f);
-    cloud->width = 1;
-    cloud->height = 1;
+    cloud->width    = 1;
+    cloud->height   = 1;
     cloud->is_dense = true;
     EXPECT_FALSE(rasterize(*cloud, GridMapParams { .resolution = 0.0 }, std::nullopt).has_value());
     EXPECT_FALSE(rasterize(*cloud, GridMapParams { .min_points = 0 }, std::nullopt).has_value());
@@ -191,10 +195,10 @@ TEST(GridMapTest, SavePgmYamlWritesValidFiles) {
 
 TEST(GridMapTest, SavePgmYamlFailsOnBadPath) {
     GridMapResult map;
-    map.width    = 1;
-    map.height   = 1;
-    map.data     = { -1 };
-    map.resolution = 0.05;
+    map.width         = 1;
+    map.height        = 1;
+    map.data          = { -1 };
+    map.resolution    = 0.05;
     const auto result = save_pgm_yaml("/nonexistent_dir_xyz/out", map);
     EXPECT_FALSE(result.has_value());
 }

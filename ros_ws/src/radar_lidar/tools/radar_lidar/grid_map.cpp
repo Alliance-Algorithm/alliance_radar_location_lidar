@@ -12,15 +12,15 @@ namespace radar_lidar::grid_map {
 
 namespace {
 
-struct Cell {
-    std::size_t count = 0;
-    float z_min       = std::numeric_limits<float>::max();
-    float z_max       = std::numeric_limits<float>::lowest();
-};
+    struct Cell {
+        std::size_t count = 0;
+        float z_min       = std::numeric_limits<float>::max();
+        float z_max       = std::numeric_limits<float>::lowest();
+    };
 
-auto floor_to_resolution(double v, double res) -> double { return std::floor(v / res) * res; }
+    auto floor_to_resolution(double v, double res) -> double { return std::floor(v / res) * res; }
 
-auto ceil_to_resolution(double v, double res) -> double { return std::ceil(v / res) * res; }
+    auto ceil_to_resolution(double v, double res) -> double { return std::ceil(v / res) * res; }
 
 } // namespace
 
@@ -29,8 +29,7 @@ auto rasterize(const pcl::PointCloud<pcl::PointXYZ>& cloud, const GridMapParams&
     if (params.resolution <= 0.0) return std::unexpected("resolution must be > 0");
     if (params.min_points < 1) return std::unexpected("min_points must be >= 1");
     if (params.dilate < 0) return std::unexpected("dilate must be >= 0");
-    if (params.height_threshold < 0.0)
-        return std::unexpected("height_threshold must be >= 0");
+    if (params.height_threshold < 0.0) return std::unexpected("height_threshold must be >= 0");
     if (cloud.empty() && !bounds.has_value())
         return std::unexpected("empty cloud and no bounds provided");
 
@@ -50,13 +49,12 @@ auto rasterize(const pcl::PointCloud<pcl::PointXYZ>& cloud, const GridMapParams&
         bool have_finite = false;
         for (const auto& pt : cloud.points) {
             if (!std::isfinite(pt.x) || !std::isfinite(pt.y)) continue;
-            first_x    = pt.x;
-            first_y    = pt.y;
+            first_x     = pt.x;
+            first_y     = pt.y;
             have_finite = true;
             break;
         }
-        if (!have_finite)
-            return std::unexpected("no finite points and no bounds provided");
+        if (!have_finite) return std::unexpected("no finite points and no bounds provided");
         x_min = floor_to_resolution(first_x, res);
         x_max = ceil_to_resolution(first_x, res);
         y_min = floor_to_resolution(first_y, res);
@@ -88,10 +86,10 @@ auto rasterize(const pcl::PointCloud<pcl::PointXYZ>& cloud, const GridMapParams&
         if (!std::isfinite(pt.x) || !std::isfinite(pt.y) || !std::isfinite(pt.z)) continue;
         const auto idx = index_of(pt.x, pt.y);
         if (idx == static_cast<std::size_t>(-1)) continue;
-        auto& cell      = cells[idx];
-        cell.count      += 1;
-        cell.z_min       = std::min(cell.z_min, pt.z);
-        cell.z_max       = std::max(cell.z_max, pt.z);
+        auto& cell = cells[idx];
+        cell.count += 1;
+        cell.z_min = std::min(cell.z_min, pt.z);
+        cell.z_max = std::max(cell.z_max, pt.z);
     }
 
     GridMapResult result;
@@ -115,7 +113,7 @@ auto rasterize(const pcl::PointCloud<pcl::PointXYZ>& cloud, const GridMapParams&
 
     // 膨胀: 以每个障碍格为中心, 半径 dilate 的圆域内格子置障碍
     if (params.dilate > 0) {
-        const auto d = params.dilate;
+        const auto d                 = params.dilate;
         std::vector<int8_t> expanded = result.data;
         for (int iy = 0; iy < height; ++iy) {
             for (int ix = 0; ix < width; ++ix) {
@@ -143,9 +141,9 @@ auto rasterize(const pcl::PointCloud<pcl::PointXYZ>& cloud, const GridMapParams&
 
 namespace {
 
-constexpr unsigned char kObstacleGray = 0;
-constexpr unsigned char kUnknownGray  = 205;
-constexpr unsigned char kFreeGray     = 254;
+    constexpr unsigned char kObstacleGray = 0;
+    constexpr unsigned char kUnknownGray  = 205;
+    constexpr unsigned char kFreeGray     = 254;
 
 } // namespace
 
@@ -160,7 +158,7 @@ auto save_pgm_yaml(const std::string& output_prefix, const GridMapResult& result
     for (int row = 0; row < result.height; ++row) {
         const auto iy = result.height - 1 - row; // 行 0 = 世界系 y 最大
         for (int ix = 0; ix < result.width; ++ix) {
-            const auto v = result.data[static_cast<std::size_t>(iy) * result.width + ix];
+            const auto v    = result.data[static_cast<std::size_t>(iy) * result.width + ix];
             const auto gray = v < 0 ? kUnknownGray : (v == 0 ? kObstacleGray : kFreeGray);
             pgm.put(static_cast<char>(gray));
         }

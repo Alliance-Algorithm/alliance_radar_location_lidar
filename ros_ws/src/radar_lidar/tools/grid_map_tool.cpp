@@ -23,10 +23,10 @@ using radar_lidar::grid_map::save_pgm_yaml;
 struct Args {
     std::string map_path;
     std::string output_prefix = "map";
-    double resolution       = 0.05;
-    double height_threshold = 0.3;
-    int min_points          = 3;
-    int dilate              = 0;
+    double resolution         = 0.05;
+    double height_threshold   = 0.3;
+    int min_points            = 3;
+    int dilate                = 0;
     std::optional<Bounds> bounds;
     bool verbose = false;
 };
@@ -34,12 +34,15 @@ struct Args {
 auto usage(std::string_view prog) -> std::string {
     return std::format("Usage: {} <map.pcd> [options]\n"
                        "Options:\n"
-                       "  --output <prefix>         output prefix -> <prefix>.pgm/.yaml (default map)\n"
+                       "  --output <prefix>         output prefix -> <prefix>.pgm/.yaml (default "
+                       "map)\n"
                        "  --resolution <float>      cell size in meters (default 0.05)\n"
-                       "  --height-threshold <f>    z-spread obstacle threshold in m (default 0.3)\n"
+                       "  --height-threshold <f>    z-spread obstacle threshold in m (default "
+                       "0.3)\n"
                        "  --min-points <int>        minimum points per cell (default 3)\n"
                        "  --dilate <int>            obstacle dilation radius in cells (default 0)\n"
-                       "  --bounds xmin ymin xmax ymax   explicit map bounds (default: cloud bbox)\n"
+                       "  --bounds xmin ymin xmax ymax   explicit map bounds (default: cloud "
+                       "bbox)\n"
                        "  --verbose                 print stats\n",
         prog);
 }
@@ -89,29 +92,34 @@ auto parse_args(int argc, char** argv) -> std::expected<Args, std::string> {
         }
         if (arg == "--bounds") {
             if (i + 4 >= argc) {
-                return std::unexpected(
-                    std::format("ERROR: --bounds requires xmin ymin xmax ymax\n{}", usage(argv[0])));
+                return std::unexpected(std::format(
+                    "ERROR: --bounds requires xmin ymin xmax ymax\n{}", usage(argv[0])));
             }
             Bounds b;
             for (auto* dest : { &b.x_min, &b.y_min, &b.x_max, &b.y_max }) {
-                if (auto r = checked_assign(*dest, argv[++i]); !r) return std::unexpected(r.error());
+                if (auto r = checked_assign(*dest, argv[++i]); !r)
+                    return std::unexpected(r.error());
             }
             args.bounds = b;
             continue;
         }
 
         if (i + 1 >= argc) {
-            return std::unexpected(std::format("ERROR: {} requires a value\n{}", arg, usage(argv[0])));
+            return std::unexpected(
+                std::format("ERROR: {} requires a value\n{}", arg, usage(argv[0])));
         }
         const std::string val = argv[++i];
 
         if (arg == "--output") {
             args.output_prefix = val;
         } else if (arg == "--resolution") {
-            if (auto r = checked_assign_bounded(args.resolution, val, "--resolution", 0.0, true); !r)
+            if (auto r = checked_assign_bounded(args.resolution, val, "--resolution", 0.0, true);
+                !r)
                 return std::unexpected(r.error());
         } else if (arg == "--height-threshold") {
-            if (auto r = checked_assign_bounded(args.height_threshold, val, "--height-threshold", 0.0, false); !r)
+            if (auto r = checked_assign_bounded(
+                    args.height_threshold, val, "--height-threshold", 0.0, false);
+                !r)
                 return std::unexpected(r.error());
         } else if (arg == "--min-points") {
             if (auto r = checked_assign_bounded(args.min_points, val, "--min-points", 0, true); !r)
@@ -120,7 +128,8 @@ auto parse_args(int argc, char** argv) -> std::expected<Args, std::string> {
             if (auto r = checked_assign_bounded(args.dilate, val, "--dilate", 0, false); !r)
                 return std::unexpected(r.error());
         } else {
-            return std::unexpected(std::format("ERROR: unknown argument '{}'\n{}", arg, usage(argv[0])));
+            return std::unexpected(
+                std::format("ERROR: unknown argument '{}'\n{}", arg, usage(argv[0])));
         }
     }
     return args;
@@ -154,7 +163,7 @@ int main(int argc, char** argv) {
     params.min_points       = args.min_points;
     params.dilate           = args.dilate;
 
-    const auto t0 = std::chrono::high_resolution_clock::now();
+    const auto t0    = std::chrono::high_resolution_clock::now();
     auto grid_result = rasterize(*cloud, params, args.bounds);
     if (!grid_result) {
         std::println(stderr, "[grid_map_tool] ERROR: {}", grid_result.error());
@@ -163,7 +172,7 @@ int main(int argc, char** argv) {
     const auto& grid = *grid_result;
 
     const auto t1 = std::chrono::high_resolution_clock::now();
-    const auto ms  = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    const auto ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
 
     if (args.verbose) {
         std::size_t obstacle = 0, free = 0, unknown = 0;
@@ -185,7 +194,8 @@ int main(int argc, char** argv) {
         std::println(stderr, "[grid_map_tool] ERROR: {}", r.error());
         return 1;
     }
-    std::println("[grid_map_tool] Written: {}.pgm / {}.yaml", args.output_prefix, args.output_prefix);
+    std::println(
+        "[grid_map_tool] Written: {}.pgm / {}.yaml", args.output_prefix, args.output_prefix);
 
     return 0;
 }

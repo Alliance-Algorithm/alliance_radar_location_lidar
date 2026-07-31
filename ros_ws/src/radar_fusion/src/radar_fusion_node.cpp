@@ -78,9 +78,10 @@ RadarFusionNode::RadarFusionNode(const rclcpp::NodeOptions& options)
 
     if (!default_positions_path_.empty()) {
         if (radar_fusion::default_positions::load(default_positions_path_)) {
-            sub_game_state_ = this->create_subscription<radar_interfaces::msg::GameState>(
-                "/bridge/game_state", 10,
-                [this](const radar_interfaces::msg::GameState::SharedPtr msg) {
+            sub_game_state_ = this->create_subscription<radar_interfaces::msg::GameState>("/bridge/"
+                                                                                          "game_"
+                                                                                          "state",
+                10, [this](const radar_interfaces::msg::GameState::SharedPtr msg) {
                     on_game_state(msg);
                 });
             RCLCPP_INFO(get_logger(), "default positions loaded from '%s' (enemy=%s)",
@@ -412,8 +413,8 @@ void RadarFusionNode::fill_default_positions(
         radar_fusion::default_positions::kOpponentSlots, occupied_opponent, enemy_camp,
         static_cast<int>(t), query);
     radar_fusion::default_positions::fill_empty_slots(msg,
-        radar_fusion::default_positions::kAllySlots, occupied_ally, ally_camp,
-        static_cast<int>(t), query);
+        radar_fusion::default_positions::kAllySlots, occupied_ally, ally_camp, static_cast<int>(t),
+        query);
 }
 
 void RadarFusionNode::publish_lidar_location(
