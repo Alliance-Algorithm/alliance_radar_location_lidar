@@ -414,7 +414,7 @@ auto ConfigsLoader(rclcpp::Node& node, camera_config::CameraConfig& camera,
         node.declare_parameter("model_input_height", 1280);
         node.declare_parameter("mesh_path", std::string(""));
         node.declare_parameter("enable_raw_recording", false);
-        node.declare_parameter("recording_output_dir", std::string("/data/competition/recordings"));
+        node.declare_parameter("recording_output_dir", std::string("/model/devio"));
         node.declare_parameter("recording_width", 5472);
         node.declare_parameter("recording_height", 3648);
         node.declare_parameter("recording_fps", 20);

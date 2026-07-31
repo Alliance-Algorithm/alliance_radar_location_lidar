@@ -92,7 +92,7 @@ def generate_launch_description():
             description="雷达型号: odin | mid70"),
         DeclareLaunchArgument("enable_raw_recording", default_value="false",
             description="启用原始相机录制"),
-        DeclareLaunchArgument("recording_output_dir", default_value="/data/competition/recordings"),
+        DeclareLaunchArgument("recording_output_dir", default_value="/model/devio"),
         DeclareLaunchArgument("recording_width", default_value="5472"),
         DeclareLaunchArgument("recording_height", default_value="3648"),
         DeclareLaunchArgument("recording_fps", default_value="20"),

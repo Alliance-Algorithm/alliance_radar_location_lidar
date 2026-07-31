@@ -46,7 +46,7 @@ radar_camera_node:
     translation: [0.0, 0.0, 0.0]
     pub_topic_name: "/radar_camera/robot_pose"
     enable_raw_recording: false
-    recording_output_dir: "/data/competition/recordings"
+    recording_output_dir: "/model/devio"
     recording_width: 5472
     recording_height: 3648
     recording_fps: 20

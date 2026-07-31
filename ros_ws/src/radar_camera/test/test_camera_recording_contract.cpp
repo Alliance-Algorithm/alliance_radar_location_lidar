@@ -31,7 +31,7 @@ TEST_F(CameraRecordingContract, DeclaresDisabledRecordingDefaults) {
     ASSERT_TRUE(radar_camera::node::ConfigsLoader(
         *node, camera, inference, projection, recording, armor, number));
     EXPECT_FALSE(recording.enabled);
-    EXPECT_EQ(recording.output_dir, "/data/competition/recordings");
+    EXPECT_EQ(recording.output_dir, "/model/devio");
     EXPECT_EQ(recording.width, 5472);
     EXPECT_EQ(recording.height, 3648);
     EXPECT_EQ(recording.fps, 20);

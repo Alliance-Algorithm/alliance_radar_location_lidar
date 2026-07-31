@@ -99,13 +99,13 @@ ros2 launch radar_bringup competition.launch.py \
 ```
 
 需要采集原始相机视频时显式开启录制。默认值为 5472x3648、20 FPS、40 Mbps、
-H.264 NVENC，分段 60 秒，输出到 `/data/competition/recordings`：
+H.264 NVENC，分段 60 秒，输出到 `/model/devio`：
 
 ```bash
 ros2 launch radar_bringup competition.launch.py \
   side:=red map_path:=/workspace/model/generated/map.pcd \
   enable_raw_recording:=true \
-  recording_output_dir:=/data/competition/recordings
+  recording_output_dir:=/model/devio
 ```
 
 启用录制的硬件阻塞条件：

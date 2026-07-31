@@ -265,7 +265,7 @@ Add disabled defaults and full-resolution values:
 
 ```yaml
 enable_raw_recording: false
-recording_output_dir: "/data/competition/recordings"
+recording_output_dir: "/model/devio"
 recording_width: 5472
 recording_height: 3648
 recording_fps: 20
@@ -328,7 +328,7 @@ Verify the recorder statistics show `accepted == encoded`, no `OVERRUN`, monoton
 - [ ] **Step 4: Validate segments and metadata**
 
 ```bash
-ffprobe -v error -show_streams /data/competition/recordings/*.ts
+ffprobe -v error -show_streams /model/devio/*.ts
 ```
 
 Verify every segment is decodable, has `5472x3648`, expected FPS, no B-frames, and matching sidecar sequence ranges.

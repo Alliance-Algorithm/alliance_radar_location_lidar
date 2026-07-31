@@ -88,7 +88,7 @@ Recording parameters are explicit and disabled by default:
 
 ```yaml
 enable_raw_recording: false
-recording_output_dir: /data/competition/recordings
+recording_output_dir: /model/devio
 recording_width: 5472
 recording_height: 3648
 recording_fps: 20
