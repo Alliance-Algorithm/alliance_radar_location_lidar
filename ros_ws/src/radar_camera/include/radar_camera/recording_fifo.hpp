@@ -15,6 +15,8 @@ class RecordingFifo {
 public:
     explicit RecordingFifo(std::size_t capacity) : capacity_(capacity) {}
 
+    [[nodiscard]] auto capacity() const -> std::size_t { return capacity_; }
+
     auto try_push(RawFrame&& frame) -> bool {
         std::lock_guard lock(mutex_);
         if (closed_ || overrun_ || queue_.size() >= capacity_) {

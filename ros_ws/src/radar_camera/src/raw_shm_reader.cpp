@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstring>
 #include <limits>
+#include <stdexcept>
 
 #include "radar_camera/recording_fifo.hpp"
 
@@ -18,6 +19,16 @@ auto completed_slot(std::uint64_t counter, unsigned int slot_num) -> unsigned in
 }
 
 auto is_stable(std::uint64_t before, std::uint64_t after) -> bool { return before == after; }
+
+auto is_contiguous_counter(std::uint64_t last_seen, std::uint64_t current) -> bool {
+    if (last_seen == 0) {
+        return current != 0;
+    }
+    if (last_seen == std::numeric_limits<std::uint64_t>::max()) {
+        return false;
+    }
+    return current == last_seen + 1;
+}
 
 auto validate_raw_frame_dimensions(int width, int height) -> bool {
     if (width <= 0 || height <= 0) {
@@ -56,12 +67,14 @@ RawShmReader::RawShmReader(std::string shm_name, int width, int height, Recordin
 RawShmReader::~RawShmReader() { stop(); }
 
 auto RawShmReader::start() -> std::expected<void, std::string> {
+    std::lock_guard lifecycle_lock(lifecycle_mutex_);
     if (!validate_raw_frame_dimensions(width_, height_) || image_bytes_ == 0) {
         return std::unexpected("raw frame dimensions are invalid");
     }
     if (shm_name_.empty()) {
         return std::unexpected("SHM name must not be empty");
     }
+    join_finished_thread();
     if (running_.exchange(true, std::memory_order_acq_rel)) {
         return std::unexpected("reader is already running");
     }
@@ -81,21 +94,42 @@ auto RawShmReader::start() -> std::expected<void, std::string> {
         return std::unexpected("SHMGetPtr failed: " + ptr_ret.error());
     }
     shm_ptr_ = *ptr_ret;
+    try {
+        buffer_pool_.clear();
+        buffer_pool_.reserve(fifo_.capacity());
+        for (std::size_t i = 0; i < fifo_.capacity(); ++i) {
+            buffer_pool_.push_back(std::make_shared<cv::Mat>(height_, width_, CV_8UC3));
+        }
+    } catch (const std::exception& error) {
+        close_shm();
+        running_.store(false, std::memory_order_release);
+        return std::unexpected(std::string("could not allocate raw frame pool: ") + error.what());
+    }
     {
         std::lock_guard lock(mutex_);
         state_ = ReaderState::running;
         stats_ = {};
     }
-    thread_ = std::thread(&RawShmReader::loop, this);
+    try {
+        thread_ = std::thread(&RawShmReader::loop, this);
+    } catch (const std::exception& error) {
+        close_shm();
+        running_.store(false, std::memory_order_release);
+        std::lock_guard lock(mutex_);
+        state_ = ReaderState::stopped;
+        return std::unexpected(std::string("could not start reader thread: ") + error.what());
+    }
     return {};
 }
 
 void RawShmReader::stop() {
+    std::lock_guard lifecycle_lock(lifecycle_mutex_);
     running_.store(false, std::memory_order_release);
     if (thread_.joinable()) {
         thread_.join();
     }
     close_shm();
+    buffer_pool_.clear();
     std::lock_guard lock(mutex_);
     if (state_ == ReaderState::running) {
         state_ = ReaderState::stopped;
@@ -103,6 +137,8 @@ void RawShmReader::stop() {
 }
 
 auto RawShmReader::state() const -> ReaderState {
+    std::lock_guard lifecycle_lock(lifecycle_mutex_);
+    const_cast<RawShmReader*>(this)->join_finished_thread();
     std::lock_guard lock(mutex_);
     return state_;
 }
@@ -123,6 +159,13 @@ void RawShmReader::close_shm() {
     }
 }
 
+void RawShmReader::join_finished_thread() {
+    if (thread_.joinable() && !running_.load(std::memory_order_acquire) &&
+        thread_.get_id() != std::this_thread::get_id()) {
+        thread_.join();
+    }
+}
+
 void RawShmReader::loop() {
     constexpr auto slot_count = 4U;
     constexpr auto poll_interval = std::chrono::milliseconds(1);
@@ -135,6 +178,13 @@ void RawShmReader::loop() {
             std::this_thread::sleep_for(poll_interval);
             continue;
         }
+        if (!is_contiguous_counter(last_seen, counter)) {
+            fifo_.request_overrun("raw SHM frame counter advanced with a gap");
+            running_.store(false, std::memory_order_release);
+            std::lock_guard lock(mutex_);
+            state_ = ReaderState::overrun;
+            break;
+        }
 
         auto latest_seen = counter;
         bool accepted = false;
@@ -143,21 +193,52 @@ void RawShmReader::loop() {
             if (!valid_frame_counter(counter_before)) {
                 break;
             }
+            if (counter_before != last_seen &&
+                !is_contiguous_counter(last_seen, counter_before)) {
+                fifo_.request_overrun("raw SHM frame counter advanced with a gap");
+                running_.store(false, std::memory_order_release);
+                std::lock_guard lock(mutex_);
+                state_ = ReaderState::overrun;
+                break;
+            }
             latest_seen = counter_before;
             const auto slot = completed_slot(counter_before, slot_count);
-            cv::Mat rgb(height_, width_, CV_8UC3);
-            std::memcpy(rgb.data, shm_ptr_->imagedata[slot], image_bytes_);
+            std::shared_ptr<cv::Mat> storage;
+            for (const auto& candidate : buffer_pool_) {
+                if (candidate.use_count() == 1) {
+                    storage = candidate;
+                    break;
+                }
+            }
+            if (!storage) {
+                fifo_.request_overrun("raw SHM reader frame pool exhausted");
+                running_.store(false, std::memory_order_release);
+                std::lock_guard lock(mutex_);
+                state_ = ReaderState::overrun;
+                break;
+            }
+            std::memcpy(storage->data, shm_ptr_->imagedata[slot], image_bytes_);
             const auto timestamp = shm_ptr_->timestamp[slot];
             const auto counter_after = shm_ptr_->frame_counter.load(std::memory_order_acquire);
             latest_seen = counter_after;
+
+            if (counter_after != last_seen &&
+                !is_contiguous_counter(last_seen, counter_after)) {
+                fifo_.request_overrun("raw SHM frame counter advanced with a gap");
+                running_.store(false, std::memory_order_release);
+                std::lock_guard lock(mutex_);
+                state_ = ReaderState::overrun;
+                break;
+            }
 
             if (!is_stable(counter_before, counter_after)) {
                 continue;
             }
 
             RawFrame frame{
-                std::move(rgb), counter_before,
-                static_cast<std::uint64_t>(timestamp.time_since_epoch().count())};
+                *storage, counter_before,
+                static_cast<std::uint64_t>(timestamp.time_since_epoch().count()),
+                std::move(storage)};
             {
                 std::lock_guard lock(mutex_);
                 ++stats_.observed;
@@ -177,7 +258,9 @@ void RawShmReader::loop() {
             break;
         }
 
-        last_seen = latest_seen;
+        if (accepted) {
+            last_seen = latest_seen;
+        }
         if (!accepted && running_.load(std::memory_order_acquire)) {
             fifo_.request_overrun("raw SHM frame counter was unstable");
             running_.store(false, std::memory_order_release);
@@ -186,6 +269,7 @@ void RawShmReader::loop() {
             state_ = ReaderState::overrun;
         }
     }
+    close_shm();
 }
 
 } // namespace radar_camera::recording

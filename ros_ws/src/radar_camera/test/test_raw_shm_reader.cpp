@@ -1,9 +1,11 @@
 #include <cstdint>
+#include <limits>
 
 #include <gtest/gtest.h>
 #include <opencv2/core.hpp>
 
 #include "radar_camera/raw_shm_reader.hpp"
+#include "radar_camera/recording_fifo.hpp"
 
 namespace radar_camera::recording {
 
@@ -22,6 +24,24 @@ TEST(RawShmReader, CompletedSlotUsesThePreviouslyPublishedCounter) {
 TEST(RawShmReader, StabilityRequiresAnUnchangedCounter) {
     EXPECT_TRUE(is_stable(12, 12));
     EXPECT_FALSE(is_stable(12, 13));
+}
+
+TEST(RawShmReader, CounterMustAdvanceExactlyOneAfterStartupBaseline) {
+    EXPECT_TRUE(is_contiguous_counter(0, 7));
+    EXPECT_TRUE(is_contiguous_counter(7, 8));
+    EXPECT_FALSE(is_contiguous_counter(7, 9));
+    EXPECT_FALSE(is_contiguous_counter(7, 6));
+    EXPECT_FALSE(is_contiguous_counter(std::numeric_limits<std::uint64_t>::max(), 1));
+}
+
+TEST(RawShmReader, StopIsIdempotentBeforeAndAfterFailedStart) {
+    RecordingFifo fifo(1);
+    RawShmReader reader("", 4, 2, fifo);
+
+    reader.stop();
+    EXPECT_FALSE(reader.start());
+    reader.stop();
+    EXPECT_EQ(reader.state(), ReaderState::stopped);
 }
 
 TEST(RawShmReader, ValidatesDimensionsAndRgbByteCount) {
