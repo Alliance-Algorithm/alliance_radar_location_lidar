@@ -15,7 +15,6 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
@@ -26,29 +25,16 @@ def generate_launch_description():
         default_value=os.path.join(bringup_dir, "config", "bridge", "radar_bridge.yaml"),
         description="radar_bridge 配置文件路径（ROS2 parameter YAML）",
     )
-    enable_video_stream_arg = DeclareLaunchArgument(
-        "enable_video_stream",
-        default_value="false",
-        description="Enable the legacy bridge video stream",
-    )
 
     bridge_node = Node(
         package="radar_bridge",
         executable="radar_bridge_node",
         name="radar_bridge_node",
         output="screen",
-        parameters=[
-            LaunchConfiguration("config_file"),
-            {
-                "enable_video_stream": ParameterValue(
-                    LaunchConfiguration("enable_video_stream"), value_type=bool
-                )
-            },
-        ],
+        parameters=[LaunchConfiguration("config_file")],
     )
 
     return LaunchDescription([
         config_file_arg,
-        enable_video_stream_arg,
         bridge_node,
     ])

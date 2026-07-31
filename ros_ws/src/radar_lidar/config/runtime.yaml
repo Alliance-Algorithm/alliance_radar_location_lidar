@@ -3,17 +3,12 @@ radar_lidar_node:
     map_path: ""
     scan_topic: "/odin1/cloud_raw"
     hardware_id: "odin1"
-    lidar_frame: "lidar_link"
     dynamic_distance_threshold: 0.1
-    lock_fitness: 0.2
-    max_translation_m: 40.0
-    max_rotation_rad: 3.141592653589793
     initial_pose_enabled: false
     initial_pose_tx: 0.0
     initial_pose_ty: 0.0
     initial_pose_tz: 0.0
     initial_pose_roll: 0.0
-    initial_pose_pitch: 0.1745329252  # +10 deg downward in the Rz*Ry*Rx convention
+    initial_pose_pitch: 0.0
     initial_pose_yaw: 0.0
     use_odin_relocalization_tf: false
-    registration_timeout_sec: 30.0

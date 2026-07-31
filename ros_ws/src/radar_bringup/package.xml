@@ -13,24 +13,12 @@
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
-  <exec_depend>rclpy</exec_depend>
-  <exec_depend>radar_interfaces</exec_depend>
   <exec_depend>rclcpp</exec_depend>
   <exec_depend>rclcpp_components</exec_depend>
   <exec_depend>radar_lidar</exec_depend>
   <exec_depend>odin_ros_driver</exec_depend>
   <exec_depend>tf2_ros</exec_depend>
   <exec_depend>hikcamera_ros_driver</exec_depend>
-  <exec_depend>radar_bridge</exec_depend>
-  <exec_depend>radar_camera</exec_depend>
-  <exec_depend>radar_fusion</exec_depend>
-
-  <test_depend>ament_cmake_pytest</test_depend>
-  <test_depend>launch_testing</test_depend>
-  <test_depend>radar_bridge</test_depend>
-  <test_depend>radar_fusion</test_depend>
-  <test_depend>sensor_msgs_py</test_depend>
-  <test_depend>python3-zmq</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

@@ -57,16 +57,12 @@ auto filter_detections(const std::vector<float>& raw_output, int num_detections,
             is_drone ? config.drone_max_length_width_rate : config.max_length_width_rate;
         if (ratio < min_rate || ratio > max_rate) continue;
 
-        const float bx = x1 * scale_x;
-        const float by = y1 * scale_y;
-        const detection::Detection detection {
-            .center     = cv::Point2d((x1 + x2) * 0.5f * scale_x, (y1 + y2) * 0.5f * scale_y),
-            .id         = cls,
-            .confidence = conf,
-            .bbox       = cv::Rect2f(bx, by, box_w, box_h) };
-        auto existing = std::find_if(out.begin(), out.end(), [cls](const auto& item) {
-            return item.id == cls;
-        });
+        const detection::Detection detection { .center = cv::Point2d((x1 + x2) * 0.5f * scale_x,
+                                                   (y1 + y2) * 0.5f * scale_y),
+            .id                                        = cls,
+            .confidence                                = conf };
+        auto existing = std::find_if(
+            out.begin(), out.end(), [cls](const auto& item) { return item.id == cls; });
         if (existing == out.end()) {
             out.push_back(detection);
         } else if (conf > existing->confidence) {
@@ -88,8 +84,8 @@ auto ModelInference::infer_preprocess(const cv::Mat& image, size_t width, size_t
         if (image.cols != static_cast<int>(width) || image.rows != static_cast<int>(height)) {
             cv::resize(input, input, cv::Size(static_cast<int>(width), static_cast<int>(height)));
         }
-        cv::Mat blob = cv::dnn::blobFromImage(input, 1.0 / 255.0, cv::Size(), cv::Scalar(), false,
-            false);
+        cv::Mat blob =
+            cv::dnn::blobFromImage(input, 1.0 / 255.0, cv::Size(), cv::Scalar(), false, false);
 
         const auto elements = blob.total();
         input_buffer_.resize(elements);
@@ -107,13 +103,13 @@ auto ModelInference::infer_init(const inference_config::InferenceConfig& config)
         if (config_.backend == "tensorrt") {
 #ifdef RADAR_CAMERA_HAS_TENSORRT
             tensorrt_inference_ = std::make_unique<TensorRtInference>();
-            auto result = tensorrt_inference_->init(config_.model_path);
+            auto result         = tensorrt_inference_->init(config_.model_path);
             if (!result) return std::unexpected(result.error());
             last_output_shape_ = { 1, 300, 6 };
             return { };
 #else
-            return std::unexpected(
-                "TensorRT backend requested, but radar_camera was built without TensorRT support");
+            return std::unexpected("TensorRT backend requested, but radar_camera was built without "
+                                   "TensorRT support");
 #endif
         }
         if (config_.backend != "openvino") {
@@ -128,8 +124,7 @@ auto ModelInference::infer_init(const inference_config::InferenceConfig& config)
     }
 }
 
-auto ModelInference::infer_runtime_async()
-    -> std::expected<void, std::string> {
+auto ModelInference::infer_runtime_async() -> std::expected<void, std::string> {
     try {
         if (config_.backend == "tensorrt") {
 #ifdef RADAR_CAMERA_HAS_TENSORRT

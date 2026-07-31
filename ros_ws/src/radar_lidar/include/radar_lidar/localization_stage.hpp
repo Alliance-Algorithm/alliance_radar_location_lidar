@@ -16,10 +16,6 @@ class MapData;
 
 namespace radar_lidar::localization {
 
-enum class RegistrationState { INITIALIZING, REGISTERING, LOCKED, FAILED };
-
-class LocalizationStageTestPeer;
-
 /// @brief Stage 1: 点云 → 位姿 (GICP scan-to-map)
 /// 支持球面网格预处理 + 帧累积 + 一次性锁定
 class LocalizationStage {
@@ -33,34 +29,20 @@ public:
 
     /// @brief 设置下一次配准的初始位姿猜测
     /// @brief 离线工具和重定位场景需要外部提供初始猜测
-    void set_initial_pose(const Eigen::Isometry3d& pose) {
-        prev_pose_ = pose;
-        locked_    = false;
-        state_     = target_points_.empty() ? RegistrationState::INITIALIZING
-                                            : RegistrationState::REGISTERING;
-        failure_reason_.clear();
-    }
+    void set_initial_pose(const Eigen::Isometry3d& pose) { prev_pose_ = pose; }
 
     /// @brief 重置为单位位姿（重新开始跟踪）
     void reset() {
         prev_pose_ = Eigen::Isometry3d::Identity();
         locked_    = false;
-        state_     = target_points_.empty() ? RegistrationState::INITIALIZING
-                                            : RegistrationState::REGISTERING;
-        failure_reason_.clear();
         accumulator_.clear();
     }
 
     /// @brief 是否已锁定（use_lock_strategy 启用时）
     [[nodiscard]] auto is_locked() const -> bool { return locked_; }
-    [[nodiscard]] auto state() const noexcept -> RegistrationState { return state_; }
-    [[nodiscard]] auto failure_reason() const -> const std::string& { return failure_reason_; }
 
 private:
-    friend class LocalizationStageTestPeer;
-
     auto preprocess(const types::Frame& scan) -> types::PointCloud;
-    void apply_registration_result(const types::PoseEstimate& result);
 
     std::shared_ptr<const map_data::MapData> map_;
     config::LocalizationConfig cfg_;
@@ -69,9 +51,7 @@ private:
 
     spherical_grid::SphericalGrid spherical_grid_;
     frame_accumulator::FrameAccumulator accumulator_;
-    bool locked_             = false;
-    RegistrationState state_ = RegistrationState::INITIALIZING;
-    std::string failure_reason_;
+    bool locked_ = false;
 };
 
 } // namespace radar_lidar::localization

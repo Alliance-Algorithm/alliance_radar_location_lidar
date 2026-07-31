@@ -11,12 +11,6 @@
 
 namespace radar_lidar::geom {
 
-/// T_map_radar_base = T_map_lidar * inverse(T_radar_base_lidar).
-[[nodiscard]] inline auto map_radar_base_pose(const Eigen::Isometry3d& t_map_lidar,
-    const Eigen::Isometry3d& t_radar_base_lidar) -> Eigen::Isometry3d {
-    return t_map_lidar * t_radar_base_lidar.inverse();
-}
-
 /// @brief 判断点是否在 AABB 范围内
 [[nodiscard]] inline auto in_roi_aabb(const Eigen::Vector3d& p, const config::RoiBounds& roi)
     -> bool {

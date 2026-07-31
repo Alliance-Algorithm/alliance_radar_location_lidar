@@ -20,14 +20,10 @@
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <pcl_conversions/pcl_conversions.h>
-#include <radar_interfaces/msg/registration_status.hpp>
 #include <rclcpp/executors/single_threaded_executor.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
-#include <tf2_msgs/msg/tf_message.hpp>
-#include <tf2_ros/static_transform_broadcaster.h>
 
-#include "radar_lidar/geometry_utils.hpp"
 #include "radar_lidar/radar_lidar_node.hpp"
 
 namespace {
@@ -54,15 +50,14 @@ auto make_scan_topic(int seq) -> std::string {
 
 // ── Fixed production output topics ─────────────────────────────────
 
-constexpr auto kPoseTopic               = "/lidar/pose";
-constexpr auto kDiagTopic               = "/diagnostics";
-constexpr auto kDynamicTopic            = "/lidar/dynamic";
-constexpr auto kClusterTopic            = "/lidar/cluster";
-constexpr auto kClusterVizTopic         = "/lidar/cluster_viz";
-constexpr auto kOutputFrame             = "map";
-constexpr auto kDiagnosticName          = "radar_lidar/localization";
-constexpr auto kHardwareId              = "test_hw";
-constexpr auto kRegistrationStatusTopic = "/localization/registration_status";
+constexpr auto kPoseTopic       = "/lidar/pose";
+constexpr auto kDiagTopic       = "/diagnostics";
+constexpr auto kDynamicTopic    = "/lidar/dynamic";
+constexpr auto kClusterTopic    = "/lidar/cluster";
+constexpr auto kClusterVizTopic = "/lidar/cluster_viz";
+constexpr auto kOutputFrame     = "map";
+constexpr auto kDiagnosticName  = "radar_lidar/localization";
+constexpr auto kHardwareId      = "test_hw";
 
 // ── Test fixture ────────────────────────────────────────────────────
 
@@ -160,17 +155,12 @@ protected:
 
         create_test_map_pcd();
 
-        pub_node_              = std::make_shared<rclcpp::Node>(pub_node_name_);
-        extrinsic_broadcaster_ = std::make_unique<tf2_ros::StaticTransformBroadcaster>(*pub_node_);
-        extrinsic_broadcaster_->sendTransform(make_transform("radar_base", "lidar_link", 0, 0u,
-            Eigen::Vector3d(0.4, -0.2, 0.1), Eigen::AngleAxisd(0.25, Eigen::Vector3d::UnitZ())));
-
-        // ── Pipeline requiring one real GICP lock ──────────────────
+        // ── Pipeline with locked initial pose ──────────────────────
         rclcpp::NodeOptions opts;
         opts.automatically_declare_parameters_from_overrides(true);
         opts.append_parameter_override("map_path", map_path_);
         opts.append_parameter_override("scan_topic", scan_topic_);
-        opts.append_parameter_override("use_odin_relocalization_tf", true);
+        opts.append_parameter_override("use_odin_relocalization_tf", false);
         opts.append_parameter_override("hardware_id", std::string(kHardwareId));
         opts.append_parameter_override("initial_pose_enabled", true);
         opts.append_parameter_override("initial_pose_tx", 2.0);
@@ -179,9 +169,9 @@ protected:
         opts.append_parameter_override("initial_pose_roll", 0.0);
         opts.append_parameter_override("initial_pose_pitch", 0.0);
         opts.append_parameter_override("initial_pose_yaw", 0.3);
-        opts.append_parameter_override("lock_fitness", 20.0);
 
         pipeline_ = std::make_shared<radar_lidar::node::RadarLidarNode>(opts);
+        pub_node_ = std::make_shared<rclcpp::Node>(pub_node_name_);
         sub_node_ = std::make_shared<rclcpp::Node>(sub_node_name_);
 
         // ── Event-driven discovery barrier (no polling, no warmup) ────
@@ -281,7 +271,6 @@ protected:
         pose_sub_.reset();
         diag_sub_.reset();
         scan_pub_.reset();
-        extrinsic_broadcaster_.reset();
 
         s_executor_->remove_node(sub_node_);
         s_executor_->remove_node(pub_node_);
@@ -396,45 +385,6 @@ protected:
         return msg;
     }
 
-    static auto make_rejected_scan_msg(int32_t sec, uint32_t nanosec, const std::string& frame_id)
-        -> sensor_msgs::msg::PointCloud2 {
-        pcl::PointCloud<pcl::PointXYZ> cloud;
-        for (double x = 106.0; x < 125.0; x += 0.5) {
-            for (double y = -8.0; y < 6.0; y += 0.5) {
-                cloud.emplace_back(static_cast<float>(x), static_cast<float>(y), 0.5f);
-            }
-        }
-        cloud.width    = cloud.size();
-        cloud.height   = 1;
-        cloud.is_dense = true;
-
-        sensor_msgs::msg::PointCloud2 msg;
-        pcl::toROSMsg(cloud, msg);
-        msg.header.stamp.sec     = sec;
-        msg.header.stamp.nanosec = nanosec;
-        msg.header.frame_id      = frame_id;
-        return msg;
-    }
-
-    static auto make_transform(const std::string& parent, const std::string& child, int32_t sec,
-        uint32_t nanosec, const Eigen::Vector3d& translation, const Eigen::AngleAxisd& rotation)
-        -> geometry_msgs::msg::TransformStamped {
-        geometry_msgs::msg::TransformStamped msg;
-        msg.header.frame_id         = parent;
-        msg.child_frame_id          = child;
-        msg.header.stamp.sec        = sec;
-        msg.header.stamp.nanosec    = nanosec;
-        msg.transform.translation.x = translation.x();
-        msg.transform.translation.y = translation.y();
-        msg.transform.translation.z = translation.z();
-        const Eigen::Quaterniond quaternion(rotation);
-        msg.transform.rotation.x = quaternion.x();
-        msg.transform.rotation.y = quaternion.y();
-        msg.transform.rotation.z = quaternion.z();
-        msg.transform.rotation.w = quaternion.w();
-        return msg;
-    }
-
     // ── PCD fixture generator ───────────────────────────────────
 
     void create_test_map_pcd() {
@@ -462,7 +412,6 @@ protected:
     rclcpp::Node::SharedPtr pub_node_;
     rclcpp::Node::SharedPtr sub_node_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr scan_pub_;
-    std::unique_ptr<tf2_ros::StaticTransformBroadcaster> extrinsic_broadcaster_;
     rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pose_sub_;
     rclcpp::Subscription<diagnostic_msgs::msg::DiagnosticStatus>::SharedPtr diag_sub_;
 
@@ -530,7 +479,6 @@ TEST_F(RadarLidarSurfaceTest, OutputTopicsPreservedWithExactQoS) {
         { kDynamicTopic, "sensor_msgs/msg/PointCloud2" },
         { kClusterTopic, "sensor_msgs/msg/PointCloud2" },
         { kClusterVizTopic, "visualization_msgs/msg/MarkerArray" },
-        { kRegistrationStatusTopic, "radar_interfaces/msg/RegistrationStatus" },
     };
 
     std::map<std::string, std::string> actual;
@@ -614,334 +562,6 @@ TEST_F(RadarLidarSurfaceTest, OutputTopicsPreservedWithExactQoS) {
         EXPECT_EQ(diag_qos.depth(), 10u);
         EXPECT_GT(diag_sub_->get_publisher_count(), 0u);
     }
-    {
-        auto pub_info = pipeline_->get_publishers_info_by_topic(kRegistrationStatusTopic);
-        ASSERT_GE(pub_info.size(), 1u)
-            << "No publisher endpoint found for topic: " << kRegistrationStatusTopic;
-        auto it = std::ranges::find_if(
-            pub_info, [](const auto& info) { return info.node_name() == "radar_lidar_node"; });
-        ASSERT_NE(it, pub_info.end())
-            << "No publisher endpoint owned by radar_lidar_node for: " << kRegistrationStatusTopic;
-
-        const auto& qos = it->qos_profile().get_rmw_qos_profile();
-        EXPECT_EQ(qos.reliability, RMW_QOS_POLICY_RELIABILITY_RELIABLE);
-        EXPECT_EQ(qos.durability, RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL);
-        if (qos.history != RMW_QOS_POLICY_HISTORY_UNKNOWN) {
-            EXPECT_EQ(qos.history, RMW_QOS_POLICY_HISTORY_KEEP_LAST);
-            EXPECT_EQ(qos.depth, 1u);
-        }
-    }
-}
-
-TEST_F(
-    RadarLidarSurfaceTest, AcceptedRegistrationPublishesImmutableStaticTransformAndLatchedStatus) {
-    struct Observations {
-        std::mutex mutex;
-        std::condition_variable cv;
-        std::vector<geometry_msgs::msg::TransformStamped> static_transforms;
-        std::vector<geometry_msgs::msg::TransformStamped> dynamic_transforms;
-        std::optional<radar_interfaces::msg::RegistrationStatus> status;
-    };
-    auto observations = std::make_shared<Observations>();
-
-    auto capture_edge = [observations](const tf2_msgs::msg::TFMessage::SharedPtr msg,
-                            std::vector<geometry_msgs::msg::TransformStamped>& destination) {
-        std::lock_guard<std::mutex> lock(observations->mutex);
-        for (const auto& transform : msg->transforms) {
-            if (transform.header.frame_id == kOutputFrame
-                && transform.child_frame_id == "radar_base") {
-                destination.push_back(transform);
-            }
-        }
-        observations->cv.notify_all();
-    };
-
-    auto static_sub  = sub_node_->create_subscription<tf2_msgs::msg::TFMessage>("/tf_static",
-        rclcpp::QoS(1).reliable().transient_local(),
-        [observations, capture_edge](tf2_msgs::msg::TFMessage::SharedPtr msg) {
-            capture_edge(msg, observations->static_transforms);
-        });
-    auto dynamic_sub = sub_node_->create_subscription<tf2_msgs::msg::TFMessage>("/tf",
-        rclcpp::QoS(100), [observations, capture_edge](tf2_msgs::msg::TFMessage::SharedPtr msg) {
-            capture_edge(msg, observations->dynamic_transforms);
-        });
-
-    ASSERT_TRUE([&]() {
-        const auto deadline = std::chrono::steady_clock::now() + 5s;
-        while (std::chrono::steady_clock::now() < deadline) {
-            if (static_sub->get_publisher_count() > 0) {
-                return true;
-            }
-            std::this_thread::sleep_for(10ms);
-        }
-        return false;
-    }()) << "Static TF subscription did not discover the pipeline broadcaster";
-
-    {
-        std::unique_lock<std::mutex> lock(observations->mutex);
-        EXPECT_FALSE(observations->cv.wait_for(lock, 200ms, [&]() {
-            return !observations->static_transforms.empty()
-                || !observations->dynamic_transforms.empty();
-        })) << "map -> radar_base must not exist before registration acceptance";
-    }
-
-    ASSERT_TRUE(publish_and_await_pose(300, 0u, "scan"));
-    {
-        std::unique_lock<std::mutex> lock(observations->mutex);
-        ASSERT_TRUE(observations->cv.wait_for(lock, 5s, [&]() {
-            return observations->static_transforms.size() == 1;
-        })) << "Accepted registration did not publish map -> radar_base on /tf_static";
-    }
-
-    auto status_sub = sub_node_->create_subscription<radar_interfaces::msg::RegistrationStatus>(
-        kRegistrationStatusTopic, rclcpp::QoS(1).reliable().transient_local(),
-        [observations](radar_interfaces::msg::RegistrationStatus::SharedPtr msg) {
-            std::lock_guard<std::mutex> lock(observations->mutex);
-            observations->status = *msg;
-            observations->cv.notify_all();
-        });
-    {
-        std::unique_lock<std::mutex> lock(observations->mutex);
-        ASSERT_TRUE(observations->cv.wait_for(lock, 5s, [&]() {
-            return observations->status.has_value();
-        })) << "Late subscriber did not receive registration status";
-        EXPECT_EQ(observations->status->state, radar_interfaces::msg::RegistrationStatus::LOCKED);
-        EXPECT_TRUE(observations->status->reason.empty());
-    }
-
-    ASSERT_TRUE(publish_and_await_pose(301, 0u, "scan"));
-    std::this_thread::sleep_for(200ms);
-    {
-        std::lock_guard<std::mutex> lock(observations->mutex);
-        ASSERT_EQ(observations->static_transforms.size(), 1u) << "Later scans must not republish "
-                                                                 "or change the accepted static "
-                                                                 "transform";
-        EXPECT_TRUE(observations->dynamic_transforms.empty()) << "map -> radar_base must never be "
-                                                                 "published on /tf";
-        const auto& transform = observations->static_transforms.front();
-        EXPECT_EQ(transform.header.frame_id, kOutputFrame);
-        EXPECT_EQ(transform.child_frame_id, "radar_base");
-        EXPECT_EQ(transform.header.stamp.sec, 300);
-        EXPECT_LT(transform.transform.translation.x, 1.9) << "Non-identity radar_base -> "
-                                                             "lidar_link extrinsic was not "
-                                                             "composed";
-        EXPECT_GT(transform.transform.translation.z, 0.35);
-        std::lock_guard<std::mutex> pose_lock(mutex_);
-        EXPECT_DOUBLE_EQ(last_pose_.pose.pose.position.x, transform.transform.translation.x);
-        EXPECT_DOUBLE_EQ(last_pose_.pose.pose.position.y, transform.transform.translation.y);
-        EXPECT_DOUBLE_EQ(last_pose_.pose.pose.position.z, transform.transform.translation.z);
-        EXPECT_DOUBLE_EQ(last_pose_.pose.pose.orientation.x, transform.transform.rotation.x);
-        EXPECT_DOUBLE_EQ(last_pose_.pose.pose.orientation.y, transform.transform.rotation.y);
-        EXPECT_DOUBLE_EQ(last_pose_.pose.pose.orientation.z, transform.transform.rotation.z);
-        EXPECT_DOUBLE_EQ(last_pose_.pose.pose.orientation.w, transform.transform.rotation.w);
-    }
-}
-
-TEST_F(RadarLidarSurfaceTest, OdinEstimateCannotBypassOrChangeFrozenGicpRegistration) {
-    extrinsic_broadcaster_->sendTransform(make_transform(kOutputFrame, "scan", 0, 0u,
-        Eigen::Vector3d(30.0, 20.0, 5.0), Eigen::AngleAxisd(1.0, Eigen::Vector3d::UnitZ())));
-
-    ASSERT_TRUE(publish_and_await_pose(400, 0u, "scan")) << "Odin estimate suppressed the required "
-                                                            "GICP registration";
-    geometry_msgs::msg::Pose first_pose;
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        first_pose = last_pose_.pose.pose;
-        EXPECT_LT(first_pose.position.x, 5.0) << "Pose output used the Odin estimate instead of "
-                                                 "GICP";
-    }
-
-    ASSERT_TRUE(publish_and_await_pose(401, 0u, "scan"));
-    std::lock_guard<std::mutex> lock(mutex_);
-    EXPECT_DOUBLE_EQ(last_pose_.pose.pose.position.x, first_pose.position.x);
-    EXPECT_DOUBLE_EQ(last_pose_.pose.pose.position.y, first_pose.position.y);
-    EXPECT_DOUBLE_EQ(last_pose_.pose.pose.position.z, first_pose.position.z);
-    EXPECT_DOUBLE_EQ(last_pose_.pose.pose.orientation.x, first_pose.orientation.x);
-    EXPECT_DOUBLE_EQ(last_pose_.pose.pose.orientation.y, first_pose.orientation.y);
-    EXPECT_DOUBLE_EQ(last_pose_.pose.pose.orientation.z, first_pose.orientation.z);
-    EXPECT_DOUBLE_EQ(last_pose_.pose.pose.orientation.w, first_pose.orientation.w);
-}
-
-TEST_F(RadarLidarSurfaceTest, RejectedRegistrationPublishesNoPoseOrDetectionBeforeAcceptance) {
-    std::atomic<int> dynamic_count { 0 };
-    std::atomic<int> cluster_count { 0 };
-    std::atomic<int> visualization_count { 0 };
-    std::atomic<uint8_t> registration_state { radar_interfaces::msg::RegistrationStatus::FAILED };
-    auto dynamic_sub = sub_node_->create_subscription<sensor_msgs::msg::PointCloud2>(
-        kDynamicTopic, 10, [&](sensor_msgs::msg::PointCloud2::SharedPtr) { ++dynamic_count; });
-    auto cluster_sub = sub_node_->create_subscription<sensor_msgs::msg::PointCloud2>(
-        kClusterTopic, 10, [&](sensor_msgs::msg::PointCloud2::SharedPtr) { ++cluster_count; });
-    auto visualization_sub =
-        sub_node_->create_subscription<visualization_msgs::msg::MarkerArray>(kClusterVizTopic, 10,
-            [&](visualization_msgs::msg::MarkerArray::SharedPtr) { ++visualization_count; });
-    auto status_sub = sub_node_->create_subscription<radar_interfaces::msg::RegistrationStatus>(
-        kRegistrationStatusTopic, rclcpp::QoS(1).reliable().transient_local(),
-        [&](radar_interfaces::msg::RegistrationStatus::SharedPtr msg) {
-            registration_state = msg->state;
-        });
-
-    scan_pub_->publish(make_rejected_scan_msg(500, 0u, "scan"));
-    std::unique_lock<std::mutex> lock(mutex_);
-    ASSERT_TRUE(cv_.wait_for(lock, 5s, [&]() { return diag_gen_ > 0; }));
-    EXPECT_EQ(pose_gen_, 0u);
-    lock.unlock();
-    std::this_thread::sleep_for(200ms);
-    EXPECT_EQ(dynamic_count.load(), 0);
-    EXPECT_EQ(cluster_count.load(), 0);
-    EXPECT_EQ(visualization_count.load(), 0);
-    EXPECT_EQ(registration_state.load(), radar_interfaces::msg::RegistrationStatus::REGISTERING);
-
-    ASSERT_TRUE(publish_and_await_pose(501, 0u, "scan"));
-}
-
-TEST(RadarLidarTimeoutTest, RegistrationTimeoutAfterInsufficientScanFailsWithoutPoseOrStaticTf) {
-    const auto temp_dir = make_temp_dir();
-    const auto map_path = temp_dir + "/map.pcd";
-    pcl::PointCloud<pcl::PointXYZ> map_cloud;
-    for (double x = 0.0; x < 20.0; x += 0.5) {
-        for (double y = -7.0; y < 7.0; y += 0.5) {
-            map_cloud.emplace_back(static_cast<float>(x), static_cast<float>(y), 1.0f);
-        }
-    }
-    map_cloud.width = map_cloud.size();
-    map_cloud.height = 1;
-    map_cloud.is_dense = true;
-    ASSERT_EQ(pcl::io::savePCDFileBinary(map_path, map_cloud), 0);
-
-    if (!rclcpp::ok()) {
-        int argc = 0;
-        rclcpp::init(argc, nullptr);
-    }
-    rclcpp::NodeOptions options;
-    options.automatically_declare_parameters_from_overrides(true);
-    const auto scan_topic = make_scan_topic(g_fixture_seq.fetch_add(1));
-    options.append_parameter_override("map_path", map_path);
-    options.append_parameter_override("scan_topic", scan_topic);
-    options.append_parameter_override("registration_timeout_sec", 0.2);
-    options.append_parameter_override("initial_pose_enabled", true);
-    options.append_parameter_override("initial_pose_tx", 2.0);
-    options.append_parameter_override("initial_pose_ty", -1.0);
-    options.append_parameter_override("initial_pose_tz", 0.5);
-    options.append_parameter_override("initial_pose_yaw", 0.3);
-    options.append_parameter_override("lock_fitness", 20.0);
-
-    auto pipeline = std::make_shared<radar_lidar::node::RadarLidarNode>(options);
-    auto observer = std::make_shared<rclcpp::Node>("timeout_observer", options);
-    auto extrinsic_broadcaster = std::make_unique<tf2_ros::StaticTransformBroadcaster>(*observer);
-    geometry_msgs::msg::TransformStamped extrinsic;
-    extrinsic.header.frame_id = "radar_base";
-    extrinsic.child_frame_id = "lidar_link";
-    extrinsic.transform.rotation.w = 1.0;
-    extrinsic_broadcaster->sendTransform(extrinsic);
-    auto scan_pub = observer->create_publisher<sensor_msgs::msg::PointCloud2>(
-        scan_topic, rclcpp::SensorDataQoS());
-    pcl::PointCloud<pcl::PointXYZ> registration_cloud;
-    for (double x = 6.0; x < 25.0; x += 0.5) {
-        for (double y = -8.0; y < 6.0; y += 0.5) {
-            registration_cloud.emplace_back(static_cast<float>(x), static_cast<float>(y), 0.5f);
-        }
-    }
-    registration_cloud.width = registration_cloud.size();
-    registration_cloud.height = 1;
-    registration_cloud.is_dense = true;
-    sensor_msgs::msg::PointCloud2 registration_scan;
-    pcl::toROSMsg(registration_cloud, registration_scan);
-    registration_scan.header.stamp.sec = 1;
-    registration_scan.header.frame_id = "lidar_link";
-
-    std::mutex mutex;
-    std::condition_variable cv;
-    std::optional<radar_interfaces::msg::RegistrationStatus> failed_status;
-    std::atomic<int> pose_count { 0 };
-    std::atomic<int> static_tf_count { 0 };
-    auto status_sub = observer->create_subscription<radar_interfaces::msg::RegistrationStatus>(
-        kRegistrationStatusTopic, rclcpp::QoS(1).reliable().transient_local(),
-        [&](radar_interfaces::msg::RegistrationStatus::SharedPtr msg) {
-            if (msg->state != radar_interfaces::msg::RegistrationStatus::FAILED) return;
-            std::lock_guard<std::mutex> lock(mutex);
-            failed_status = *msg;
-            scan_pub->publish(registration_scan);
-            cv.notify_all();
-        });
-    auto pose_sub = observer->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
-        kPoseTopic, 10,
-        [&](geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr) { ++pose_count; });
-    auto static_tf_sub = observer->create_subscription<tf2_msgs::msg::TFMessage>("/tf_static",
-        rclcpp::QoS(1).reliable().transient_local(), [&](tf2_msgs::msg::TFMessage::SharedPtr msg) {
-            for (const auto& transform : msg->transforms) {
-                if (transform.header.frame_id == kOutputFrame
-                    && transform.child_frame_id == "radar_base") {
-                    ++static_tf_count;
-                }
-            }
-        });
-
-    rclcpp::executors::SingleThreadedExecutor executor;
-    executor.add_node(pipeline);
-    executor.add_node(observer);
-    std::thread spin_thread([&]() { executor.spin(); });
-
-    const auto discovery_deadline = std::chrono::steady_clock::now() + 5s;
-    while (scan_pub->get_subscription_count() == 0
-        && std::chrono::steady_clock::now() < discovery_deadline) {
-        std::this_thread::sleep_for(10ms);
-    }
-    const bool discovered = scan_pub->get_subscription_count() > 0;
-
-    pcl::PointCloud<pcl::PointXYZ> insufficient_cloud;
-    for (int i = 0; i < 10; ++i) {
-        insufficient_cloud.emplace_back(static_cast<float>(i), 0.0f, 0.5f);
-    }
-    insufficient_cloud.width = insufficient_cloud.size();
-    insufficient_cloud.height = 1;
-    insufficient_cloud.is_dense = true;
-    sensor_msgs::msg::PointCloud2 insufficient_scan;
-    pcl::toROSMsg(insufficient_cloud, insufficient_scan);
-    insufficient_scan.header.frame_id = "lidar_link";
-    if (discovered) scan_pub->publish(insufficient_scan);
-
-    bool received_failed_status = false;
-    {
-        std::unique_lock<std::mutex> lock(mutex);
-        received_failed_status =
-            cv.wait_for(lock, 2s, [&]() { return failed_status.has_value(); });
-        if (received_failed_status) {
-            EXPECT_EQ(failed_status->reason, "Registration timeout: Too few points: 10");
-        }
-    }
-
-    const auto shutdown_deadline = std::chrono::steady_clock::now() + 2s;
-    while (rclcpp::ok() && std::chrono::steady_clock::now() < shutdown_deadline) {
-        std::this_thread::sleep_for(10ms);
-    }
-    EXPECT_FALSE(rclcpp::ok()) << "Timeout must request process context shutdown";
-    EXPECT_EQ(pose_count.load(), 0);
-    EXPECT_EQ(static_tf_count.load(), 0);
-
-    executor.cancel();
-    if (spin_thread.joinable()) spin_thread.join();
-    if (rclcpp::ok()) rclcpp::shutdown();
-    std::filesystem::remove_all(temp_dir);
-    EXPECT_TRUE(discovered);
-    EXPECT_TRUE(received_failed_status);
-}
-
-TEST(RadarLidarTransformTest, ComposesNonIdentityRadarBaseToLidarExtrinsic) {
-    Eigen::Isometry3d t_map_lidar = Eigen::Isometry3d::Identity();
-    t_map_lidar.translation()     = Eigen::Vector3d(4.0, 3.0, 2.0);
-    t_map_lidar.linear() = Eigen::AngleAxisd(0.5, Eigen::Vector3d::UnitZ()).toRotationMatrix();
-    Eigen::Isometry3d t_radar_base_lidar = Eigen::Isometry3d::Identity();
-    t_radar_base_lidar.translation()     = Eigen::Vector3d(0.5, -0.25, 0.1);
-    t_radar_base_lidar.linear() =
-        Eigen::AngleAxisd(-0.2, Eigen::Vector3d::UnitZ()).toRotationMatrix();
-
-    // T_map_radar_base = T_map_lidar * inverse(T_radar_base_lidar).
-    const auto actual = radar_lidar::geom::map_radar_base_pose(t_map_lidar, t_radar_base_lidar);
-
-    EXPECT_NEAR(actual.translation().x(), 3.456524484548333, 1e-12);
-    EXPECT_NEAR(actual.translation().y(), 2.869101703202276, 1e-12);
-    EXPECT_NEAR(actual.translation().z(), 1.9, 1e-12);
-    EXPECT_NEAR(Eigen::AngleAxisd(actual.rotation()).angle(), 0.7, 1e-12);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -972,21 +592,32 @@ TEST_F(RadarLidarSurfaceTest, PoseOutputFrameAndTimestamp) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Pose covariance — accepted GICP result is finite
+// Pose covariance — exact locked-pose value (Identity * 1e-6)
 // ═══════════════════════════════════════════════════════════════════
 
-TEST_F(RadarLidarSurfaceTest, PoseCovarianceFromAcceptedRegistrationIsFinite) {
+TEST_F(RadarLidarSurfaceTest, PoseCovarianceExactLockedPoseValue) {
     ASSERT_TRUE(publish_and_await_pose(100, 0u, "scan")) << "Pose not delivered after single scan "
                                                             "publish";
 
     std::lock_guard<std::mutex> lock(mutex_);
+    // Locked pose (initial_pose_enabled=true) → covariance = Identity * 1e-6
+    constexpr double kExpectedDiag = 1e-6;
     for (int i = 0; i < 36; ++i) {
         EXPECT_TRUE(std::isfinite(last_pose_.pose.covariance[i]))
             << "Covariance[" << i << "] is not finite";
     }
     for (int i = 0; i < 6; ++i) {
-        EXPECT_GT(last_pose_.pose.covariance[i * 6 + i], 0.0)
-            << "Accepted GICP covariance diagonal[" << i << "] should be positive";
+        EXPECT_NEAR(last_pose_.pose.covariance[i * 6 + i], kExpectedDiag, 1e-15)
+            << "Covariance diagonal[" << i << "] should be 1e-6 (locked pose)";
+    }
+    // Off-diagonals should be 0.0
+    for (int row = 0; row < 6; ++row) {
+        for (int col = 0; col < 6; ++col) {
+            if (row != col) {
+                EXPECT_DOUBLE_EQ(last_pose_.pose.covariance[row * 6 + col], 0.0)
+                    << "Covariance[" << row << "][" << col << "] should be 0 (locked pose)";
+            }
+        }
     }
 }
 
@@ -1036,8 +667,7 @@ TEST_F(RadarLidarSurfaceTest, DiagnosticPublishedWithExactSemantics) {
     EXPECT_TRUE(has_converged) << "Missing 'converged' key";
 
     if (has_fitness) {
-        EXPECT_GT(fitness, 0.0) << "First locked pose must come from real GICP";
-        EXPECT_LE(fitness, 20.0) << "Accepted pose fitness must satisfy the configured threshold";
+        EXPECT_DOUBLE_EQ(fitness, 0.0) << "Locked pose fitness should be 0.0";
     }
     if (has_time) {
         EXPECT_GT(time_ms, 0.0) << "time_ms should be positive";

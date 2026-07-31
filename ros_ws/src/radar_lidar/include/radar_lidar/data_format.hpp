@@ -69,10 +69,8 @@ struct LocalizationConfig {
     double spherical_grid_deg = 0.1;
     int accumulate_frames     = 20;
 
-    bool use_lock_strategy   = true;
-    double lock_fitness      = 0.2;
-    double max_translation_m = 40.0;
-    double max_rotation_rad  = 3.141592653589793;
+    bool use_lock_strategy = true;
+    double lock_fitness    = 0.2;
 
     bool has_initial_pose = false;
     double initial_tx = 0, initial_ty = 0, initial_tz = 0;

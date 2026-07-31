@@ -214,30 +214,4 @@ auto Projector::proj_postprocess(const std::vector<std::optional<cv::Point2d>>& 
     return pose;
 }
 
-auto Projector::proj_semantic_postprocess(
-    const std::vector<std::optional<cv::Point2d>>& projected,
-    const std::vector<detection::Detection>& detections)
-    -> std::expected<std::vector<detection::SemanticDetection>, std::string> {
-    if (projected.size() != detections.size()) {
-        return std::unexpected("projected and detection sizes differ");
-    }
-
-    std::vector<detection::SemanticDetection> output;
-    for (size_t i = 0; i < detections.size(); ++i) {
-        if (!projected[i]) continue;
-        const auto& det = detections[i];
-        const bool blue = det.id >= 0 && det.id <= 5;
-        const bool red = det.id >= 6 && det.id <= 11;
-        if (!blue && !red) continue;
-        const int local_id = blue ? det.id : det.id - 6;
-        output.push_back({
-            .team = blue ? detection::Team::BLUE : detection::Team::RED,
-            .semantic_class = static_cast<detection::SemanticClass>(local_id + 1),
-            .position = *projected[i],
-            .confidence = det.confidence,
-        });
-    }
-    return output;
-}
-
 } // namespace radar_camera::projection

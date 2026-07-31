@@ -48,7 +48,6 @@ ament_auto_find_build_dependencies()
 
 add_library(${PROJECT_NAME}_core STATIC
     src/model_inference.cpp
-    src/armor_refine.cpp
     src/projector.cpp
 )
 if(RADAR_CAMERA_ENABLE_TENSORRT)

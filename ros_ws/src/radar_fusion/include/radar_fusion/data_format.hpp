@@ -20,8 +20,6 @@ struct FusionConfig {
     int max_tracks               = 20;
     bool enable_camera_fusion    = false;
     double camera_timeout_sec    = 1.5;
-    double camera_lidar_consistency_distance = 1.0;
-    double identity_retention_sec = 1.5;
     double map_to_rm_offset_x    = 14.0;
     double map_to_rm_offset_y    = 7.5;
 };
@@ -30,29 +28,11 @@ struct FusionConfig {
 
 namespace radar_fusion::camera_observation {
 
-enum class Team : std::uint8_t {
-    UNKNOWN = 0,
-    RED = 1,
-    BLUE = 2,
-};
-
-enum class SemanticClass : std::uint8_t {
-    UNKNOWN = 0,
-    HERO = 1,
-    ENGINEER = 2,
-    INFANTRY_3 = 3,
-    INFANTRY_4 = 4,
-    AERIAL = 5,
-    SENTRY = 6,
-};
-
 struct CameraObservation {
     double x          = 0.0;
     double y          = 0.0;
     double z          = 0.0;
     double confidence = 0.0;
-    Team team = Team::UNKNOWN;
-    SemanticClass semantic_class = SemanticClass::UNKNOWN;
 };
 
 } // namespace radar_fusion::camera_observation
@@ -73,8 +53,8 @@ struct KalmanState {
     int track_id             = -1;
     int hit_count            = 0;
     int miss_count           = 0;
-    camera_observation::Team team = camera_observation::Team::UNKNOWN;
-    camera_observation::SemanticClass semantic_class = camera_observation::SemanticClass::UNKNOWN;
+    int color                = -1;
+    int number               = -1;
     TrackLifecycle lifecycle = TrackLifecycle::TENTATIVE;
 
     [[nodiscard]] auto position() const -> Eigen::Vector2d { return x.head<2>(); }
@@ -87,9 +67,3 @@ struct KalmanState {
 };
 
 } // namespace radar_fusion::kalman_tracker
-
-namespace radar_fusion::location {
-
-auto meters_to_cm(double meters, double offset_m) -> std::uint16_t;
-
-} // namespace radar_fusion::location

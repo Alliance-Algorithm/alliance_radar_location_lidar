@@ -12,7 +12,6 @@
     map_path 地图 PCD 绝对路径          (默认 /workspace/model/generated/map.pcd)
 """
 
-import math
 import os
 
 from ament_index_python.packages import get_package_share_directory
@@ -26,7 +25,6 @@ from launch_ros.actions import Node
 
 
 VALID_SENSORS = {"odin", "mid70"}
-VALID_SIDES = {"red", "blue"}
 
 
 def _make_radar_node(context: LaunchContext):
@@ -43,19 +41,6 @@ def _make_radar_node(context: LaunchContext):
     hardware_id = "odin1" if sensor_val == "odin" else "livox_mid70"
 
     side_val = LaunchConfiguration("side").perform(context)
-    if side_val not in VALID_SIDES:
-        message = f"Unsupported side '{side_val}'. Expected one of: {sorted(VALID_SIDES)}"
-        get_logger("localization_launch").error(message)
-        raise RuntimeError(message)
-
-    timeout_text = LaunchConfiguration("registration_timeout_sec").perform(context)
-    try:
-        registration_timeout_sec = float(timeout_text)
-    except ValueError as error:
-        raise RuntimeError("registration_timeout_sec must be a positive number") from error
-    if not math.isfinite(registration_timeout_sec) or registration_timeout_sec <= 0.0:
-        raise RuntimeError("registration_timeout_sec must be a positive number")
-
     bringup_dir = get_package_share_directory("radar_bringup")
     init_pose_yaml = os.path.join(bringup_dir, "config", "lidar", f"{side_val}_initial_pose.yaml")
 
@@ -71,7 +56,6 @@ def _make_radar_node(context: LaunchContext):
                 {"map_path": map_path},
                 {"scan_topic": scan_topic},
                 {"hardware_id": hardware_id},
-                {"registration_timeout_sec": registration_timeout_sec},
             ],
         )
     ]
@@ -101,11 +85,6 @@ def generate_launch_description():
         "side",
         default_value="red",
         description="场地侧: red | blue（决定雷达初始位姿）",
-    )
-    registration_timeout_arg = DeclareLaunchArgument(
-        "registration_timeout_sec",
-        default_value="30.0",
-        description="Maximum seconds allowed for LiDAR registration",
     )
 
     odin_node = Node(
@@ -140,7 +119,6 @@ def generate_launch_description():
         map_path_arg,
         radar_params_arg,
         side_arg,
-        registration_timeout_arg,
         static_tf_launch,
         odin_node,
         radar_node,

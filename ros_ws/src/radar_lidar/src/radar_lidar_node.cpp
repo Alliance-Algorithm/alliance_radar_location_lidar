@@ -1,9 +1,7 @@
 #include "radar_lidar/radar_lidar_node.hpp"
 
 #include <chrono>
-#include <cmath>
 #include <ranges>
-#include <stdexcept>
 
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <pcl_conversions/pcl_conversions.h>
@@ -17,9 +15,6 @@ namespace {
 
     auto load_localization_config(rclcpp::Node& node) -> config::LocalizationConfig {
         config::LocalizationConfig cfg;
-        node.get_parameter("lock_fitness", cfg.lock_fitness);
-        node.get_parameter("max_translation_m", cfg.max_translation_m);
-        node.get_parameter("max_rotation_rad", cfg.max_rotation_rad);
         node.get_parameter("initial_pose_enabled", cfg.has_initial_pose);
         node.get_parameter("initial_pose_tx", cfg.initial_tx);
         node.get_parameter("initial_pose_ty", cfg.initial_ty);
@@ -57,15 +52,12 @@ RadarLidarNode::RadarLidarNode(const rclcpp::NodeOptions& options)
     // ── node params ────────────────────────────────────────────────
     get_parameter("scan_topic", scan_topic_);
     get_parameter("hardware_id", hardware_id_);
-    get_parameter_or("lidar_frame", lidar_frame_, std::string("lidar_link"));
     get_parameter_or("use_odin_relocalization_tf", use_odin_relocalization_tf_, false);
-    get_parameter_or("registration_timeout_sec", registration_timeout_sec_, 30.0);
-    if (!std::isfinite(registration_timeout_sec_) || registration_timeout_sec_ <= 0.0) {
-        throw std::invalid_argument("registration_timeout_sec must be positive");
-    }
 
-    tf_buffer_   = std::make_unique<tf2_ros::Buffer>(get_clock());
-    tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+    if (use_odin_relocalization_tf_) {
+        tf_buffer_   = std::make_unique<tf2_ros::Buffer>(get_clock());
+        tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+    }
 
     // ── map ────────────────────────────────────────────────────────
     std::string map_path;
@@ -103,21 +95,13 @@ RadarLidarNode::RadarLidarNode(const rclcpp::NodeOptions& options)
     pub_clusters_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/lidar/cluster", 10);
     pub_cluster_viz_ =
         this->create_publisher<visualization_msgs::msg::MarkerArray>("/lidar/cluster_viz", 10);
-    pub_registration_status_ = this->create_publisher<radar_interfaces::msg::RegistrationStatus>(
-        "/localization/registration_status", rclcpp::QoS(1).reliable().transient_local());
-    tf_broadcaster_ = std::make_unique<tf2_ros::StaticTransformBroadcaster>(*this);
-    publish_registration_status();
-    registration_timeout_timer_ = create_wall_timer(
-        std::chrono::duration<double>(registration_timeout_sec_),
-        [this]() { on_registration_timeout(); });
+    tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
 
     RCLCPP_INFO(get_logger(), "radar_lidar ready. Listening on %s (detection=%s)",
         scan_topic_.c_str(), detection_enabled_ ? "ON" : "OFF");
 }
 
 void RadarLidarNode::on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg) {
-    if (failure_requested_) return;
-
     ++frame_count_;
     const auto t0 = std::chrono::steady_clock::now();
 
@@ -131,65 +115,44 @@ void RadarLidarNode::on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg
     }
 
     if (frame.points.size() < 100) {
-        last_rejection_reason_ = "Too few points: " + std::to_string(frame.points.size());
         RCLCPP_WARN_THROTTLE(
             get_logger(), *get_clock(), 2000, "Too few points: %zu", frame.points.size());
         return;
     }
 
-    // Odin is an estimate only. It must never suppress the GICP call required to lock.
+    std::expected<types::PoseEstimate, std::string> pose;
     if (use_odin_relocalization_tf_) {
-        if (try_odin_relocalization_pose(frame.frame_id, rclcpp::Time(frame.stamp))) {
+        if (auto odin_pose =
+                try_odin_relocalization_pose(frame.frame_id, rclcpp::Time(frame.stamp))) {
+            pose = *odin_pose;
             if (!was_odin_relocalized_) {
                 was_odin_relocalized_ = true;
-                RCLCPP_INFO(
-                    get_logger(), "Odin1 relocalization estimate acquired; GICP still required");
+                RCLCPP_INFO(get_logger(), "Odin1 relocalization TF acquired -- GICP fallback idle");
             }
+        } else {
+            pose = localization_.process(frame);
         }
+    } else {
+        pose = localization_.process(frame);
     }
-    auto pose = localization_.process(frame);
 
     if (!pose) {
-        last_rejection_reason_ = pose.error();
         RCLCPP_WARN_THROTTLE(
             get_logger(), *get_clock(), 2000, "Localization failed: %s", pose.error().c_str());
         const auto t1           = std::chrono::steady_clock::now();
         const double elapsed_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
         publish_diagnostics(pose.value_or(types::PoseEstimate { }), elapsed_ms, frame_count_);
-        publish_registration_status();
-        return;
-    }
-    if (!localization_.failure_reason().empty()) {
-        last_rejection_reason_ = localization_.failure_reason();
-    }
-    if (failure_requested_) return;
-
-    auto t_map_radar_base = radar_base_pose(pose->t_map_lidar);
-    if (!t_map_radar_base) {
-        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
-            "Waiting for static extrinsic radar_base -> %s", lidar_frame_.c_str());
         return;
     }
 
-    if (!static_tf_published_ && localization_.is_locked()) {
-        registration_timeout_timer_->cancel();
-        static_tf_published_ = true;
-        publish_static_tf(*t_map_radar_base, frame.stamp);
-        publish_registration_status();
+    publish_pose(*pose, frame.stamp);
+
+    if (!was_locked_ && localization_.is_locked()) {
+        was_locked_ = true;
         RCLCPP_INFO(get_logger(),
             "Pose locked (fitness=%.4f) -- registration frozen, perception only",
             pose->fitness_score);
     }
-
-    if (!localization_.is_locked()) {
-        publish_registration_status();
-        const auto t1           = std::chrono::steady_clock::now();
-        const double elapsed_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
-        publish_diagnostics(*pose, elapsed_ms, frame_count_);
-        return;
-    }
-
-    publish_pose(*pose, *t_map_radar_base, frame.stamp);
 
     // 检测：把扫描变换到地图坐标系后提取动态点
     if (detection_enabled_) {
@@ -210,29 +173,6 @@ void RadarLidarNode::on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg
     const auto t1           = std::chrono::steady_clock::now();
     const double elapsed_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
     publish_diagnostics(*pose, elapsed_ms, frame_count_);
-}
-
-auto RadarLidarNode::radar_base_pose(const Eigen::Isometry3d& t_map_lidar)
-    -> std::optional<Eigen::Isometry3d> {
-    if (!t_radar_base_lidar_) {
-        try {
-            const auto transform = tf_buffer_->lookupTransform(
-                "radar_base", lidar_frame_, tf2::TimePointZero, tf2::durationFromSec(1.0));
-            Eigen::Isometry3d t_radar_base_lidar = Eigen::Isometry3d::Identity();
-            t_radar_base_lidar.translation() = Eigen::Vector3d(transform.transform.translation.x,
-                transform.transform.translation.y, transform.transform.translation.z);
-            t_radar_base_lidar.linear() =
-                Eigen::Quaterniond(transform.transform.rotation.w, transform.transform.rotation.x,
-                    transform.transform.rotation.y, transform.transform.rotation.z)
-                    .toRotationMatrix();
-            t_radar_base_lidar_ = t_radar_base_lidar;
-        } catch (const tf2::TransformException&) {
-            return std::nullopt;
-        }
-    }
-
-    // T_map_radar_base = T_map_lidar * inverse(T_radar_base_lidar).
-    return geom::map_radar_base_pose(t_map_lidar, *t_radar_base_lidar_);
 }
 
 void RadarLidarNode::transform_scan_to_map(const types::PointCloud& scan,
@@ -265,13 +205,12 @@ auto RadarLidarNode::try_odin_relocalization_pose(const std::string& source_fram
     return out;
 }
 
-void RadarLidarNode::publish_pose(const types::PoseEstimate& lidar_pose,
-    const Eigen::Isometry3d& t_map_radar_base, types::Timestamp stamp) {
+void RadarLidarNode::publish_pose(const types::PoseEstimate& pose, types::Timestamp stamp) {
     geometry_msgs::msg::PoseWithCovarianceStamped msg;
     msg.header.stamp    = rclcpp::Time(stamp);
     msg.header.frame_id = output_frame_;
 
-    const auto& T            = t_map_radar_base;
+    const auto& T            = pose.t_map_lidar;
     msg.pose.pose.position.x = T.translation().x();
     msg.pose.pose.position.y = T.translation().y();
     msg.pose.pose.position.z = T.translation().z();
@@ -282,19 +221,19 @@ void RadarLidarNode::publish_pose(const types::PoseEstimate& lidar_pose,
     msg.pose.pose.orientation.w = q.w();
 
     Eigen::Map<Eigen::Matrix<double, 6, 6, Eigen::RowMajor>>(msg.pose.covariance.data()) =
-        lidar_pose.covariance;
+        pose.covariance;
 
     pub_pose_->publish(msg);
+    publish_dynamic_tf(pose, stamp);
 }
 
-void RadarLidarNode::publish_static_tf(
-    const Eigen::Isometry3d& t_map_radar_base, types::Timestamp stamp) {
+void RadarLidarNode::publish_dynamic_tf(const types::PoseEstimate& pose, types::Timestamp stamp) {
     geometry_msgs::msg::TransformStamped transform_msg;
     transform_msg.header.stamp    = rclcpp::Time(stamp);
     transform_msg.header.frame_id = output_frame_;
     transform_msg.child_frame_id  = "radar_base";
 
-    const auto& transform                 = t_map_radar_base;
+    const auto& transform                 = pose.t_map_lidar;
     transform_msg.transform.translation.x = transform.translation().x();
     transform_msg.transform.translation.y = transform.translation().y();
     transform_msg.transform.translation.z = transform.translation().z();
@@ -306,47 +245,6 @@ void RadarLidarNode::publish_static_tf(
     transform_msg.transform.rotation.w = rotation.w();
 
     tf_broadcaster_->sendTransform(transform_msg);
-}
-
-void RadarLidarNode::publish_registration_status() {
-    radar_interfaces::msg::RegistrationStatus msg;
-    if (failure_requested_) {
-        msg.state  = radar_interfaces::msg::RegistrationStatus::FAILED;
-        msg.reason = registration_failure_reason_;
-        pub_registration_status_->publish(msg);
-        return;
-    }
-    switch (localization_.state()) {
-    case localization::RegistrationState::INITIALIZING:
-        msg.state = radar_interfaces::msg::RegistrationStatus::INITIALIZING;
-        break;
-    case localization::RegistrationState::REGISTERING:
-        msg.state = radar_interfaces::msg::RegistrationStatus::REGISTERING;
-        break;
-    case localization::RegistrationState::LOCKED:
-        msg.state = radar_interfaces::msg::RegistrationStatus::LOCKED;
-        break;
-    case localization::RegistrationState::FAILED:
-        msg.state = radar_interfaces::msg::RegistrationStatus::FAILED;
-        break;
-    }
-    msg.reason = localization_.failure_reason();
-    pub_registration_status_->publish(msg);
-}
-
-void RadarLidarNode::on_registration_timeout() {
-    registration_timeout_timer_->cancel();
-    if (localization_.is_locked() || failure_requested_) return;
-
-    failure_requested_ = true;
-    registration_failure_reason_ =
-        "Registration timeout: " + last_rejection_reason_;
-    RCLCPP_FATAL(get_logger(), "%s", registration_failure_reason_.c_str());
-    publish_registration_status();
-    failure_shutdown_timer_ = create_wall_timer(std::chrono::milliseconds(100), [this]() {
-        failure_shutdown_timer_->cancel();
-        rclcpp::shutdown();
-    });
 }
 
 void RadarLidarNode::publish_diagnostics(
