@@ -10,6 +10,7 @@ struct Detection {
     cv::Point2d center;
     int id;
     float confidence;
+    cv::Rect2f bbox; // bounding box in src-image pixel coordinates
 };
 
 } // namespace radar_camera::detection

@@ -10,6 +10,7 @@
 
 #include <hikcamera/shm.hpp>
 
+#include "radar_camera/armor_refine.hpp"
 #include "radar_camera/data_format.hpp"
 #include "radar_camera/model_inference.hpp"
 #include "radar_camera/projector.hpp"
@@ -18,7 +19,8 @@
 namespace radar_camera::node {
 
 auto ConfigsLoader(rclcpp::Node& node, camera_config::CameraConfig& camera,
-    inference_config::InferenceConfig& inference, projection_config::ProjectionConfig& projection)
+    inference_config::InferenceConfig& inference, projection_config::ProjectionConfig& projection,
+    armor_refine::ArmorRefineConfig& armor, armor_refine::NumberRefineConfig& number)
     -> std::expected<void, std::string>;
 
 class RadarCameraNode final : public rclcpp::Node {
@@ -42,8 +44,12 @@ private:
     camera_config::CameraConfig camera_config_;
     inference_config::InferenceConfig inference_config_;
     projection_config::ProjectionConfig projection_config_;
+    armor_refine::ArmorRefineConfig armor_refine_config_;
+    armor_refine::NumberRefineConfig number_refine_config_;
     robot_pose::RobotPose robot_poses_;
     std::unique_ptr<model_inference::ModelInference> model_inference_;
+    armor_refine::ArmorRefiner armor_refiner_;
+    bool armor_refine_enabled_ = false;
     projection::Projector projector_;
 };
 

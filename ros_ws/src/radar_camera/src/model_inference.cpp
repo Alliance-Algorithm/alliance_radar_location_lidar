@@ -57,10 +57,13 @@ auto filter_detections(const std::vector<float>& raw_output, int num_detections,
             is_drone ? config.drone_max_length_width_rate : config.max_length_width_rate;
         if (ratio < min_rate || ratio > max_rate) continue;
 
+        const float bx = x1 * scale_x;
+        const float by = y1 * scale_y;
         const detection::Detection detection { .center = cv::Point2d((x1 + x2) * 0.5f * scale_x,
                                                    (y1 + y2) * 0.5f * scale_y),
             .id                                        = cls,
-            .confidence                                = conf };
+            .confidence                                = conf,
+            .bbox                                      = cv::Rect2f(bx, by, box_w, box_h) };
         auto existing = std::find_if(
             out.begin(), out.end(), [cls](const auto& item) { return item.id == cls; });
         if (existing == out.end()) {
