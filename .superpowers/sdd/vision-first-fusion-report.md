@@ -1,8 +1,8 @@
 # Vision-First Semantic Fusion Report
 
-Date: 2026-07-31  
-Worktree: `/home/yukikaze/Documents/workspace/alliance_radar_location_lidar/.worktrees/competition-bringup`  
-Branch: `feat/competition-bringup`  
+Date: 2026-07-31
+Worktree: `/home/yukikaze/Documents/workspace/alliance_radar_location_lidar/.worktrees/competition-bringup`
+Branch: `feat/competition-bringup`
 Container: `radar:develop`
 
 ## Result
