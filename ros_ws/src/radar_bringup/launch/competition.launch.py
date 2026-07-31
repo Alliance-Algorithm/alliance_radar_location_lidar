@@ -17,7 +17,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 
 
@@ -52,6 +52,7 @@ def generate_launch_description():
             }.items()),
 
         # 3. 视觉检测 (L1/L2/L3 TensorRT; 需 static TF 已就绪)
+        #    enemy_color 由 side 反推: red→blue, blue→red
         #    pub_topic_name 覆盖为 /camera/detection 与 fusion 订阅对齐
         Node(
             package="radar_camera",
@@ -61,6 +62,9 @@ def generate_launch_description():
             parameters=[
                 os.path.join(bringup_dir, "config", "camera", "radar_camera.yaml"),
                 {"pub_topic_name": "/camera/detection"},
+                {"enemy_color": PythonExpression(
+                    ["'red' if '", side_lc, "' == 'blue' else 'blue'"]
+                )},
             ],
         ),
 
