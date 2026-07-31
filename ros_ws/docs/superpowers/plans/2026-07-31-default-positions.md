@@ -406,40 +406,86 @@ git commit -m "feat(fusion): load and query default positions from sqlite"
 - Consumes: `default_positions::load/query` (Task 2); `/bridge/game_state` msg (`cmd_id, game_type, game_progress, stage_remain_time, sync_timestamp`)
 - Produces: `LidarLocation` slots filled with defaults when no confirmed track occupies them
 
+Match timer design (user-confirmed, supersedes the earlier ROS-time-only design):
+- Match start is detected by an OR of two conditions from `/bridge/game_state`:
+  - `game_progress == 4` (比赛中), or
+  - `stage_remain_time > 400` (entering the 420 s battle stage)
+- On start, record the LOCAL steady-clock time as `match_start_ns_`. Do NOT use
+  `sync_timestamp` for elapsed-time math (referee timestamps are considered
+  inaccurate).
+- Elapsed time: `t = (now - match_start_ns_) / 1e9` using the local clock,
+  clamped ≥ 0.
+- Multi-round reuse: the timer state machine RESETS when a round ends
+  (`game_progress == 5` 结算 or `game_progress` leaves the battle phase /
+  `stage_remain_time` drops below a small threshold such as 10), so the next
+  round re-enters the time series from t=0 again. Reset must not trigger a
+  start on the same message that ends a round.
+
 - [ ] **Step 1: Write failing tests**
 
-Extend `test_fusion_node.cpp` — a pure unit test of the slot-filling helper. Add a helper in the node header (or a small free function) so it is testable without ROS spinning:
+Extend `test_fusion_node.cpp` — a pure unit test of the slot-filling helper and the match-timer state machine. Extract a small testable state machine (e.g. a `MatchTimer` class or free functions in the node's namespace, header-only or in a .cpp compiled into the test):
 
 ```cpp
+TEST(FusionNode, MatchTimerStartsOnProgress4) {
+    // game_progress 0 -> no start; 4 -> start; elapsed grows with injected now
+}
+
+TEST(FusionNode, MatchTimerStartsOnRemain400) {
+    // progress stays 0 but stage_remain_time jumps to 401 -> start
+}
+
+TEST(FusionNode, MatchTimerResetsForNextRound) {
+    // start -> elapsed t -> round end (progress 5 / remain < 10) -> reset;
+    // a later start condition re-enters from t=0
+}
+
 TEST(FusionNode, SlotFilledWhenNoTrack) {
     // tracks empty -> every opponent/ally slot takes the default for its class
     // at t = 0; verify one slot value via the same conversion used in publish.
 }
 ```
 
-And a test for match-start tracking: feed `game_progress == 4` twice, assert `t0` set once and `match_elapsed_sec()` returns ~0 on first 4.
+The MatchTimer should be deterministic and testable without ROS spinning: constructor takes an injectable clock (or `now_ns` passed per-call as an `int64_t` argument), so tests control time explicitly.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `colcon test --packages-select radar_fusion --ctest-args -R fusion_node`
-Expected: FAIL — helper not defined.
+Expected: FAIL — helpers not defined.
 
 - [ ] **Step 3: Implement node changes**
 
+Add a match-timer unit (small, ROS-free, in `radar_fusion` include/src or inside the node files as long as it is testable):
+
+```cpp
+class MatchTimer {
+public:
+    // feed a game_state observation with explicit now_ns (testable).
+    void on_game_state(uint8_t game_progress, uint16_t stage_remain_time, int64_t now_ns);
+    // seconds since match start; -1 if never started this round.
+    auto elapsed_sec(int64_t now_ns) const -> int64_t;
+    auto started() const -> bool;
+private:
+    int64_t start_ns_ = 0;
+    bool running_ = false;
+};
+```
+
+Semantics:
+- `on_game_state`: if `!running_` and (`game_progress == 4` or `stage_remain_time > 400`), set `running_ = true; start_ns_ = now_ns`. If `running_` and (`game_progress == 5` or `stage_remain_time < 10`), set `running_ = false`. Otherwise no change.
+- `elapsed_sec`: `running_ ? max(0, (now_ns - start_ns_) / 1e9) : -1`.
+
 In `radar_fusion_node.hpp` add:
-- members: `int64_t match_start_ns_ = 0; bool match_started_ = false;`
+- `radar_fusion::match_timer::MatchTimer match_timer_;`
 - `rclcpp::Subscription<radar_interfaces::msg::GameState>::SharedPtr sub_game_state_;`
 - `void on_game_state(radar_interfaces::msg::GameState::SharedPtr msg);`
-- `auto match_elapsed_sec() const -> int;`
-- `void fill_default_positions(radar_interfaces::msg::LidarLocation& msg);`
+- `void fill_default_positions(radar_interfaces::msg::LidarLocation& msg, int64_t now_ns);`
 
 In `radar_fusion_node.cpp`:
 - declare params: `default_positions_path` (std::string, default `""`), `enemy_color` (std::string, default `"blue"`)
 - if path non-empty: `default_positions::load(path)`; subscribe `/bridge/game_state`
-- `on_game_state`: on `msg->game_progress == 4` and not yet started, set `match_start_ns_ = now`; on `game_progress != 4` reset
-- `match_elapsed_sec`: `(now - match_start_ns_) / 1e9`, clamp ≥ 0
-- `fill_default_positions`: slot → class map (opponent_hero→hero, opponent_engineer→engineer, opponent_infantry_3→infantry3, opponent_infantry_4→infantry4, opponent_aerial→aerial, opponent_sentry→sentry; same for ally_*), enemy camp id = (enemy_color=="red")?0:1, ally camp = 1-enemy; when track missing and query succeeds, write `(x_med + offset_x) * 1000` into slot
-- call `fill_default_positions(msg)` in `publish_lidar_location` before publishing
+- `on_game_state`: `match_timer_.on_game_state(msg->game_progress, msg->stage_remain_time, now_ns())`
+- `fill_default_positions`: slot → class map (opponent_hero→hero, opponent_engineer→engineer, opponent_infantry_3→infantry3, opponent_infantry_4→infantry4, opponent_aerial→aerial, opponent_sentry→sentry; same for ally_*), enemy camp id = (enemy_color=="red")?0:1, ally camp = 1-enemy; when track missing and `match_timer_.started()` and `query` succeeds, write `(x_med + offset_x) * 1000` into slot
+- call `fill_default_positions(msg, now_ns())` in `publish_lidar_location` before publishing
 
 - [ ] **Step 4: Update yaml**
 
