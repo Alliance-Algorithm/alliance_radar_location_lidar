@@ -18,6 +18,10 @@
   <depend>radar_interfaces</depend>
   <depend>eigen</depend>
   <depend>assimp</depend>
+  <depend>libavcodec-dev</depend>
+  <depend>libavformat-dev</depend>
+  <depend>libavutil-dev</depend>
+  <depend>libswscale-dev</depend>
 
   <test_depend>ament_cmake_gtest</test_depend>
   <test_depend>ament_lint_auto</test_depend>

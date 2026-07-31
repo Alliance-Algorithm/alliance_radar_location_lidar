@@ -1,9 +1,17 @@
 #pragma once
 
+#include <atomic>
+#include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <expected>
+#include <filesystem>
 #include <limits>
+#include <mutex>
 #include <string>
+#include <thread>
+
+#include "radar_camera/recording_fifo.hpp"
 
 namespace radar_camera::recording {
 
@@ -51,8 +59,8 @@ inline auto validate_config(const RecordingConfig& config) -> std::expected<void
     }
 
     constexpr auto max_size = std::numeric_limits<std::size_t>::max();
-    const auto width = static_cast<std::size_t>(config.width);
-    const auto height = static_cast<std::size_t>(config.height);
+    const auto width        = static_cast<std::size_t>(config.width);
+    const auto height       = static_cast<std::size_t>(config.height);
     if (width > max_size / height) {
         return std::unexpected("buffer size calculation overflows");
     }
@@ -67,7 +75,47 @@ inline auto validate_config(const RecordingConfig& config) -> std::expected<void
     if (bytes * config.buffer_pool_frames > config.max_buffer_bytes) {
         return std::unexpected("max_buffer_bytes is too small for the buffer pool");
     }
-    return {};
+    return { };
 }
+
+enum class RecorderState { stopped, running, failed };
+
+struct RecorderStats {
+    std::uint64_t queued   = 0;
+    std::uint64_t encoded  = 0;
+    std::uint64_t segments = 0;
+    std::uint64_t overruns = 0;
+    std::uint64_t errors   = 0;
+};
+
+[[nodiscard]] auto segment_path(const std::filesystem::path& output_dir,
+    std::chrono::system_clock::time_point session_start, std::size_t segment_index)
+    -> std::filesystem::path;
+
+class RawVideoRecorder final {
+public:
+    RawVideoRecorder(RecordingConfig config, RecordingFifo& fifo);
+    ~RawVideoRecorder();
+
+    RawVideoRecorder(const RawVideoRecorder&)                    = delete;
+    auto operator=(const RawVideoRecorder&) -> RawVideoRecorder& = delete;
+
+    auto start() -> std::expected<void, std::string>;
+    void stop();
+    [[nodiscard]] auto state() const -> RecorderState;
+    [[nodiscard]] auto stats() const -> RecorderStats;
+
+private:
+    void loop();
+
+    const RecordingConfig config_;
+    RecordingFifo& fifo_;
+    std::atomic<bool> running_ { false };
+    mutable std::mutex lifecycle_mutex_;
+    mutable std::mutex mutex_;
+    RecorderState state_ = RecorderState::stopped;
+    RecorderStats stats_;
+    std::thread thread_;
+};
 
 } // namespace radar_camera::recording
