@@ -103,6 +103,18 @@ RadarFusionNode::RadarFusionNode(const rclcpp::NodeOptions& options)
     pub_pose_ = this->create_publisher<PoseCov>("/localization/pose", 10);
     pub_status_ =
         this->create_publisher<diagnostic_msgs::msg::DiagnosticStatus>("/localization/status", 10);
+    // 输出节奏统一 10Hz（跟随雷达点云频率，T-DT 风格）：
+    // camera(7Hz)/cluster(10Hz) 回调只更新测量，location/marker 由本定时器统一发布，
+    // 避免 camera 路径把输出拖慢或双路径叠加（此前 ~17Hz）。
+    location_timer_ = this->create_wall_timer(std::chrono::milliseconds(100),
+        [this]() {
+            const auto stamp = this->now();
+            publish_tracks(tracks_, stamp);
+            publish_fused_tracks(tracks_, stamp);
+            publish_lidar_tracks(lidar_tracks_, stamp);
+            publish_lidar_location(tracks_);
+            publish_status(stamp);
+        });
     update_fusion_mode(this->now().nanoseconds());
 
     RCLCPP_INFO(get_logger(),
@@ -155,11 +167,7 @@ void RadarFusionNode::on_camera_detection(
 
     update_fusion_mode(latest_camera_stamp_ns_);
     process_measurements(measurements, stamp.nanoseconds(), false, classes);
-
-    publish_tracks(tracks_, stamp);
-    publish_fused_tracks(tracks_, stamp);
-    publish_lidar_location(tracks_);
-    publish_status(stamp);
+    // 输出统一由 10Hz location_timer_ 发布（见构造函数），回调不再直接发布。
 }
 
 void RadarFusionNode::process_measurements(const std::vector<Eigen::Vector2d>& measurements,
@@ -246,9 +254,7 @@ void RadarFusionNode::on_cluster(const sensor_msgs::msg::PointCloud2::SharedPtr 
     // lidar 聚类独立 track 池：与 camera 池完全解耦，
     // 脏聚类点不会创建/删除/污染 camera 的 class track。
     process_lidar_clusters(measurements, now_ns);
-    publish_lidar_tracks(lidar_tracks_, stamp);
-    publish_lidar_location(tracks_);
-    publish_status(stamp);
+    // 输出统一由 10Hz location_timer_ 发布（见构造函数），回调不再直接发布。
 }
 
 void RadarFusionNode::process_lidar_clusters(
