@@ -16,6 +16,7 @@ set -euo pipefail
 SIDE="${1:-red}"
 MAP_PATH="${2:-/workspace/model/generated/jinan_field_map_reg.pcd}"
 SENSOR="${3:-odin}"
+ENABLE_RAW_RECORDING="${4:-false}"
 CONTAINER="${RADAR_CONTAINER:-devcontainer-radar-develop-1}"
 
 # 参数校验
@@ -29,6 +30,7 @@ echo "  比赛启动"
 echo "  side    : $SIDE  (enemy=$([ "$SIDE" = red ] && echo blue || echo red))"
 echo "  map     : $MAP_PATH"
 echo "  sensor  : $SENSOR"
+echo "  raw recording: $ENABLE_RAW_RECORDING"
 echo "  container: $CONTAINER"
 echo "========================================"
 
@@ -56,5 +58,6 @@ echo "[LOG] launch output -> ${LOG_FILE}" >&2
 ros2 launch radar_bringup competition.launch.py \
     "side:=$1" \
     "map_path:=$2" \
-    "sensor:=$3" 2>&1 | tee "${LOG_FILE}"
-' bash "$SIDE" "$MAP_PATH" "$SENSOR"
+    "sensor:=$3" \
+    "enable_raw_recording:=$4" 2>&1 | tee "${LOG_FILE}"
+' bash "$SIDE" "$MAP_PATH" "$SENSOR" "$ENABLE_RAW_RECORDING"
