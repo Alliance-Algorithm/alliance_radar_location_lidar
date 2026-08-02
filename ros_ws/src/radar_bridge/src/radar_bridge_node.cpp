@@ -137,7 +137,13 @@ auto RadarBridgeNode::sub_lidar_pose_callback(const radar_interfaces::msg::Lidar
     lidar_location_.ally_aerial_y     = msg.ally_aerial_y;
     lidar_location_.ally_sentry_x     = msg.ally_sentry_x;
     lidar_location_.ally_sentry_y     = msg.ally_sentry_y;
-    auto zmq_ret                      = zmq_bridge_.zmqpub(lidar_location_);
+    // 0x0305 频率上限 5Hz：限频转发（值持续更新，仅发送节流）
+    const auto now = std::chrono::steady_clock::now();
+    if (now - last_location_send_ < std::chrono::duration<double>(1.0 / kLocationMaxHz)) {
+        return { };
+    }
+    last_location_send_ = now;
+    auto zmq_ret        = zmq_bridge_.zmqpub(lidar_location_);
     if (!zmq_ret.has_value()) {
         RCLCPP_ERROR(this->get_logger(), "zmqpub failed: %s", zmq_ret.error().c_str());
     }

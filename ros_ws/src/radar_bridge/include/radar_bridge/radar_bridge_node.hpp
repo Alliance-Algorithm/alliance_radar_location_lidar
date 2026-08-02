@@ -44,6 +44,11 @@ private:
     radar_bridge::zmqdata::pub::LidarLocation lidar_location_ { };
     radar_bridge::zmqdata::sub::TransmitGameState game_state_ { };
 
+    // 官方通信协议 0x0305（选手端小地图雷达坐标）频率上限 5Hz；
+    // /lidar/location 由 fusion 双路径发布（~17Hz），转发前限频到 5Hz。
+    static constexpr double kLocationMaxHz = 5.0;
+    std::chrono::steady_clock::time_point last_location_send_ { };
+
     BridgeConfig config_ { };
     radar_bridge::zmq_bridge::ZmqBridge zmq_bridge_ { };
     radar_bridge::videostream_bridge::VideoBridge video_bridge_ { };

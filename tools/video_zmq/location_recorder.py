@@ -108,6 +108,11 @@ class MatchRecorder(Node):
         self.n_rows["status"] += 1
 
     def on_location(self, msg: LidarLocation):
+        # 与 bridge 转发一致：0x0305 官方频率上限 5Hz，日志限频到 5Hz
+        now_ns = time.time_ns()
+        if now_ns - getattr(self, "last_location_ns", 0) < 200_000_000:
+            return
+        self.last_location_ns = now_ns
         p = getattr(self, "latest_pose", None)
         t = getattr(self, "latest_tracks", None)
         self.w_loc.writerow([
