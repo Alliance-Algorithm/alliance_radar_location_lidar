@@ -44,6 +44,22 @@ public:
 private:
     auto preprocess(const types::Frame& scan) -> types::PointCloud;
 
+    /// @brief 锁定后 watchdog：用当前 scan 在锁定位姿下对地图的最近邻残差
+    /// 检测雷达站是否被移动/碰撞。超标连续帧达到阈值 → 解锁并返回 true。
+    auto watchdog_check(const types::Frame& scan) -> bool;
+
+    /// @brief coarse 重定位：yaw + 平移多起点搜索，inlier 选优后精配。
+    /// 成功返回 true 并更新 prev_pose_（重新锁定）。
+    auto coarse_relocalize(const types::Frame& scan) -> bool;
+
+    /// @brief 对齐评分：scan 变换到 map 后，inlier 比 + RMSE
+    struct AlignmentScore {
+        double inlier_ratio = 0.0;
+        double rmse         = 0.0;
+    };
+    auto score_alignment(const types::PointCloud& scan, const Eigen::Isometry3d& T) const
+        -> AlignmentScore;
+
     std::shared_ptr<const map_data::MapData> map_;
     config::LocalizationConfig cfg_;
     Eigen::Isometry3d prev_pose_;
@@ -52,6 +68,10 @@ private:
     spherical_grid::SphericalGrid spherical_grid_;
     frame_accumulator::FrameAccumulator accumulator_;
     bool locked_ = false;
+
+    // watchdog 状态
+    std::size_t watchdog_frame_count_ = 0;
+    int watchdog_high_residual_frames_ = 0;
 };
 
 } // namespace radar_lidar::localization

@@ -7,5 +7,5 @@ radar_lidar_node:
     initial_pose_ty: 0.0
     initial_pose_tz: 4.0
     initial_pose_roll: 0.0
-    initial_pose_pitch: -0.17453  # -10° 向下
+    initial_pose_pitch: 0.24504423  # +14.04° 低头指向场地中心
     initial_pose_yaw: 3.14159

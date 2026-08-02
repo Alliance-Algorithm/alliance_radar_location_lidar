@@ -44,7 +44,7 @@ case "$cmd" in
         fi
         rm -rf "$OUT_DIR"
         mkdir -p "$OUT_DIR"
-        python3 "$TOOL" --bag "$bag" --output-dir "$OUT_DIR" \
+        python3 "$TOOL" --bag "$bag" --output-dir "$OUT_DIR" --reproject \
             --keyframe-dist 0.3 --loop-radius 2.0 --loop-min-skip 30
         ;;
 

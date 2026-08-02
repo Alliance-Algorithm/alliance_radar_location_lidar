@@ -115,6 +115,15 @@ void OfflineTestNode::load_params() {
     get_parameter("roi_origin_x", roi_origin_x_);
     get_parameter("roi_origin_y", roi_origin_y_);
     get_parameter("roi_origin_yaw_deg", roi_origin_yaw_deg_);
+    get_parameter("initial_x", reg_params_.init_x);
+    get_parameter("initial_y", reg_params_.init_y);
+    get_parameter("initial_z", reg_params_.init_z);
+    get_parameter("use_look_at", reg_params_.use_look_at);
+    get_parameter("look_at_x", reg_params_.look_at_x);
+    get_parameter("look_at_y", reg_params_.look_at_y);
+    get_parameter("look_at_z", reg_params_.look_at_z);
+    get_parameter("initial_yaw_deg", reg_params_.init_yaw_deg);
+    get_parameter("initial_pitch_deg", reg_params_.init_pitch_deg);
 }
 
 auto OfflineTestNode::load_map_and_publish() -> std::shared_ptr<const map_data::MapData> {

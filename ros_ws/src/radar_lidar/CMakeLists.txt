@@ -86,6 +86,12 @@ add_executable(registration_tool
 target_link_libraries(registration_tool ${PROJECT_NAME}_core)
 target_include_directories(registration_tool PRIVATE include tools)
 
+add_executable(watchdog_test
+    tools/watchdog_test.cpp
+)
+target_link_libraries(watchdog_test ${PROJECT_NAME}_core)
+target_include_directories(watchdog_test PRIVATE include tools)
+
 ament_auto_add_executable(offline_detection_node
     tools/offline_detection_runtime.cpp
 )
@@ -100,6 +106,13 @@ ament_auto_add_executable(grid_map_tool
     tools/grid_map_tool.cpp
 )
 target_link_libraries(grid_map_tool ${PROJECT_NAME}_offline_lib)
+
+ament_auto_add_executable(odin_tune_node
+    tools/odin_tune_node.cpp
+    tools/odin_tune_runtime.cpp
+)
+target_link_libraries(odin_tune_node ${PROJECT_NAME}_core)
+target_include_directories(odin_tune_node PRIVATE include tools)
 
 # ── Tests ──────────────────────────────────────────────────────────
 if(BUILD_TESTING)
@@ -137,9 +150,15 @@ if(BUILD_TESTING)
   )
   target_link_libraries(radar_registration_tests ${PROJECT_NAME}_core ${PROJECT_NAME}_offline_lib)
   target_include_directories(radar_registration_tests PRIVATE tools)
+
+  ament_add_gtest(odin_tune_tests
+      test/test_odin_tune.cpp
+  )
+  target_link_libraries(odin_tune_tests ${PROJECT_NAME}_core)
+  target_include_directories(odin_tune_tests PRIVATE include)
 endif()
 
-install(TARGETS ${PROJECT_NAME}_node registration_tool offline_detection_node offline_test_node grid_map_tool
+install(TARGETS ${PROJECT_NAME}_node registration_tool offline_detection_node offline_test_node grid_map_tool odin_tune_node
     DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
 ament_package()
