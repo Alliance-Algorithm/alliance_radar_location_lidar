@@ -45,8 +45,14 @@ set -euo pipefail
 source /opt/ros/jazzy/setup.bash
 source /workspace/ros_ws/install/setup.bash
 
-exec ros2 launch radar_bringup competition.launch.py \
+# launch 输出落盘：/workspace/model/logs/<ts>_launch.log（终端同时可见，Ctrl-C 退出）
+LOG_DIR=/workspace/model/logs
+mkdir -p "${LOG_DIR}"
+LOG_FILE="${LOG_DIR}/$(date +%Y%m%d_%H%M%S)_launch.log"
+echo "[LOG] launch output -> ${LOG_FILE}" >&2
+
+ros2 launch radar_bringup competition.launch.py \
     "side:=$1" \
     "map_path:=$2" \
-    "sensor:=$3"
+    "sensor:=$3" 2>&1 | tee "${LOG_FILE}"
 ' bash "$SIDE" "$MAP_PATH" "$SENSOR"

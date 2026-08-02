@@ -173,8 +173,14 @@ void RawShmReader::loop() {
         RawFrame raw_frame { frame->mat().clone(), frame->sequence(),
             frame->metadata().host_monotonic_ns };
         if (!fifo_.try_push(std::move(raw_frame))) {
-            fail("raw SHM reader could not submit frame", true);
-            break;
+            // 录制编码跟不上（如 5472x3648 HEVC ~13fps < 相机 20fps）时丢帧保实时，
+            // 不再 OVERRUN 停整条推理链路；丢帧只降低录像帧率，不影响检测。
+            {
+                std::lock_guard lock(mutex_);
+                ++stats_.dropped;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            continue;
         }
         {
             std::lock_guard lock(mutex_);

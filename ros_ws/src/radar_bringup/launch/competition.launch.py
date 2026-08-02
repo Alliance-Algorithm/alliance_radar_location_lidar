@@ -15,7 +15,12 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchContext, LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
+from launch.actions import (
+    DeclareLaunchArgument,
+    ExecuteProcess,
+    IncludeLaunchDescription,
+    OpaqueFunction,
+)
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -97,13 +102,13 @@ def generate_launch_description():
             description="雷达型号: odin | mid70"),
         DeclareLaunchArgument("enable_raw_recording", default_value="true",
             description="启用原始相机录制（默认开，比赛录像回放复盘用）"),
-        DeclareLaunchArgument("recording_output_dir", default_value="/model/devio"),
-        DeclareLaunchArgument("recording_width", default_value="5472"),
-        DeclareLaunchArgument("recording_height", default_value="3648"),
+        DeclareLaunchArgument("recording_output_dir", default_value="/workspace/model/video"),
+        DeclareLaunchArgument("recording_width", default_value="3840"),
+        DeclareLaunchArgument("recording_height", default_value="2160"),
         DeclareLaunchArgument("recording_fps", default_value="20"),
-        DeclareLaunchArgument("recording_bitrate", default_value="40000000"),
+        DeclareLaunchArgument("recording_bitrate", default_value="12000000"),
         DeclareLaunchArgument("recording_gop", default_value="20"),
-        DeclareLaunchArgument("recording_encoder", default_value="h264_nvenc"),
+        DeclareLaunchArgument("recording_encoder", default_value="hevc_nvenc"),
         DeclareLaunchArgument("recording_segment_duration_sec", default_value="60"),
         DeclareLaunchArgument("recording_buffer_pool_frames", default_value="8"),
         DeclareLaunchArgument("recording_max_buffer_bytes", default_value="480000000"),
@@ -127,4 +132,11 @@ def generate_launch_description():
         # 5. ZMQ 桥接 (LidarLocation → 裁判系统)
         IncludeLaunchDescription(PythonLaunchDescriptionSource(
             os.path.join(bringup_dir, "launch", "radar_bridge.launch.py"))),
+
+        # 6. 比赛回看日志 (每场一个目录: 坐标序列 + 配准位姿 + 状态)
+        ExecuteProcess(
+            cmd=["python3", "/workspace/tools/video_zmq/location_recorder.py",
+                 "--out", "/workspace/model/logs"],
+            output="log",
+            name="match_recorder"),
     ])

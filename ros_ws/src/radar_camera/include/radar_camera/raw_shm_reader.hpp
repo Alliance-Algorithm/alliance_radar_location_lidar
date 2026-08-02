@@ -38,6 +38,7 @@ struct ReaderStats {
     std::uint64_t observed = 0;
     std::uint64_t accepted = 0;
     std::uint64_t unstable = 0;
+    std::uint64_t dropped  = 0;  // fifo 满丢帧（录制编码跟不上输入帧率）
 };
 
 [[nodiscard]] auto valid_frame_counter(std::uint64_t counter) -> bool;

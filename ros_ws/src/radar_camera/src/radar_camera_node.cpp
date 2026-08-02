@@ -298,9 +298,9 @@ auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 continue;
             }
-            orig_frame         = shm_frame->mat().clone();
             capture_timestamp_ = std::chrono::steady_clock::time_point(
                 std::chrono::nanoseconds(shm_frame->metadata().host_monotonic_ns));
+            const bool shm_continuous = shm_frame->mat().isContinuous();
 
             // 低频更新相机外参（TF 可用时跟随 GICP 锁定结果）
             if (!tf_ready_ || (frame_count_ & 0x3F) == 0) {
@@ -309,9 +309,21 @@ auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
 
             // Resize to L1 model input separately; L2/L3 will crop from orig_frame.
             cv::Mat frame;
-            cv::resize(orig_frame, frame,
-                cv::Size(
-                    inference_config_.model_input_width, inference_config_.model_input_height));
+            if (shm_continuous) {
+                // SHM 视图连续（stride=width*3）：直接 resize 视图，省掉 60MB clone。
+                // orig_frame 引用视图（浅拷贝头），refine/投影在本次循环内使用；
+                // 视图生命周期受 SharedFrame Lease 保护（下次 wait_next 前有效）。
+                cv::resize(shm_frame->mat(), frame,
+                    cv::Size(inference_config_.model_input_width,
+                        inference_config_.model_input_height));
+                orig_frame = shm_frame->mat();
+            } else {
+                // 非连续（stride 有 padding）才退回全图 clone，保证 resize/refine 正确。
+                orig_frame = shm_frame->mat().clone();
+                cv::resize(orig_frame, frame,
+                    cv::Size(
+                        inference_config_.model_input_width, inference_config_.model_input_height));
+            }
 
             auto tensor = model_inference_->infer_preprocess(frame,
                 static_cast<size_t>(inference_config_.model_input_width),
@@ -338,7 +350,6 @@ auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
                 RCLCPP_WARN(get_logger(), "Inference postprocess failed: %s", dets.error().c_str());
                 continue;
             }
-
             std::vector<detection::Detection> refined(dets->get());
             if (armor_refine_enabled_) {
                 const float scale_x =
@@ -396,8 +407,10 @@ void RadarCameraNode::update_camera_extrinsic_from_tf() {
     if (!tf_buffer_) return;
     geometry_msgs::msg::TransformStamped tf_msg;
     try {
+        // 0 超时：TF 未就绪时立即返回（此前 0.1s 阻塞导致每帧 ~100ms 等待，
+        // 推理被拖到 ~7fps；TF 就绪后下一帧即拿到，无需等待）。
         tf_msg = tf_buffer_->lookupTransform(
-            "map", "camera_optical_frame", tf2::TimePointZero, tf2::durationFromSec(0.1));
+            "map", "camera_optical_frame", tf2::TimePointZero, tf2::durationFromSec(0.0));
     } catch (const tf2::TransformException&) {
         return; // TF 未就绪，保留 fallback 外参
     }
@@ -482,13 +495,13 @@ auto ConfigsLoader(rclcpp::Node& node, camera_config::CameraConfig& camera,
         node.declare_parameter("model_input_height", 1280);
         node.declare_parameter("mesh_path", std::string(""));
         node.declare_parameter("enable_raw_recording", false);
-        node.declare_parameter("recording_output_dir", std::string("/model/devio"));
-        node.declare_parameter("recording_width", 5472);
-        node.declare_parameter("recording_height", 3648);
+        node.declare_parameter("recording_output_dir", std::string("/workspace/model/video"));
+        node.declare_parameter("recording_width", 3840);
+        node.declare_parameter("recording_height", 2160);
         node.declare_parameter("recording_fps", 20);
-        node.declare_parameter("recording_bitrate", 40000000);
+        node.declare_parameter("recording_bitrate", 12000000);
         node.declare_parameter("recording_gop", 20);
-        node.declare_parameter("recording_encoder", std::string("h264_nvenc"));
+        node.declare_parameter("recording_encoder", std::string("hevc_nvenc"));
         node.declare_parameter("recording_segment_duration_sec", 60);
         node.declare_parameter("recording_buffer_pool_frames", 8);
         node.declare_parameter("recording_max_buffer_bytes", 480000000);

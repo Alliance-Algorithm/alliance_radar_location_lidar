@@ -48,8 +48,9 @@ inline auto validate_config(const RecordingConfig& config) -> std::expected<void
     if (config.gop <= 0) {
         return std::unexpected("gop must be positive");
     }
-    if (config.encoder != "h264_nvenc") {
-        return std::unexpected("encoder must be h264_nvenc");
+    if (config.encoder != "h264_nvenc" && config.encoder != "hevc_nvenc"
+        && config.encoder != "libx264") {
+        return std::unexpected("encoder must be h264_nvenc, hevc_nvenc or libx264");
     }
     if (config.segment_duration_sec <= 0) {
         return std::unexpected("segment_duration_sec must be positive");
@@ -91,6 +92,7 @@ struct RecorderStats {
     std::uint64_t segments = 0;
     std::uint64_t overruns = 0;
     std::uint64_t errors   = 0;
+    std::uint64_t dropped  = 0;  // 主动丢帧（编码跟不上输入帧率）
 };
 
 [[nodiscard]] auto segment_path(const std::filesystem::path& output_dir,
@@ -125,6 +127,7 @@ private:
     RecorderStats stats_;
     std::string failure_reason_;
     std::thread thread_;
+    std::chrono::steady_clock::time_point last_encoded_ { };
 };
 
 } // namespace radar_camera::recording

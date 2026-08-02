@@ -45,13 +45,13 @@ radar_camera_node:
     width: 5472
     height: 3648
     enable_raw_recording: false
-    recording_output_dir: "/model/devio"
-    recording_width: 5472
-    recording_height: 3648
+    recording_output_dir: "/workspace/model/video"
+    recording_width: 3840
+    recording_height: 2160
     recording_fps: 20
-    recording_bitrate: 40000000
+    recording_bitrate: 12000000
     recording_gop: 20
-    recording_encoder: "h264_nvenc"
+    recording_encoder: "hevc_nvenc"
     recording_segment_duration_sec: 60
     recording_buffer_pool_frames: 8
     recording_max_buffer_bytes: 480000000
