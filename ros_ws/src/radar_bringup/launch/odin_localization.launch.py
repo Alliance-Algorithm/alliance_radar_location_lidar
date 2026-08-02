@@ -23,7 +23,7 @@ def generate_launch_description():
     # ── arguments ────────────────────────────────────────────────
     map_path_arg = DeclareLaunchArgument(
         "map_path",
-        default_value="/workspace/model/generated/map.pcd",
+        default_value="/workspace/model/generated/jinan_field_map_reg.pcd",
         description="Absolute path to the map PCD file",
     )
     radar_params_arg = DeclareLaunchArgument(
