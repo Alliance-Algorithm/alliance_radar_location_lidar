@@ -54,7 +54,7 @@ radar_camera_node:
     recording_output_dir: "/workspace/model/video"
     recording_width: 3840
     recording_height: 2160
-    recording_fps: 20
+    recording_fps: 10
     recording_bitrate: 12000000
     recording_gop: 20
     recording_encoder: "hevc_nvenc"

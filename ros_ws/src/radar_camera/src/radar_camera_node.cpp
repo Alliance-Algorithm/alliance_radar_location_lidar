@@ -501,7 +501,7 @@ auto ConfigsLoader(rclcpp::Node& node, camera_config::CameraConfig& camera,
         node.declare_parameter("recording_output_dir", std::string("/workspace/model/video"));
         node.declare_parameter("recording_width", 3840);
         node.declare_parameter("recording_height", 2160);
-        node.declare_parameter("recording_fps", 20);
+        node.declare_parameter("recording_fps", 10);
         node.declare_parameter("recording_bitrate", 12000000);
         node.declare_parameter("recording_gop", 20);
         node.declare_parameter("recording_encoder", std::string("hevc_nvenc"));
