@@ -40,7 +40,9 @@ if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER}$"; then
     exit 1
 fi
 
-docker exec -it "$CONTAINER" bash -c '
+# -i 而非 -it：egui 等无 TTY 环境（stdin/stdout 管道）调用时不会报
+# "the input device is not a TTY"；交互终端下功能不受影响。
+docker exec -i "$CONTAINER" bash -c '
 set -euo pipefail
 source /opt/ros/jazzy/setup.bash
 source /workspace/ros_ws/install/setup.bash
