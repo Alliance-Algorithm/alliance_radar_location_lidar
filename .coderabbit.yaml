@@ -154,6 +154,14 @@ reviews:
     - "!lidar_ros_driver/**"
     - "!docs/SLAM-learn/**"
     - "!.vscode/**"
+    # Keep PR file count under CodeRabbit's 100-file review limit;
+    # focus reviews on core ROS2 source instead of docs/tools/scripts.
+    - "!docs/**"
+    - "!ros_ws/docs/**"
+    - "!tools/**"
+    - "!.script/**"
+    - "!.devcontainer/**"
+    - "!model/**"
 
 chat:
   auto_reply: true
