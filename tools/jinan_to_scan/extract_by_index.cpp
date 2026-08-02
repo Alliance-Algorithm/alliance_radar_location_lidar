@@ -19,14 +19,15 @@
 #include <cmath>
 #include <cstring>
 #include <iostream>
+#include <print>
 #include <set>
 #include <string>
 #include <vector>
 
 int main(int argc, char** argv) {
     if (argc < 5) {
-        std::cerr << "Usage: " << argv[0]
-                  << " <input.pcd> <output.pcd> --index <int> [--index <int> ...]\n";
+        std::println(std::cerr, "Usage: {} <input.pcd> <output.pcd> --index <int> [--index <int> ...]",
+            argv[0]);
         return 1;
     }
 
@@ -39,21 +40,21 @@ int main(int argc, char** argv) {
             try {
                 wanted_indices.insert(std::stoi(argv[i]));
             } catch (const std::exception&) {
-                std::cerr << "ERROR: invalid index value: " << argv[i] << "\n";
+                std::println(std::cerr, "ERROR: invalid index value: {}", argv[i]);
                 return 1;
             }
         }
     }
     if (wanted_indices.empty()) {
-        std::cerr << "ERROR: no --index given\n";
+        std::println(std::cerr, "ERROR: no --index given");
         return 1;
     }
 
-    std::cout << "[extract_by_index] Loading " << input_path << " ...\n";
+    std::println("[extract_by_index] Loading {} ...", input_path);
     pcl::PCLPointCloud2 blob;
     pcl::PCDReader reader;
     if (reader.read(input_path, blob) < 0) {
-        std::cerr << "ERROR: failed to read " << input_path << "\n";
+        std::println(std::cerr, "ERROR: failed to read {}", input_path);
         return 1;
     }
 
@@ -65,7 +66,7 @@ int main(int argc, char** argv) {
         else if (f.name == "Original_cloud_index") off_idx = static_cast<int>(f.offset);
     }
     if (off_x < 0 || off_y < 0 || off_z < 0 || off_idx < 0) {
-        std::cerr << "ERROR: input PCD missing x/y/z/Original_cloud_index fields\n";
+        std::println(std::cerr, "ERROR: input PCD missing x/y/z/Original_cloud_index fields");
         return 1;
     }
 
@@ -93,9 +94,9 @@ int main(int argc, char** argv) {
     out.is_dense = true;
 
     if (pcl::io::savePCDFileBinary(output_path, out) != 0) {
-        std::cerr << "ERROR: failed to write " << output_path << "\n";
+        std::println(std::cerr, "ERROR: failed to write {}", output_path);
         return 1;
     }
-    std::cout << "[extract_by_index] Wrote " << out.size() << " points -> " << output_path << "\n";
+    std::println("[extract_by_index] Wrote {} points -> {}", out.size(), output_path);
     return 0;
 }

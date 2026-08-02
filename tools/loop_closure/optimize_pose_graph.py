@@ -238,7 +238,7 @@ class PoseGraph:
         info = np.diag(info_diag)
         for k in range(len(self.nodes) - 1):
             T_ij = np.linalg.inv(self.nodes[k]) @ self.nodes[k + 1]
-            self.edges.append((k, k + 1, T_ij, info))
+            self.edges.append((k, k + 1, T_ij, info, False))
 
     def add_loop_edges(self, radius: float = 2.0, min_skip: int = 20,
                        info_diag=None, heading_thresh_deg: float = 45.0):
@@ -256,56 +256,104 @@ class PoseGraph:
                         (np.trace(self.nodes[a, :3, :3].T @ self.nodes[b, :3, :3]) - 1) / 2,
                         -1, 1))
                     if ang < heading_thresh:
-                        self.edges.append((a, b, np.eye(4), info))
+                        self.edges.append((a, b, np.eye(4), info, True))
                         loops += 1
         print(f"Loop edges: {loops} (radius={radius}m, min_skip={min_skip}, "
               f"heading<{heading_thresh_deg}°)")
 
     # ── Levenberg-Marquardt on SE(3) ──
 
-    def optimize(self, max_iter: int = 50, lambda_init: float = 1e-3) -> np.ndarray:
+    def optimize(self, max_iter: int = 50, lambda_init: float = 1e-3,
+                 loop_reject_thresh: float = 1.0, reject_rounds: int = 6) -> np.ndarray:
         n = len(self.nodes)
-        state = self.nodes.copy()
-        lamb = lambda_init
+        edges = list(self.edges)
+        n_rejected = 0
 
-        for it in range(max_iter):
-            H = np.zeros((6 * n, 6 * n))
-            b = np.zeros(6 * n)
-            prev_err = 0.0
-            has_update = False
-
-            for i, j, T_ij_meas, info in self.edges:
-                T_wi, T_wj = state[i], state[j]
-                T_ij_est = np.linalg.inv(T_wi) @ T_wj
+        def compute_cost(state, edges_sub):
+            cost = 0.0
+            for i, j, T_ij_meas, info, _is_loop in edges_sub:
+                T_ij_est = np.linalg.inv(state[i]) @ state[j]
                 e = se3_log(np.linalg.inv(T_ij_meas) @ T_ij_est)
-                prev_err += e @ info @ e
-                Ji = -se3_adj(np.linalg.inv(T_ij_est))
-                Jj = se3_adj(np.linalg.inv(T_ij_est))
-                bi, bj = slice(6*i, 6*(i+1)), slice(6*j, 6*(j+1))
-                H[bi, bi] += Ji.T @ info @ Ji
-                H[bi, bj] += Ji.T @ info @ Jj
-                H[bj, bi] += Jj.T @ info @ Ji
-                H[bj, bj] += Jj.T @ info @ Jj
-                b[bi] += Ji.T @ info @ e
-                b[bj] += Jj.T @ info @ e
+                cost += float(e @ info @ e)
+            return cost
 
-            # Anchor first node
-            H[:6, :6] += np.eye(6) * 1e6
-            H_damped = H + lamb * np.diag(np.diag(H))
+        def lm(edges_sub):
+            """Levenberg-Marquardt with step acceptance（错误检查 + λ 升降）。
 
-            try:
-                delta = np.linalg.solve(H_damped, -b)
-            except np.linalg.LinAlgError:
-                lamb *= 10.0
-                continue
+            纯 Gauss-Newton 在矛盾约束（假回环边）下线性化失效会发散，
+            必须验证候选步是否真的降低代价：不降则拒绝并放大 λ。
+            """
+            state = self.nodes.copy()
+            lamb = lambda_init
+            prev_cost = None
+            for it in range(max_iter):
+                H = np.zeros((6 * n, 6 * n))
+                b = np.zeros(6 * n)
+                for i, j, T_ij_meas, info, _is_loop in edges_sub:
+                    T_wi, T_wj = state[i], state[j]
+                    T_ij_est = np.linalg.inv(T_wi) @ T_wj
+                    e = se3_log(np.linalg.inv(T_ij_meas) @ T_ij_est)
+                    Ji = -se3_adj(np.linalg.inv(T_ij_est))
+                    Jj = se3_adj(np.linalg.inv(T_ij_est))
+                    bi, bj = slice(6*i, 6*(i+1)), slice(6*j, 6*(j+1))
+                    H[bi, bi] += Ji.T @ info @ Ji
+                    H[bi, bj] += Ji.T @ info @ Jj
+                    H[bj, bi] += Jj.T @ info @ Ji
+                    H[bj, bj] += Jj.T @ info @ Jj
+                    b[bi] += Ji.T @ info @ e
+                    b[bj] += Jj.T @ info @ e
+                H[:6, :6] += np.eye(6) * 1e6  # anchor first node
 
-            for i in range(n):
-                xi = delta[6*i:6*(i+1)]
-                state[i] = state[i] @ se3_exp(xi)
+                accepted = False
+                for _ in range(12):  # inner lambda escalation
+                    try:
+                        delta = np.linalg.solve(H + lamb * np.diag(np.diag(H)), -b)
+                    except np.linalg.LinAlgError:
+                        lamb *= 10.0
+                        continue
+                    cand = state.copy()
+                    for i in range(n):
+                        xi = delta[6*i:6*(i+1)]
+                        cand[i] = cand[i] @ se3_exp(xi)
+                    cost = compute_cost(cand, edges_sub)
+                    if prev_cost is None or cost < prev_cost:
+                        state = cand
+                        prev_cost = cost
+                        lamb = max(lamb * 0.7, 1e-9)
+                        accepted = True
+                        break
+                    lamb *= 10.0
+                if not accepted:
+                    break
+                if float(np.linalg.norm(delta)) < 1e-6:
+                    break
+            return state
 
-            lamb = max(lamb * 0.7, 1e-9)
+        # 残差剔除循环：漂移位姿的近邻检测会产生假回环边（真实场景中两条
+        # 相距 <2m 但不在同一位置的轨迹段），矛盾约束会把优化器拧飞（实测
+        # 中间段关键帧被拉飞数百米）。每轮优化后丢掉平移残差超阈值的回环边，
+        # 从原始位姿重新优化，直到没有超阈值边或达到轮次上限。
+        for rnd in range(reject_rounds):
+            state = lm(edges)
+            worst = None
+            for idx, (i, j, T_ij_meas, info, is_loop) in enumerate(edges):
+                if not is_loop:
+                    continue
+                T_ij_est = np.linalg.inv(state[i]) @ state[j]
+                e = se3_log(np.linalg.inv(T_ij_meas) @ T_ij_est)
+                t_err = float(np.linalg.norm(e[:3]))
+                if worst is None or t_err > worst[0]:
+                    worst = (t_err, idx)
+            if worst is None or worst[0] <= loop_reject_thresh:
+                break
+            n_rejected += 1
+            print(f"  Rejected loop edge #{worst[1]} (residual {worst[0]:.2f}m)")
+            del edges[worst[1]]
 
-        print(f"Optimized {len(self.edges)} edges on {n} nodes, {max_iter} iters")
+        if n_rejected:
+            n_loop_kept = sum(1 for e in edges if e[4])
+            print(f"Loop edge rejection: dropped {n_rejected}, kept {n_loop_kept}")
+        print(f"Optimized {len(edges)} edges on {n} nodes, {max_iter} iters")
         return state
 
 
@@ -548,6 +596,7 @@ def main():
 
     # ── Optimize ──
     opt_poses = pg.optimize()
+    save_poses_csv(kf_poses, os.path.join(args.output_dir, "keyframe_before.csv"))
     save_poses_csv(opt_poses, os.path.join(args.output_dir, "keyframe_optimized.csv"))
 
     # ── Report ──

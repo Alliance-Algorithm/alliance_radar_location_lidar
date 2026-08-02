@@ -23,6 +23,7 @@ odin-map-save 导出的是原始累积点云——每帧点云原样追加，同
 
 只处理 COUNT=1 的字段（本项目内所有 PCD 生产者——bag_to_pcd.py /
 livmapper_node.cpp 的 pcl::PointXYZINormal ——均满足）。
+支持 rgb 字段（PointXYZRGB）。
 """
 import sys
 import time
@@ -189,15 +190,19 @@ def radius_outlier_removal(xyz, extra, radius, min_neighbors):
     return xyz_clean, extra_clean, n_removed
 
 
-def write_pcd(path, xyz, intensity=None, ascii_mode=False):
-    """写入 PCD 文件，支持 xyz / xyzi，ascii 或 binary 格式。"""
+def write_pcd(path, xyz, intensity=None, rgb=None, ascii_mode=False):
+    """写入 PCD 文件，支持 xyz / xyzi / xyzrgb / xyzirgb，ascii 或 binary 格式。
+
+    rgb 为 read_pcd 读出的 '<f4' 数组（PCL 兼容 float32 位模式），原样写回。
+    """
     n = len(xyz)
     has_i = intensity is not None
+    has_rgb = rgb is not None
 
-    fields_line = "FIELDS x y z" + (" intensity" if has_i else "")
-    size_line = "SIZE 4 4 4" + (" 4" if has_i else "")
-    type_line = "TYPE F F F" + (" F" if has_i else "")
-    count_line = "COUNT 1 1 1" + (" 1" if has_i else "")
+    fields_line = "FIELDS x y z" + (" intensity" if has_i else "") + (" rgb" if has_rgb else "")
+    size_line = "SIZE 4 4 4" + (" 4" if has_i else "") + (" 4" if has_rgb else "")
+    type_line = "TYPE F F F" + (" F" if has_i else "") + (" F" if has_rgb else "")
+    count_line = "COUNT 1 1 1" + (" 1" if has_i else "") + (" 1" if has_rgb else "")
 
     header = (
         "# .PCD v0.7 - Point Cloud Data file format\n"
@@ -218,23 +223,32 @@ def write_pcd(path, xyz, intensity=None, ascii_mode=False):
             f.write(header)
             f.write("DATA ascii\n")
             for i in range(n):
+                row = f"{xyz[i, 0]:.6f} {xyz[i, 1]:.6f} {xyz[i, 2]:.6f}"
                 if has_i:
-                    f.write(f"{xyz[i, 0]:.6f} {xyz[i, 1]:.6f} {xyz[i, 2]:.6f} {intensity[i]:.6f}\n")
-                else:
-                    f.write(f"{xyz[i, 0]:.6f} {xyz[i, 1]:.6f} {xyz[i, 2]:.6f}\n")
+                    row += f" {intensity[i]:.6f}"
+                if has_rgb:
+                    # .9g：float32 精确 round-trip 所需十进制有效数字（与
+                    # bag_to_pcd 的 ascii rgb 惯例一致），先转普通 float。
+                    row += f" {float(rgb[i]):.9g}"
+                f.write(row + "\n")
         return
 
+    dtype_fields = [('x', '<f4'), ('y', '<f4'), ('z', '<f4')]
+    if has_i:
+        dtype_fields.append(('intensity', '<f4'))
+    if has_rgb:
+        dtype_fields.append(('rgb', '<f4'))
+    record = np.empty(n, dtype=dtype_fields)
+    record['x'] = xyz[:, 0]
+    record['y'] = xyz[:, 1]
+    record['z'] = xyz[:, 2]
+    if has_i:
+        record['intensity'] = intensity
+    if has_rgb:
+        record['rgb'] = rgb
     with open(path, 'wb') as f:
         f.write(header.encode('ascii'))
         f.write(b"DATA binary\n")
-        if has_i:
-            record = np.empty(n, dtype=[('x', '<f4'), ('y', '<f4'), ('z', '<f4'), ('intensity', '<f4')])
-            record['intensity'] = intensity
-        else:
-            record = np.empty(n, dtype=[('x', '<f4'), ('y', '<f4'), ('z', '<f4')])
-        record['x'] = xyz[:, 0]
-        record['y'] = xyz[:, 1]
-        record['z'] = xyz[:, 2]
         f.write(record.tobytes())
 
 
@@ -293,11 +307,12 @@ def main():
         sys.exit(1)
 
     intensity = extra.get('intensity')
+    rgb = extra.get('rgb')
     bbox_min = xyz.min(axis=0)
     bbox_max = xyz.max(axis=0)
     print(f"输出点云 bounding box: min={bbox_min}, max={bbox_max}")
 
-    write_pcd(output_path, xyz, intensity, ascii_mode=args.ascii)
+    write_pcd(output_path, xyz, intensity, rgb=rgb, ascii_mode=args.ascii)
     print(f"输出: {output_path}")
     print(f"耗时: {time.time() - t_start:.1f}s")
 
