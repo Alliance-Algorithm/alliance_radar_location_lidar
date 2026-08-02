@@ -34,10 +34,15 @@ private:
 
     void on_cluster(sensor_msgs::msg::PointCloud2::SharedPtr msg);
 
+    // 独立 lidar 聚类 track 池（与 camera 池解耦，脏数据互不干扰）
+    void process_lidar_clusters(const std::vector<Eigen::Vector2d>& measurements, int64_t now_ns);
+
     void publish_tracks(const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& tracks,
         const rclcpp::Time& stamp);
     void publish_fused_tracks(
         const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& tracks,
+        const rclcpp::Time& stamp);
+    void publish_lidar_tracks(const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& tracks,
         const rclcpp::Time& stamp);
     void publish_lidar_location(
         const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& tracks);
@@ -49,7 +54,7 @@ private:
     static int64_t steady_now_ns();
 
     void process_measurements(const std::vector<Eigen::Vector2d>& measurements, int64_t now_ns,
-        bool mark_unmatched_tracks);
+        bool mark_unmatched_tracks, const std::vector<int>& classes = { });
 
     radar_fusion::fusion_config::FusionConfig cfg_;
     radar_fusion::fusion_config::FusionMode fusion_mode_ =
@@ -57,10 +62,13 @@ private:
     radar_fusion::match_timer::MatchTimer match_timer_;
     std::string default_positions_path_;
     std::string enemy_color_ = "blue";
+    std::string camera_topic_ = "/radar_camera/robot_pose";
     std::vector<radar_fusion::kalman_tracker::KalmanTracker> tracks_;
+    std::vector<radar_fusion::kalman_tracker::KalmanTracker> lidar_tracks_;
     std::vector<radar_fusion::camera_observation::CameraObservation> latest_camera_observations_;
     int64_t latest_camera_stamp_ns_ = 0;
     int next_track_id_              = 0;
+    int next_lidar_track_id_        = 0;
 
     rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr sub_lidar_pose_;
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr sub_cluster_;

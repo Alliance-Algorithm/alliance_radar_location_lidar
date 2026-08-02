@@ -55,7 +55,7 @@ protected:
                 "/lidar/pose", 10);
         camera_detection_pub_ =
             publisher_node_->create_publisher<radar_interfaces::msg::CameraDetectionPose>(
-                "/camera/detection", 10);
+                "/radar_camera/robot_pose", 10);
 
         pose_sub_ =
             subscriber_node_->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(

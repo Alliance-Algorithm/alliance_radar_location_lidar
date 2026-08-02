@@ -29,6 +29,7 @@ public:
 
     void set_color(int color) { state_.color = color; }
     void set_number(int number) { state_.number = number; }
+    void set_class_id(int class_id) { state_.class_id = class_id; }
 
 private:
     KalmanState state_;

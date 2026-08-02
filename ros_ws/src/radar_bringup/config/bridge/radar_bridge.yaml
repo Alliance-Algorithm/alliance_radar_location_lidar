@@ -5,7 +5,11 @@ radar_bridge_node:
     zmq_sub_addresses: ["tcp://localhost:5558"]
     # Video stream
     shm_name: "/hikcamera_shm"
-    video_pub_address: "tcp://*:5557"
+    video_pub_address: "tcp://*:5559"
     image_topic: "/hikcamera_image"
-    video_width: 4096
-    video_height: 3000
+    # 实时 3 层推理标注（默认关；开时推流画面带 L1/L2/L3 标注）
+    enable_inference: false
+    model_dir: "/workspace/ros_ws/src/radar_camera/model"
+    l1_conf: 0.20
+    l2_conf: 0.50
+    l3_conf: 0.80
