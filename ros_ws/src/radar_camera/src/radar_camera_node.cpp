@@ -306,24 +306,31 @@ auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
             if (!tf_ready_ || (frame_count_ & 0x3F) == 0) {
                 update_camera_extrinsic_from_tf();
             }
-
-            // Resize to L1 model input separately; L2/L3 will crop from orig_frame.
-            cv::Mat frame;
+            // 全分辨率源：SHM 视图连续时零拷贝引用，非连续才 clone。
             if (shm_continuous) {
-                // SHM 视图连续（stride=width*3）：直接 resize 视图，省掉 60MB clone。
-                // orig_frame 引用视图（浅拷贝头），refine/投影在本次循环内使用；
-                // 视图生命周期受 SharedFrame Lease 保护（下次 wait_next 前有效）。
-                cv::resize(shm_frame->mat(), frame,
-                    cv::Size(inference_config_.model_input_width,
-                        inference_config_.model_input_height));
                 orig_frame = shm_frame->mat();
             } else {
-                // 非连续（stride 有 padding）才退回全图 clone，保证 resize/refine 正确。
                 orig_frame = shm_frame->mat().clone();
-                cv::resize(orig_frame, frame,
-                    cv::Size(
-                        inference_config_.model_input_width, inference_config_.model_input_height));
             }
+
+            // Letterbox 到 L1 模型输入（与 annotate/训练预处理一致，保持宽高比+黑边填充）。
+            // 此前用拉伸 resize：小目标（远距离机器人/无人机）变形后模型检出率显著下降
+            // （同一帧 annotate letterbox conf 0.94 vs camera resize dets=0）。
+            // orig_frame 为全分辨率源（视图或 clone，见 shm_continuous 分支）。
+            const float lb_scale = std::min(
+                static_cast<float>(inference_config_.model_input_width) / orig_frame.cols,
+                static_cast<float>(inference_config_.model_input_height) / orig_frame.rows);
+            const int resized_w = std::max(
+                1, static_cast<int>(std::lround(orig_frame.cols * lb_scale)));
+            const int resized_h = std::max(
+                1, static_cast<int>(std::lround(orig_frame.rows * lb_scale)));
+            const int pad_x = (inference_config_.model_input_width - resized_w) / 2;
+            const int pad_y = (inference_config_.model_input_height - resized_h) / 2;
+            cv::Mat frame(inference_config_.model_input_height,
+                inference_config_.model_input_width, CV_8UC3, cv::Scalar::all(0));
+            cv::Mat resized;
+            cv::resize(orig_frame, resized, cv::Size(resized_w, resized_h));
+            resized.copyTo(frame(cv::Rect(pad_x, pad_y, resized_w, resized_h)));
 
             auto tensor = model_inference_->infer_preprocess(frame,
                 static_cast<size_t>(inference_config_.model_input_width),
@@ -352,29 +359,25 @@ auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
             }
             std::vector<detection::Detection> refined(dets->get());
             if (armor_refine_enabled_) {
-                const float scale_x =
-                    static_cast<float>(orig_frame.cols) / static_cast<float>(frame.cols);
-                const float scale_y =
-                    static_cast<float>(orig_frame.rows) / static_cast<float>(frame.rows);
+                // bbox/center 已在上面逆映射到原图空间；refine 的 scale 参数置 1。
                 for (auto& det : refined) {
-                    armor_refiner_.refine(
-                        orig_frame, det, inference_config_.drone_class_ids, scale_x, scale_y);
+                    armor_refiner_.refine(orig_frame, det, inference_config_.drone_class_ids, 1.0f,
+                        1.0f);
                 }
             }
 
-            // L1 detections are in model-input (1280x1280) pixel space; map
-            // detection centers back to the full-res frame before ray projection.
-            const float proj_scale_x =
-                static_cast<float>(orig_frame.cols) / static_cast<float>(frame.cols);
-            const float proj_scale_y =
-                static_cast<float>(orig_frame.rows) / static_cast<float>(frame.rows);
-            std::vector<detection::Detection> proj_dets = refined;
-            for (auto& det : proj_dets) {
-                det.center.x *= proj_scale_x;
-                det.center.y *= proj_scale_y;
+            // L1 检测在 letterbox 模型空间 (1280x1280)；映射回全分辨率原图：
+            // (x - pad) / scale 逆变换。refine/投影直接用原图空间坐标。
+            for (auto& det : refined) {
+                det.bbox.x      = (det.bbox.x - static_cast<float>(pad_x)) / lb_scale;
+                det.bbox.y      = (det.bbox.y - static_cast<float>(pad_y)) / lb_scale;
+                det.bbox.width /= lb_scale;
+                det.bbox.height /= lb_scale;
+                det.center.x = (det.center.x - static_cast<float>(pad_x)) / lb_scale;
+                det.center.y = (det.center.y - static_cast<float>(pad_y)) / lb_scale;
             }
 
-            auto projected = projector_.proj_preprocess(proj_dets);
+            auto projected = projector_.proj_preprocess(refined);
             auto pose = std::expected<robot_pose::RobotPose, std::string>(std::unexpected("projecti"
                                                                                           "on "
                                                                                           "preproce"

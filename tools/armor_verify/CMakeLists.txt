@@ -183,3 +183,28 @@ target_link_libraries(video_annotate
     nvinfer_plugin
     cudart
 )
+
+add_executable(compare_preprocess
+    compare_preprocess.cpp
+    ${RADAR_SRC}/src/tensorrt_inference.cpp
+    ${RADAR_SRC}/src/armor_infer.cpp
+)
+
+target_include_directories(compare_preprocess PRIVATE
+    ${RADAR_SRC}/include
+    ${TRT_ROOT}/include
+    ${CUDA_ROOT}/include
+    ${OpenCV_INCLUDE_DIRS}
+)
+
+target_link_directories(compare_preprocess PRIVATE
+    ${TRT_ROOT}/lib
+    ${CUDA_ROOT}/lib64
+)
+
+target_link_libraries(compare_preprocess
+    ${OpenCV_LIBS}
+    nvinfer
+    nvinfer_plugin
+    cudart
+)
