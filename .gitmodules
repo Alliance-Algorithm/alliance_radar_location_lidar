@@ -13,9 +13,7 @@
 	url = https://github.com/yukikaze223344/livox_ros2_driver.git
 [submodule "ros_ws/third-party/hikcamera_sdk"]
 	path = ros_ws/third-party/hikcamera_sdk
-	# 上游 HarryPotter1tech 无写权限：RGB8 修复提交在 serial-broadcast 分支，
-	# 镜像到 Yukikaze2233/ros2-hikcamera 供 CI 拉取。
-	url = https://github.com/Yukikaze2233/ros2-hikcamera.git
+	url = https://github.com/HarryPotter1tech/hikcamera_sdk.git
 [submodule "ros_ws/third-party/direct_visual_lidar_calibration"]
 	path = ros_ws/third-party/direct_visual_lidar_calibration
 	url = https://github.com/HarryPotter1tech/direct_visual_lidar_calibration.git
