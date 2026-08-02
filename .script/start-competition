@@ -16,7 +16,7 @@ set -euo pipefail
 SIDE="${1:-red}"
 MAP_PATH="${2:-/workspace/model/generated/jinan_field_map_reg.pcd}"
 SENSOR="${3:-odin}"
-ENABLE_RAW_RECORDING="${4:-false}"
+ENABLE_RAW_RECORDING="${4:-}"
 CONTAINER="${RADAR_CONTAINER:-devcontainer-radar-develop-1}"
 
 # 参数校验
@@ -45,9 +45,11 @@ fi
 # -i 而非 -it：egui 等无 TTY 环境（stdin/stdout 管道）调用时不会报
 # "the input device is not a TTY"；交互终端下功能不受影响。
 docker exec -i "$CONTAINER" bash -c '
-set -euo pipefail
+set -eo pipefail
+set +u
 source /opt/ros/jazzy/setup.bash
 source /workspace/ros_ws/install/setup.bash
+set -u
 
 # launch 输出落盘：/workspace/model/logs/<ts>_launch.log（终端同时可见，Ctrl-C 退出）
 LOG_DIR=/workspace/model/logs
@@ -55,9 +57,14 @@ mkdir -p "${LOG_DIR}"
 LOG_FILE="${LOG_DIR}/$(date +%Y%m%d_%H%M%S)_launch.log"
 echo "[LOG] launch output -> ${LOG_FILE}" >&2
 
+RAW_ARGS=()
+if [[ -n "${4:-}" ]]; then
+    RAW_ARGS+=("enable_raw_recording:=$4")
+fi
+
 ros2 launch radar_bringup competition.launch.py \
     "side:=$1" \
     "map_path:=$2" \
     "sensor:=$3" \
-    "enable_raw_recording:=$4" 2>&1 | tee "${LOG_FILE}"
+    "${RAW_ARGS[@]}" 2>&1 | tee "${LOG_FILE}"
 ' bash "$SIDE" "$MAP_PATH" "$SENSOR" "$ENABLE_RAW_RECORDING"
