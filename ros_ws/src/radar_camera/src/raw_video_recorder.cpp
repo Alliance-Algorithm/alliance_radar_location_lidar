@@ -10,11 +10,13 @@
 #include <sstream>
 #include <thread>
 
+extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libavutil/error.h>
 #include <libavutil/opt.h>
 #include <libswscale/swscale.h>
+}
 
 namespace radar_camera::recording {
 namespace {
@@ -413,15 +415,15 @@ void RawVideoRecorder::loop() {
             fail("raw frame dimensions or format do not match recorder", true);
             break;
         }
-        auto result = av_frame_make_writable(segment->frame);
+        auto result = av_frame_make_writable((*segment)->frame);
         if (result < 0) {
             fail("could not make YUV frame writable: " + ffmpeg_error(result), false);
             break;
         }
-        const auto* source[]      = { frame->rgb.ptr<std::uint8_t>() };
+        const std::uint8_t* source[] = { frame->rgb.ptr<std::uint8_t>() };
         const int source_stride[] = { static_cast<int>(frame->rgb.step) };
-        if (sws_scale(segment->scaler, source, source_stride, 0, config_.height,
-                segment->frame->data, segment->frame->linesize)
+        if (sws_scale((*segment)->scaler, source, source_stride, 0, config_.height,
+                (*segment)->frame->data, (*segment)->frame->linesize)
             <= 0) {
             fail("RGB-to-YUV conversion failed", false);
             break;
@@ -436,13 +438,13 @@ void RawVideoRecorder::loop() {
             fail("frame index exceeds FFmpeg timestamp range", false);
             break;
         }
-        segment->frame->pts = static_cast<std::int64_t>(frame_index);
+        (*segment)->frame->pts = static_cast<std::int64_t>(frame_index);
         for (;;) {
-            result = avcodec_send_frame(segment->codec, segment->frame);
+            result = avcodec_send_frame((*segment)->codec, (*segment)->frame);
             if (result != AVERROR(EAGAIN)) {
                 break;
             }
-            const auto drained = drain_packets(*segment, packet, false);
+            const auto drained = drain_packets(**segment, packet, false);
             if (!drained) {
                 av_packet_free(&packet);
                 fail(drained.error(), false);
@@ -464,24 +466,24 @@ void RawVideoRecorder::loop() {
             fail("NVENC frame send failed: " + ffmpeg_error(result), false);
             break;
         }
-        const auto drained = drain_packets(*segment, packet, false);
+        const auto drained = drain_packets(**segment, packet, false);
         av_packet_free(&packet);
         if (!drained) {
             fail(drained.error(), false);
             break;
         }
         ++frame_index;
-        segment->sidecar
+        (*segment)->sidecar
             << "{\"sequence\":" << frame->sequence
             << ",\"source_monotonic_ns\":" << frame->host_monotonic_ns << ",\"segment\":\""
             << segment_path(config_.output_dir, session_start, segment_index).filename().string()
             << "\",\"overruns\":" << fifo_.overrun() << ",\"errors\":" << stats().errors << "}\n";
-        if (!segment->sidecar) {
+        if (!(*segment)->sidecar) {
             fail("sidecar write failed", false);
             break;
         }
-        segment->sidecar.flush();
-        if (!segment->sidecar) {
+        (*segment)->sidecar.flush();
+        if (!(*segment)->sidecar) {
             fail("sidecar write or flush failed", false);
             break;
         }
@@ -490,11 +492,11 @@ void RawVideoRecorder::loop() {
             ++stats_.encoded;
         }
         if (frame_index % segment_frames == 0) {
-            if (const auto finalized = finalize_segment(*segment); !finalized) {
+            if (const auto finalized = finalize_segment(**segment); !finalized) {
                 fail(finalized.error(), false);
                 break;
             }
-            segment.reset();
+            segment->reset();
             if (segment_index == std::numeric_limits<std::size_t>::max()) {
                 fail("segment index overflow", false);
                 break;
@@ -510,8 +512,8 @@ void RawVideoRecorder::loop() {
             ++stats_.segments;
         }
     }
-    if (segment != nullptr) {
-        if (const auto finalized = finalize_segment(*segment); !finalized) {
+    if (segment) {
+        if (const auto finalized = finalize_segment(**segment); !finalized) {
             fail(finalized.error(), false);
         }
     }

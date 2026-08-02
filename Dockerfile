@@ -33,6 +33,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     zsh screen tmux \
     usbutils net-tools iputils-ping \
     ripgrep htop fzf \
+    ffmpeg \
+    python3-zmq \
     libusb-1.0-0-dev \
     libssl-dev \
     libboost-dev \

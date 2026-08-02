@@ -9,7 +9,10 @@
 #include <thread>
 #include <vector>
 
-#include <hikcamera/shm.hpp>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
+
+#include "hikcamera/shared_frame_reader.hpp"
 
 #include "radar_camera/armor_refine.hpp"
 #include "radar_camera/data_format.hpp"
@@ -57,12 +60,21 @@ private:
     auto recording_monitor_start() -> void;
     auto recording_monitor_stop() -> void;
 
+    /// @brief 查询 TF map→camera_optical_frame 更新投影外参（GICP + 安装外参）
+    void update_camera_extrinsic_from_tf();
+
     std::chrono::steady_clock::time_point capture_timestamp_;
     rclcpp::Publisher<radar_interfaces::msg::CameraDetectionPose>::SharedPtr pose_publisher_;
 
-    int shm_fd_ = -1;
+    hikcamera::SharedFrameReader shm_reader_;
     std::atomic<bool> infer_running_ { false };
     std::thread infer_thread_;
+
+    // TF: map→radar_base（radar_lidar GICP 发布）+ radar_base→camera_optical（static）
+    std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
+    std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
+    bool tf_ready_ = false;
+    std::uint64_t frame_count_ = 0;
 
     camera_config::CameraConfig camera_config_;
     inference_config::InferenceConfig inference_config_;

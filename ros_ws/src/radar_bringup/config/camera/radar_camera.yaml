@@ -42,8 +42,13 @@ radar_camera_node:
                     0.0, 0.0, 1.0]
     # TODO: 畸变系数未入库。重跑 .script/calibrate-camera 取结果填入 [k1, k2, p1, p2, k3]
     distortion_coefficients: [0.0, 0.0, 0.0, 0.0, 0.0]
-    rotation: [0.0, 0.0, 0.0]
-    translation: [0.0, 0.0, 0.0]
+    # 外参初值（蓝方雷达站：短边中轴 x=14m, 4m 高，指向场地中心）
+    # rotation 单位: 弧度 [roll, pitch, yaw]
+    #   pitch = pi/2 + 14.04° 俯角 = 1.8159 rad（光轴 +Z 从水平低头指向场地中心）
+    #   yaw   = pi（蓝方在 +X 侧，朝向 -X 看场地）
+    # translation: 相机在 map 系位置 [x, y, z]
+    rotation: [0.0, 1.8159, 3.14159]
+    translation: [14.0, 0.0, 4.0]
     pub_topic_name: "/radar_camera/robot_pose"
     enable_raw_recording: false
     recording_output_dir: "/model/devio"

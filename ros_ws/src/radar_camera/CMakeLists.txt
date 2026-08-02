@@ -48,6 +48,7 @@ if(RADAR_CAMERA_ENABLE_TENSORRT)
 endif()
 
 ament_auto_find_build_dependencies()
+find_package(hikcamera REQUIRED)
 
 add_library(${PROJECT_NAME}_core STATIC
     src/model_inference.cpp
@@ -76,6 +77,7 @@ target_link_libraries(${PROJECT_NAME}_core
         Eigen3::Eigen
         assimp::assimp
         PkgConfig::FFMPEG
+        hikcamera::hikcamera
 )
 if(RADAR_CAMERA_ENABLE_TENSORRT)
     target_include_directories(${PROJECT_NAME}_core PRIVATE
@@ -94,6 +96,7 @@ ament_auto_add_executable(${PROJECT_NAME}_node
     src/radar_camera_node.cpp
 )
 target_link_libraries(${PROJECT_NAME}_node ${PROJECT_NAME}_core)
+ament_target_dependencies(${PROJECT_NAME}_node rclcpp tf2_ros geometry_msgs)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -113,6 +116,8 @@ if(BUILD_TESTING)
       test/test_raw_video_recorder.cpp
   )
   target_link_libraries(radar_camera_tests ${PROJECT_NAME}_core)
+  ament_target_dependencies(radar_camera_tests rclcpp tf2_ros geometry_msgs)
+  ament_target_dependencies(radar_camera_tests rclcpp radar_interfaces)
   target_compile_definitions(radar_camera_tests PRIVATE
       RADAR_CAMERA_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test"
   )

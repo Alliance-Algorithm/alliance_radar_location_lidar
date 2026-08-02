@@ -6,9 +6,9 @@ hikcamera_ros_driver_node:
     white_balance_green: 512
     auto_white_balance: 1
 
-    # 曝光与增益（室内低噪）
-    exposure_us: 20000.0
-    gain: 0.0
+    # 曝光与增益
+    exposure_us: 10000.0
+    gain: 23.0
 
     # 帧率（CS200-10UC USB3 稳定 20fps）
     framerate: 20.0
@@ -31,4 +31,4 @@ hikcamera_ros_driver_node:
     shm_name: "/hikcamera_shm"
 
     # 相机序列号 SN（多相机时按序列号选设备；留空=仅1台相机时自动选用）
-    device_serial: ""
+    device_serial: "DB0067863"

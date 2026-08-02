@@ -81,8 +81,8 @@ auto ModelInference::infer_preprocess(const cv::Mat& image, size_t width, size_t
         if (image.empty()) {
             return std::unexpected("infer_preprocess failed: empty image");
         }
-        // SHMRead already resizes live RGB8 frames. Only resize direct callers that provide a
-        // different shape, and preserve RGB channel order in both cases.
+        // Callers already resize live RGB frames to model input. Only resize direct callers that
+        // provide a different shape, and preserve RGB channel order in both cases.
         cv::Mat input = image;
         if (image.cols != static_cast<int>(width) || image.rows != static_cast<int>(height)) {
             cv::resize(input, input, cv::Size(static_cast<int>(width), static_cast<int>(height)));

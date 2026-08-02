@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <print>
 #include <string>
 #include <vector>
 
@@ -95,7 +96,7 @@ auto detect(TensorRtInference& engine, const cv::Mat& rgb) -> std::vector<Plate>
 
 auto main_impl(int argc, char** argv) -> int {
     if (argc < 4) {
-        std::cerr << "usage: annotate_l2 <frames> <output> <model_dir>\n";
+        std::println(std::cerr, "usage: annotate_l2 <frames> <output> <model_dir>");
         return 2;
     }
     const fs::path frames = argv[1], output = argv[2], models = argv[3];

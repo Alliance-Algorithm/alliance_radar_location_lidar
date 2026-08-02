@@ -9,7 +9,7 @@
 
 参数:
     sensor   传感器型号: odin | mid70  (默认 odin)
-    map_path 地图 PCD 绝对路径          (默认 /workspace/model/generated/map.pcd)
+    map_path 地图 PCD 绝对路径          (默认 /workspace/model/generated/jinan_field_map_reg.pcd)
 """
 
 import os
@@ -71,7 +71,7 @@ def generate_launch_description():
     )
     map_path_arg = DeclareLaunchArgument(
         "map_path",
-        default_value="/workspace/model/generated/map.pcd",
+        default_value="/workspace/model/generated/jinan_field_map_reg.pcd",
         description="地图 PCD 绝对路径",
     )
     radar_params_arg = DeclareLaunchArgument(
