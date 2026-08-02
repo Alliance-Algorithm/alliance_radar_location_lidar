@@ -25,7 +25,8 @@ public:
     auto video_thread_stop() -> std::expected<void, std::string>;
 
 private:
-    void draw_overlay(cv::Mat& bgr, const std::vector<radar_camera::armor_infer::ArmorResult>& results);
+    void draw_overlay(
+        cv::Mat& bgr, const std::vector<radar_camera::armor_infer::ArmorResult>& results);
 
     hikcamera::SharedFrameReader reader_;
     std::shared_ptr<radar_camera::armor_infer::ArmorInfer> infer_;

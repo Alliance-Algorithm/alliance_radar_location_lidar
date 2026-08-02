@@ -71,8 +71,8 @@ RadarFusionNode::RadarFusionNode(const rclcpp::NodeOptions& options)
 
     if (cfg_.enable_camera_fusion) {
         sub_camera_detection_ =
-            this->create_subscription<radar_interfaces::msg::CameraDetectionPose>(camera_topic_,
-                10, [this](const radar_interfaces::msg::CameraDetectionPose::SharedPtr msg) {
+            this->create_subscription<radar_interfaces::msg::CameraDetectionPose>(camera_topic_, 10,
+                [this](const radar_interfaces::msg::CameraDetectionPose::SharedPtr msg) {
                     on_camera_detection(msg);
                 });
     }
@@ -162,9 +162,8 @@ void RadarFusionNode::on_camera_detection(
     publish_status(stamp);
 }
 
-void RadarFusionNode::process_measurements(
-    const std::vector<Eigen::Vector2d>& measurements, int64_t now_ns, bool mark_unmatched_tracks,
-    const std::vector<int>& classes) {
+void RadarFusionNode::process_measurements(const std::vector<Eigen::Vector2d>& measurements,
+    int64_t now_ns, bool mark_unmatched_tracks, const std::vector<int>& classes) {
     for (auto& track : tracks_) {
         track.predict(now_ns);
     }
@@ -416,23 +415,23 @@ void RadarFusionNode::publish_lidar_tracks(
         if (!s.is_confirmed()) continue;
 
         visualization_msgs::msg::Marker m;
-        m.header.stamp    = stamp;
-        m.header.frame_id = "map";
-        m.ns              = "lidar_clusters";
-        m.id              = s.track_id;
-        m.type            = visualization_msgs::msg::Marker::SPHERE;
-        m.action          = visualization_msgs::msg::Marker::ADD;
-        m.pose.position.x = s.x(0);
-        m.pose.position.y = s.x(1);
-        m.pose.position.z = 0.5;
+        m.header.stamp       = stamp;
+        m.header.frame_id    = "map";
+        m.ns                 = "lidar_clusters";
+        m.id                 = s.track_id;
+        m.type               = visualization_msgs::msg::Marker::SPHERE;
+        m.action             = visualization_msgs::msg::Marker::ADD;
+        m.pose.position.x    = s.x(0);
+        m.pose.position.y    = s.x(1);
+        m.pose.position.z    = 0.5;
         m.pose.orientation.w = 1.0;
-        m.scale.x = 0.4;
-        m.scale.y = 0.4;
-        m.scale.z = 0.4;
-        m.color.g = 1.0f;   // 黄色系: R+G
-        m.color.r = 1.0f;
-        m.color.a = 0.6f;
-        m.lifetime = rclcpp::Duration::from_seconds(0.5);
+        m.scale.x            = 0.4;
+        m.scale.y            = 0.4;
+        m.scale.z            = 0.4;
+        m.color.g            = 1.0f; // 黄色系: R+G
+        m.color.r            = 1.0f;
+        m.color.a            = 0.6f;
+        m.lifetime           = rclcpp::Duration::from_seconds(0.5);
         markers.markers.push_back(m);
     }
     pub_tracks_->publish(markers);
@@ -548,10 +547,10 @@ void RadarFusionNode::publish_lidar_location(
         const int slot_idx = kClassToSlot[s.class_id];
         // RoboMaster 0x0305 / radar-egui 约定: 厘米 (米 -> cm 乘 100)
         // 截断负值：track 外推误差可能让 map+offset 为负，uint16_t 转换是 UB
-        *slots_x[slot_idx] = static_cast<uint16_t>(
-            std::max(0.0, s.x(0) + cfg_.map_to_rm_offset_x) * 100.0);
-        *slots_y[slot_idx] = static_cast<uint16_t>(
-            std::max(0.0, s.x(1) + cfg_.map_to_rm_offset_y) * 100.0);
+        *slots_x[slot_idx] =
+            static_cast<uint16_t>(std::max(0.0, s.x(0) + cfg_.map_to_rm_offset_x) * 100.0);
+        *slots_y[slot_idx] =
+            static_cast<uint16_t>(std::max(0.0, s.x(1) + cfg_.map_to_rm_offset_y) * 100.0);
     }
 
     fill_default_positions(msg, steady_now_ns());

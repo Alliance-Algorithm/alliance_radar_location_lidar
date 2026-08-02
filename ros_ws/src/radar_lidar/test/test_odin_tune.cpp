@@ -2,11 +2,11 @@
 
 #include <Eigen/Geometry>
 
-#include "radar_lidar/odin_tune/pose_buffer.hpp"
+#include "radar_lidar/data_format.hpp"
 #include "radar_lidar/odin_tune/background_model.hpp"
 #include "radar_lidar/odin_tune/frame_differencer.hpp"
 #include "radar_lidar/odin_tune/map_differencer.hpp"
-#include "radar_lidar/data_format.hpp"
+#include "radar_lidar/odin_tune/pose_buffer.hpp"
 
 namespace {
 
@@ -40,7 +40,7 @@ TEST(PoseBufferTest, LookupNearest) {
 }
 
 TEST(PoseBufferTest, LookupTooOldReturnsNullopt) {
-    radar_lidar::odin_tune::PoseBuffer buf(1'000);  // 1us 跨度
+    radar_lidar::odin_tune::PoseBuffer buf(1'000); // 1us 跨度
     buf.add(100, make_pose(0.0, 0.0, 0.0));
 
     EXPECT_FALSE(buf.lookup(100 + 1'001).has_value());
@@ -63,8 +63,8 @@ TEST(BackgroundModelTest, EmptyModelAlignsEmpty) {
 
 TEST(BackgroundModelTest, SamePoseKeepsPoints) {
     radar_lidar::odin_tune::BackgroundModel model(5);
-    radar_lidar::types::PointCloud pts {
-        Eigen::Vector3d(1.0, 0.0, 0.0), Eigen::Vector3d(0.0, 2.0, 0.0) };
+    radar_lidar::types::PointCloud pts { Eigen::Vector3d(1.0, 0.0, 0.0),
+        Eigen::Vector3d(0.0, 2.0, 0.0) };
     const auto pose = make_pose(5.0, 5.0, 0.0);
     model.add(pts, pose);
 
@@ -175,7 +175,7 @@ TEST(MapDifferencerTest, StaticAndMovingBothDetected) {
     radar_lidar::odin_tune::MapDifferencer diff(map_pts, 0.3);
 
     radar_lidar::types::PointCloud scan {
-        Eigen::Vector3d(2.0, 0.0, 0.0), // 移动目标
+        Eigen::Vector3d(2.0, 0.0, 0.0),  // 移动目标
         Eigen::Vector3d(-1.0, 0.0, 0.0), // 静止目标
     };
     auto result = diff.differ(scan);

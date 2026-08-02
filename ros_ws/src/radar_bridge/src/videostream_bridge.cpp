@@ -10,12 +10,15 @@
 namespace radar_bridge::videostream_bridge {
 
 namespace {
-void draw_text(cv::Mat& image, const std::string& value, cv::Point point,
-    cv::Scalar color, double scale = 0.8) {
-    cv::putText(image, value, point, cv::FONT_HERSHEY_SIMPLEX, scale, cv::Scalar(0, 0, 0), 4, cv::LINE_AA);
-    cv::putText(image, value, point, cv::FONT_HERSHEY_SIMPLEX, scale, color, 2, cv::LINE_AA);
-}
-auto pct(float value) -> std::string { return std::to_string(static_cast<int>(value * 100.0f)) + "%"; }
+    void draw_text(cv::Mat& image, const std::string& value, cv::Point point, cv::Scalar color,
+        double scale = 0.8) {
+        cv::putText(image, value, point, cv::FONT_HERSHEY_SIMPLEX, scale, cv::Scalar(0, 0, 0), 4,
+            cv::LINE_AA);
+        cv::putText(image, value, point, cv::FONT_HERSHEY_SIMPLEX, scale, color, 2, cv::LINE_AA);
+    }
+    auto pct(float value) -> std::string {
+        return std::to_string(static_cast<int>(value * 100.0f)) + "%";
+    }
 } // namespace
 
 VideoBridge::~VideoBridge() { auto _ = video_thread_stop(); }
@@ -39,15 +42,15 @@ auto VideoBridge::video_init(const std::string& shm_name, const std::string& pub
     return { };
 }
 
-void VideoBridge::draw_overlay(cv::Mat& bgr,
-    const std::vector<radar_camera::armor_infer::ArmorResult>& results) {
+void VideoBridge::draw_overlay(
+    cv::Mat& bgr, const std::vector<radar_camera::armor_infer::ArmorResult>& results) {
     using radar_camera::armor_infer::l1_names;
     using radar_camera::armor_infer::l3_names;
     const cv::Scalar l1_color(255, 180, 0), l2_color(0, 255, 255), miss_color(0, 0, 255);
     for (const auto& result : results) {
         const bool l3_match = result.l3.has_value();
-        const cv::Scalar box_color = (result.final_id < 6)
-            ? cv::Scalar(0, 0, 255) : cv::Scalar(255, 0, 0);
+        const cv::Scalar box_color =
+            (result.final_id < 6) ? cv::Scalar(0, 0, 255) : cv::Scalar(255, 0, 0);
         const auto draw_box = [&](cv::Rect2f box, cv::Scalar color, int thickness) {
             cv::rectangle(bgr, { int(box.x), int(box.y) },
                 { int(box.x + box.width), int(box.y + box.height) }, color, thickness);
@@ -55,7 +58,8 @@ void VideoBridge::draw_overlay(cv::Mat& bgr,
         draw_box(result.l1_box, box_color, 8);
         if (result.l2 && result.l2->corners.size() == 4) {
             std::vector<cv::Point> poly;
-            for (const auto& p : result.l2->corners) poly.emplace_back(int(p.x), int(p.y));
+            for (const auto& p : result.l2->corners)
+                poly.emplace_back(int(p.x), int(p.y));
             cv::polylines(bgr, poly, true, l2_color, 6, cv::LINE_AA);
         } else if (result.l2) {
             draw_box(result.l2->box, l2_color, 6);
@@ -70,22 +74,27 @@ void VideoBridge::draw_overlay(cv::Mat& bgr,
             { label_x, label_y }, l1_color, 0.9);
         if (result.l2) {
             const std::string color = result.l2->color == 2 ? "BLUE"
-                : result.l2->color == 1 ? "RED" : "UNK";
-            draw_text(bgr, "L2 armor " + color + " genre=" + std::to_string(result.l2->genre)
-                    + " " + pct(result.l2->conf), { label_x, label_y + 32 }, l2_color, 0.9);
+                : result.l2->color == 1                     ? "RED"
+                                                            : "UNK";
+            draw_text(bgr,
+                "L2 armor " + color + " genre=" + std::to_string(result.l2->genre) + " "
+                    + pct(result.l2->conf),
+                { label_x, label_y + 32 }, l2_color, 0.9);
         } else {
             draw_text(bgr, "L2 MISS", { label_x, label_y + 32 }, miss_color, 0.9);
         }
         if (result.l3) {
-            draw_text(bgr, "L3 " + std::string(l3_names(result.l3->index)) + " "
-                    + pct(result.l3->conf), { label_x, label_y + 64 }, l2_color, 0.9);
+            draw_text(bgr,
+                "L3 " + std::string(l3_names(result.l3->index)) + " " + pct(result.l3->conf),
+                { label_x, label_y + 64 }, l2_color, 0.9);
         } else {
             draw_text(bgr, "L3 MISS", { label_x, label_y + 64 }, miss_color, 0.9);
         }
-        draw_text(bgr, "FINAL " + std::string(l1_names(result.final_id)) + " ["
-                + result.decision + "] " + result.match_state,
-            { label_x, label_y + 96 }, result.match_state == "MATCH"
-                ? cv::Scalar(0, 255, 0) : miss_color, 0.9);
+        draw_text(bgr,
+            "FINAL " + std::string(l1_names(result.final_id)) + " [" + result.decision + "] "
+                + result.match_state,
+            { label_x, label_y + 96 },
+            result.match_state == "MATCH" ? cv::Scalar(0, 255, 0) : miss_color, 0.9);
     }
 }
 

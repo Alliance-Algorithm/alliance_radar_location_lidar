@@ -73,7 +73,7 @@ private:
     // TF: map→radar_base（radar_lidar GICP 发布）+ radar_base→camera_optical（static）
     std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
     std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
-    bool tf_ready_ = false;
+    bool tf_ready_             = false;
     std::uint64_t frame_count_ = 0;
 
     camera_config::CameraConfig camera_config_;

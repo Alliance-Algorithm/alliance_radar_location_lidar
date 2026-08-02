@@ -42,8 +42,8 @@ public:
         std::vector<int> idx(1);
         std::vector<float> dist_sq(1);
         for (const auto& p : scan) {
-            const pcl::PointXYZ query(static_cast<float>(p.x()),
-                static_cast<float>(p.y()), static_cast<float>(p.z()));
+            const pcl::PointXYZ query(
+                static_cast<float>(p.x()), static_cast<float>(p.y()), static_cast<float>(p.z()));
             if (kd_tree_.nearestKSearch(query, 1, idx, dist_sq) > 0 && dist_sq[0] > thresh_sq) {
                 result.push_back(p);
             }
@@ -51,9 +51,7 @@ public:
         return result;
     }
 
-    void set_distance_threshold(double t) {
-        distance_threshold_ = t;
-    }
+    void set_distance_threshold(double t) { distance_threshold_ = t; }
 
 private:
     pcl::KdTreeFLANN<pcl::PointXYZ> kd_tree_;

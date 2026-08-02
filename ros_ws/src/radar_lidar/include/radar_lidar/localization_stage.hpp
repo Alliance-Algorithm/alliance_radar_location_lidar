@@ -70,7 +70,7 @@ private:
     bool locked_ = false;
 
     // watchdog 状态
-    std::size_t watchdog_frame_count_ = 0;
+    std::size_t watchdog_frame_count_  = 0;
     int watchdog_high_residual_frames_ = 0;
 };
 

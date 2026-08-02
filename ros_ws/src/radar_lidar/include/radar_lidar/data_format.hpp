@@ -77,14 +77,14 @@ struct LocalizationConfig {
     // 若残差连续 exceed_watchdog_frames 帧 > watchdog_fitness → 解锁重配准
     bool enable_watchdog        = false;
     double watchdog_fitness     = 0.5;
-    int watchdog_check_interval = 10;   // 锁定后每 N 帧检测一次
-    int watchdog_unlock_frames  = 3;    // 连续超标帧数 → 解锁
+    int watchdog_check_interval = 10; // 锁定后每 N 帧检测一次
+    int watchdog_unlock_frames  = 3;  // 连续超标帧数 → 解锁
 
     // 解锁后 coarse 重定位搜索（watchdog 触发时自动执行）
     // 在锁定位姿附近做 yaw + 平移多起点 coarse GICP，inlier 选优后精配
-    bool enable_coarse_relocalize  = false;
-    double coarse_yaw_range_deg    = 30.0;  // yaw 搜索范围 ±
-    double coarse_yaw_step_deg     = 5.0;   // yaw 搜索步长
+    bool enable_coarse_relocalize   = false;
+    double coarse_yaw_range_deg     = 30.0; // yaw 搜索范围 ±
+    double coarse_yaw_step_deg      = 5.0;  // yaw 搜索步长
     double coarse_translate_range_m = 3.0;  // 平移搜索范围 ± (x/y)
     double coarse_translate_step_m  = 1.0;  // 平移搜索步长
     double coarse_voxel             = 0.5;  // coarse 配准降采样

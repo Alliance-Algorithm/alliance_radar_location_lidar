@@ -21,9 +21,9 @@ struct BridgeConfig {
     std::string image_topic;
     bool enable_inference = false;
     std::string model_dir = "/workspace/ros_ws/src/radar_camera/model";
-    float l1_conf = radar_camera::armor_infer::kL1Conf;
-    float l2_conf = radar_camera::armor_infer::kL2Conf;
-    float l3_conf = radar_camera::armor_infer::kL3Conf;
+    float l1_conf         = radar_camera::armor_infer::kL1Conf;
+    float l2_conf         = radar_camera::armor_infer::kL2Conf;
+    float l3_conf         = radar_camera::armor_infer::kL3Conf;
 };
 
 auto ConfigsLoader(rclcpp::Node& node, BridgeConfig& config) -> std::expected<void, std::string>;

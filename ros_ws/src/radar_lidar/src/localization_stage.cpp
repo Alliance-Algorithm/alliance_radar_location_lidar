@@ -13,14 +13,14 @@ namespace radar_lidar::localization {
 
 namespace {
 
-    [[nodiscard]] auto in_localization_roi(const Eigen::Vector3d& point,
-        const config::RoiBounds& roi) -> bool {
+    [[nodiscard]] auto in_localization_roi(
+        const Eigen::Vector3d& point, const config::RoiBounds& roi) -> bool {
         return point.x() > roi.x_min && point.x() < roi.x_max && point.y() > roi.y_min
             && point.y() < roi.y_max && point.z() > roi.z_min && point.z() < roi.z_max;
     }
 
-    [[nodiscard]] auto filter_localization_roi(const types::PointCloud& points,
-        const config::RoiBounds& roi) -> types::PointCloud {
+    [[nodiscard]] auto filter_localization_roi(
+        const types::PointCloud& points, const config::RoiBounds& roi) -> types::PointCloud {
         types::PointCloud result;
         result.reserve(points.size());
         for (const auto& point : points) {
@@ -109,7 +109,8 @@ auto LocalizationStage::process(const types::Frame& scan)
             // 解锁后尝试 coarse 重定位（若启用）
             if (cfg_.enable_coarse_relocalize) {
                 if (coarse_relocalize(scan)) {
-                    std::printf("[localization_stage] coarse relocalization succeeded, re-locked\n");
+                    std::printf("[localization_stage] coarse relocalization succeeded, "
+                                "re-locked\n");
                 }
             }
         }
@@ -169,10 +170,10 @@ auto LocalizationStage::watchdog_check(const types::Frame& scan) -> bool {
     if (tree.getInputCloud() == nullptr) return false;
 
     // 用锁定位姿把 scan 变换到 map 系，对降采样后的点查最近邻距离
-    const auto& pose = prev_pose_;
-    double sum = 0.0;
-    int count = 0;
-    const std::size_t step = std::max<std::size_t>(1, scan.points.size() / 200);  // 采样 ≤200 点
+    const auto& pose       = prev_pose_;
+    double sum             = 0.0;
+    int count              = 0;
+    const std::size_t step = std::max<std::size_t>(1, scan.points.size() / 200); // 采样 ≤200 点
     for (std::size_t i = 0; i < scan.points.size(); i += step) {
         const Eigen::Vector3d p_map = pose * scan.points[i];
         pcl::PointXYZ query(static_cast<float>(p_map.x()), static_cast<float>(p_map.y()),
@@ -201,9 +202,9 @@ auto LocalizationStage::score_alignment(
     const auto& tree = map_->pcl_tree();
     if (tree.getInputCloud() == nullptr) return { };
 
-    int inliers = 0;
+    int inliers   = 0;
     double sum_sq = 0.0;
-    int count = 0;
+    int count     = 0;
     for (const auto& p : scan) {
         const Eigen::Vector3d p_map = T * p;
         pcl::PointXYZ query(static_cast<float>(p_map.x()), static_cast<float>(p_map.y()),
@@ -228,16 +229,16 @@ auto LocalizationStage::coarse_relocalize(const types::Frame& scan) -> bool {
     if (source_points.size() < 50) return false;
 
     // coarse 配置
-    auto coarse_cfg       = cfg_;
-    coarse_cfg.voxel_leaf_size = cfg_.coarse_voxel;
+    auto coarse_cfg              = cfg_;
+    coarse_cfg.voxel_leaf_size   = cfg_.coarse_voxel;
     coarse_cfg.max_corr_distance = cfg_.coarse_max_corr;
-    coarse_cfg.max_iterations = cfg_.coarse_max_iter;
-    coarse_cfg.roi.use_roi = false;
+    coarse_cfg.max_iterations    = cfg_.coarse_max_iter;
+    coarse_cfg.roi.use_roi       = false;
 
     // 以锁定位姿为基准生成 yaw + 平移多起点
     const Eigen::Vector3d base_t = prev_pose_.translation();
     const Eigen::Matrix3d base_R = prev_pose_.rotation();
-    const double base_yaw = std::atan2(base_R(1, 0), base_R(0, 0));
+    const double base_yaw        = std::atan2(base_R(1, 0), base_R(0, 0));
 
     std::vector<double> yaw_offsets;
     for (double off = -cfg_.coarse_yaw_range_deg; off <= cfg_.coarse_yaw_range_deg + 1e-9;
@@ -264,7 +265,7 @@ auto LocalizationStage::coarse_relocalize(const types::Frame& scan) -> bool {
         for (const double tx_off : tx_offsets) {
             for (const double ty_off : ty_offsets) {
                 Eigen::Isometry3d init = Eigen::Isometry3d::Identity();
-                init.translation() = base_t + Eigen::Vector3d(tx_off, ty_off, 0.0);
+                init.translation()     = base_t + Eigen::Vector3d(tx_off, ty_off, 0.0);
                 init.linear() = (Eigen::AngleAxisd(base_yaw + yaw_off, Eigen::Vector3d::UnitZ())
                     * Eigen::AngleAxisd(0.0, Eigen::Vector3d::UnitY())
                     * Eigen::AngleAxisd(0.0, Eigen::Vector3d::UnitX()))
@@ -283,15 +284,17 @@ auto LocalizationStage::coarse_relocalize(const types::Frame& scan) -> bool {
 
                 auto result = small_gicp::align(target_points_, source_points, init, setting);
                 const Eigen::Isometry3d cand_T = result.T_target_source;
-                const auto score = score_alignment(scan.points, cand_T);
+                const auto score               = score_alignment(scan.points, cand_T);
                 candidates.push_back({ cand_T, score, yaw_off * 180.0 / M_PI, tx_off, ty_off });
             }
         }
     }
 
     // 选 inlier 最高者
-    const auto best = std::max_element(candidates.begin(), candidates.end(),
-        [](const Candidate& a, const Candidate& b) { return a.score.inlier_ratio < b.score.inlier_ratio; });
+    const auto best = std::max_element(
+        candidates.begin(), candidates.end(), [](const Candidate& a, const Candidate& b) {
+            return a.score.inlier_ratio < b.score.inlier_ratio;
+        });
     if (best == candidates.end() || best->score.inlier_ratio < cfg_.coarse_min_inlier) {
         std::printf("[localization_stage] coarse relocalize FAILED (best inlier=%.3f)\n",
             best == candidates.end() ? 0.0 : best->score.inlier_ratio);
@@ -303,7 +306,7 @@ auto LocalizationStage::coarse_relocalize(const types::Frame& scan) -> bool {
         best->yaw_off_deg, best->tx_off, best->ty_off, best->score.inlier_ratio, best->score.rmse);
 
     // 精配（用当前完整配置，从 best 出发）
-    prev_pose_ = best->t_map_lidar;
+    prev_pose_       = best->t_map_lidar;
     auto source_fine = preprocess(scan);
     small_gicp::RegistrationSetting fine_setting;
     fine_setting.type                        = small_gicp::RegistrationSetting::GICP;
@@ -315,7 +318,7 @@ auto LocalizationStage::coarse_relocalize(const types::Frame& scan) -> bool {
     fine_setting.num_threads                 = cfg_.num_threads;
     fine_setting.verbose                     = cfg_.verbose;
 
-    auto fine = small_gicp::align(target_points_, source_fine, prev_pose_, fine_setting);
+    auto fine  = small_gicp::align(target_points_, source_fine, prev_pose_, fine_setting);
     prev_pose_ = fine.T_target_source;
 
     // 精配后验证

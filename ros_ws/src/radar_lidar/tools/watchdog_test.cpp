@@ -42,19 +42,19 @@ auto transform_scan(const radar_lidar::types::Frame& src, const Eigen::Isometry3
 
 auto make_config() -> LocalizationConfig {
     LocalizationConfig cfg;
-    cfg.voxel_leaf_size   = 0.1;
-    cfg.max_corr_distance = 2.0;
-    cfg.max_iterations    = 50;
-    cfg.num_threads       = 4;
-    cfg.use_spherical_grid   = true;
-    cfg.spherical_grid_deg = 0.1;
-    cfg.accumulate_frames   = 0;
-    cfg.use_lock_strategy   = true;
-    cfg.lock_fitness        = 0.2;
-    cfg.enable_watchdog        = true;
-    cfg.watchdog_fitness       = 0.5;
-    cfg.watchdog_check_interval = 5;
-    cfg.watchdog_unlock_frames  = 3;
+    cfg.voxel_leaf_size          = 0.1;
+    cfg.max_corr_distance        = 2.0;
+    cfg.max_iterations           = 50;
+    cfg.num_threads              = 4;
+    cfg.use_spherical_grid       = true;
+    cfg.spherical_grid_deg       = 0.1;
+    cfg.accumulate_frames        = 0;
+    cfg.use_lock_strategy        = true;
+    cfg.lock_fitness             = 0.2;
+    cfg.enable_watchdog          = true;
+    cfg.watchdog_fitness         = 0.5;
+    cfg.watchdog_check_interval  = 5;
+    cfg.watchdog_unlock_frames   = 3;
     cfg.enable_coarse_relocalize = true;
     cfg.coarse_yaw_range_deg     = 20.0;
     cfg.coarse_yaw_step_deg      = 5.0;
@@ -73,7 +73,7 @@ auto main(int argc, char** argv) -> int {
         std::printf("usage: watchdog_test <map.pcd> <scan.pcd>\n");
         return 2;
     }
-    const std::string map_path = argv[1];
+    const std::string map_path  = argv[1];
     const std::string scan_path = argv[2];
 
     auto map_result = MapData::load(map_path, 0.1);
@@ -86,10 +86,12 @@ auto main(int argc, char** argv) -> int {
     auto cfg = make_config();
     // 初始位姿 = field_scan 合成真值: eye=(-14,0,4) yaw=0 pitch=14.04°
     cfg.has_initial_pose = true;
-    cfg.initial_tx = -14.0; cfg.initial_ty = 0.0; cfg.initial_tz = 4.0;
-    cfg.initial_yaw = 0.0;
-    cfg.initial_pitch = 0.245;
-    cfg.initial_roll = 0.0;
+    cfg.initial_tx       = -14.0;
+    cfg.initial_ty       = 0.0;
+    cfg.initial_tz       = 4.0;
+    cfg.initial_yaw      = 0.0;
+    cfg.initial_pitch    = 0.245;
+    cfg.initial_roll     = 0.0;
     LocalizationStage stage(map, cfg);
     auto scan = load_frame(scan_path);
     std::printf("scan points: %zu, map points: %zu\n", scan.points.size(), map->size());
@@ -131,13 +133,13 @@ auto main(int argc, char** argv) -> int {
 
     // Phase 3: watchdog-only（关 coarse）——10m 位移应解锁
     std::printf("--- Phase 3: watchdog-only, 10m displacement ---\n");
-    auto cfg_nocoarse = cfg;
+    auto cfg_nocoarse                     = cfg;
     cfg_nocoarse.enable_coarse_relocalize = false;
     LocalizationStage stage3(map, cfg_nocoarse);
     Eigen::Isometry3d T_shift = Eigen::Isometry3d::Identity();
-    T_shift.translation() = Eigen::Vector3d(10.0, 0.0, 0.0);
-    auto shifted = transform_scan(scan, T_shift);
-    bool unlocked3 = false;
+    T_shift.translation()     = Eigen::Vector3d(10.0, 0.0, 0.0);
+    auto shifted              = transform_scan(scan, T_shift);
+    bool unlocked3            = false;
     for (int i = 0; i < 30; ++i) {
         auto pose = stage3.process(shifted);
         if (!stage3.is_locked()) {
@@ -160,7 +162,7 @@ auto main(int argc, char** argv) -> int {
             std::printf("frame %d: UNLOCKED (coarse failed?)\n", i);
             break;
         }
-        if (i >= 5) {  // 前几帧已完成解锁+重锁
+        if (i >= 5) { // 前几帧已完成解锁+重锁
             reloc_ok = true;
             std::printf("frame %d: locked (watchdog + coarse recovered)\n", i);
             break;
@@ -173,9 +175,9 @@ auto main(int argc, char** argv) -> int {
     // Phase 4: 3m 位移灵敏度（watchdog-only）
     std::printf("--- Phase 4: watchdog-only, 3m displacement ---\n");
     Eigen::Isometry3d T_shift3 = Eigen::Isometry3d::Identity();
-    T_shift3.translation() = Eigen::Vector3d(3.0, 0.0, 0.0);
-    auto shifted3 = transform_scan(scan, T_shift3);
-    bool unlocked4 = false;
+    T_shift3.translation()     = Eigen::Vector3d(3.0, 0.0, 0.0);
+    auto shifted3              = transform_scan(scan, T_shift3);
+    bool unlocked4             = false;
     for (int i = 0; i < 30; ++i) {
         auto pose = stage3.process(shifted3);
         if (!stage3.is_locked()) {

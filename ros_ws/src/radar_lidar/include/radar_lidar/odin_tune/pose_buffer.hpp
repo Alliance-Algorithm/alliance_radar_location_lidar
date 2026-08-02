@@ -21,8 +21,7 @@ public:
 
     void add(types::Timestamp stamp, const Eigen::Isometry3d& pose) {
         entries_.emplace_back(stamp, pose);
-        while (entries_.size() > 1
-            && stamp - entries_.front().first > max_span_ns_) {
+        while (entries_.size() > 1 && stamp - entries_.front().first > max_span_ns_) {
             entries_.pop_front();
         }
     }
@@ -31,7 +30,7 @@ public:
         if (entries_.empty()) {
             return std::nullopt;
         }
-        const auto* best = &entries_.front();
+        const auto* best        = &entries_.front();
         std::int64_t best_delta = std::llabs(stamp - best->first);
         for (const auto& entry : entries_) {
             const std::int64_t delta = std::llabs(stamp - entry.first);
@@ -46,9 +45,7 @@ public:
         return best->second;
     }
 
-    void clear() {
-        entries_.clear();
-    }
+    void clear() { entries_.clear(); }
 
 private:
     std::deque<std::pair<types::Timestamp, Eigen::Isometry3d>> entries_;

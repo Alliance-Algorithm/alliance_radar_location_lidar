@@ -37,12 +37,12 @@ private:
         double conf_threshold { 35.0 };
         double voxel_leaf { 0.05 };
         config::RoiBounds roi { .use_roi = true,
-            .x_min                  = -11.0,
-            .x_max                  = 14.0,
-            .y_min                  = -7.5,
-            .y_max                  = 7.5,
-            .z_min                  = 0.0,
-            .z_max                  = 1.4 };
+            .x_min                       = -11.0,
+            .x_max                       = 14.0,
+            .y_min                       = -7.5,
+            .y_max                       = 7.5,
+            .z_min                       = 0.0,
+            .z_max                       = 1.4 };
         int bg_num_frames { 10 };
         double diff_threshold { 0.3 };
         config::ClusterConfig cluster { };
@@ -68,8 +68,8 @@ private:
 
     void publish_dynamic(const types::PointCloud& pts, types::Timestamp stamp);
     void publish_background(const types::PointCloud& pts, types::Timestamp stamp);
-    void publish_clusters(const std::vector<cluster::ClusterResult>& clusters,
-        types::Timestamp stamp);
+    void publish_clusters(
+        const std::vector<cluster::ClusterResult>& clusters, types::Timestamp stamp);
     void publish_diag(std::size_t dynamic_count, std::size_t cluster_count, double elapsed_ms,
         types::Timestamp stamp);
 

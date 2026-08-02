@@ -16,7 +16,10 @@ namespace {
         explicit ConstructorCleanupGuard(std::function<void()> cleanup)
             : cleanup_(std::move(cleanup)) { }
         ~ConstructorCleanupGuard() { cleanup_(); }
-        void release() noexcept { cleanup_ = [] { }; }
+        void release() noexcept {
+            cleanup_ = [] { };
+        }
+
     private:
         std::function<void()> cleanup_;
     };
@@ -256,26 +259,25 @@ auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
         // SHM open 重试：相机驱动可能晚于本节点启动。
         // 30s 超时仍失败 → Fatal + shutdown（保留错误可见性）。
         constexpr auto kShmOpenTimeout = std::chrono::seconds { 30 };
-        const auto shm_open_start = std::chrono::steady_clock::now();
-        bool shm_ready = false;
+        const auto shm_open_start      = std::chrono::steady_clock::now();
+        bool shm_ready                 = false;
         while (infer_running_.load(std::memory_order_acquire) && !shm_ready) {
             auto open_ret = shm_reader_.open(camera_config_.shm_name.c_str());
             if (open_ret) {
                 shm_ready = true;
-                RCLCPP_INFO(get_logger(), "SHM open succeeded: %s",
-                    camera_config_.shm_name.c_str());
+                RCLCPP_INFO(
+                    get_logger(), "SHM open succeeded: %s", camera_config_.shm_name.c_str());
                 break;
             }
             if (std::chrono::steady_clock::now() - shm_open_start > kShmOpenTimeout) {
-                RCLCPP_FATAL(get_logger(), "SHM open timed out after 30s: %s",
-                    open_ret.error().c_str());
+                RCLCPP_FATAL(
+                    get_logger(), "SHM open timed out after 30s: %s", open_ret.error().c_str());
                 infer_running_.store(false, std::memory_order_release);
                 rclcpp::shutdown();
                 return;
             }
             RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
-                "SHM not ready yet (waiting for camera driver): %s",
-                open_ret.error().c_str());
+                "SHM not ready yet (waiting for camera driver): %s", open_ret.error().c_str());
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
         }
         while (infer_running_.load(std::memory_order_acquire)) {
@@ -296,7 +298,7 @@ auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 continue;
             }
-            orig_frame = shm_frame->mat().clone();
+            orig_frame         = shm_frame->mat().clone();
             capture_timestamp_ = std::chrono::steady_clock::time_point(
                 std::chrono::nanoseconds(shm_frame->metadata().host_monotonic_ns));
 
@@ -397,14 +399,14 @@ void RadarCameraNode::update_camera_extrinsic_from_tf() {
         tf_msg = tf_buffer_->lookupTransform(
             "map", "camera_optical_frame", tf2::TimePointZero, tf2::durationFromSec(0.1));
     } catch (const tf2::TransformException&) {
-        return;  // TF 未就绪，保留 fallback 外参
+        return; // TF 未就绪，保留 fallback 外参
     }
     Eigen::Isometry3d t_map_camera = Eigen::Isometry3d::Identity();
-    t_map_camera.translation() = Eigen::Vector3d(tf_msg.transform.translation.x,
+    t_map_camera.translation()     = Eigen::Vector3d(tf_msg.transform.translation.x,
         tf_msg.transform.translation.y, tf_msg.transform.translation.z);
-    t_map_camera.linear() = Eigen::Quaterniond(tf_msg.transform.rotation.w,
+    t_map_camera.linear()          = Eigen::Quaterniond(tf_msg.transform.rotation.w,
         tf_msg.transform.rotation.x, tf_msg.transform.rotation.y, tf_msg.transform.rotation.z)
-                                .toRotationMatrix();
+                                         .toRotationMatrix();
     projector_.set_map_camera(t_map_camera);
     if (!tf_ready_) {
         tf_ready_ = true;

@@ -17,7 +17,7 @@
 namespace radar_lidar::node {
 
 namespace {
-    constexpr std::int64_t kMaxOdomDelayNs = 500'000'000LL;  // 0.5s
+    constexpr std::int64_t kMaxOdomDelayNs = 500'000'000LL; // 0.5s
 } // namespace
 
 OdinTuneNode::OdinTuneNode()
@@ -35,23 +35,22 @@ void OdinTuneNode::init() {
     sub_scan_ = create_subscription<sensor_msgs::msg::PointCloud2>(params_.scan_topic,
         rclcpp::SensorDataQoS(),
         [this](const sensor_msgs::msg::PointCloud2::SharedPtr msg) { on_scan(msg); });
-    sub_odom_ = create_subscription<nav_msgs::msg::Odometry>(params_.odom_topic,
-        rclcpp::SensorDataQoS(),
-        [this](const nav_msgs::msg::Odometry::SharedPtr msg) { on_odom(msg); });
+    sub_odom_ =
+        create_subscription<nav_msgs::msg::Odometry>(params_.odom_topic, rclcpp::SensorDataQoS(),
+            [this](const nav_msgs::msg::Odometry::SharedPtr msg) { on_odom(msg); });
 
-    pub_dynamic_ = create_publisher<sensor_msgs::msg::PointCloud2>("/odin_tune/dynamic", 10);
-    pub_background_ =
-        create_publisher<sensor_msgs::msg::PointCloud2>("/odin_tune/background", 10);
-    pub_clusters_ = create_publisher<sensor_msgs::msg::PointCloud2>("/odin_tune/clusters", 10);
+    pub_dynamic_    = create_publisher<sensor_msgs::msg::PointCloud2>("/odin_tune/dynamic", 10);
+    pub_background_ = create_publisher<sensor_msgs::msg::PointCloud2>("/odin_tune/background", 10);
+    pub_clusters_   = create_publisher<sensor_msgs::msg::PointCloud2>("/odin_tune/clusters", 10);
     pub_cluster_viz_ =
         create_publisher<visualization_msgs::msg::MarkerArray>("/odin_tune/cluster_viz", 10);
     pub_diag_ = create_publisher<diagnostic_msgs::msg::DiagnosticStatus>("/odin_tune/diag", 10);
 
     RCLCPP_INFO(get_logger(),
         "odin_tune ready. mode=%s scan=%s odom=%s bg_frames=%d diff=%.3f cluster_tol=%.3f",
-        map_differencer_ ? "map-static-background" : "frame-difference",
-        params_.scan_topic.c_str(), params_.odom_topic.c_str(), params_.bg_num_frames,
-        params_.diff_threshold, params_.cluster.cluster_tolerance);
+        map_differencer_ ? "map-static-background" : "frame-difference", params_.scan_topic.c_str(),
+        params_.odom_topic.c_str(), params_.bg_num_frames, params_.diff_threshold,
+        params_.cluster.cluster_tolerance);
 }
 
 void OdinTuneNode::init_map_background() {
@@ -60,13 +59,12 @@ void OdinTuneNode::init_map_background() {
     }
     // 固定安装位姿（地图系）：与主链路 initial_pose 同约定（Rz*Ry*Rx）
     t_map_lidar_ = Eigen::Isometry3d::Identity();
-    t_map_lidar_.translation() = Eigen::Vector3d(
-        params_.initial_tx, params_.initial_ty, params_.initial_tz);
-    t_map_lidar_.linear() =
-        (Eigen::AngleAxisd(params_.initial_yaw, Eigen::Vector3d::UnitZ())
-            * Eigen::AngleAxisd(params_.initial_pitch, Eigen::Vector3d::UnitY())
-            * Eigen::AngleAxisd(params_.initial_roll, Eigen::Vector3d::UnitX()))
-            .toRotationMatrix();
+    t_map_lidar_.translation() =
+        Eigen::Vector3d(params_.initial_tx, params_.initial_ty, params_.initial_tz);
+    t_map_lidar_.linear() = (Eigen::AngleAxisd(params_.initial_yaw, Eigen::Vector3d::UnitZ())
+        * Eigen::AngleAxisd(params_.initial_pitch, Eigen::Vector3d::UnitY())
+        * Eigen::AngleAxisd(params_.initial_roll, Eigen::Vector3d::UnitX()))
+                                .toRotationMatrix();
 
     auto map_result = map_data::MapData::load(params_.map_path, 0.1);
     if (!map_result) {
@@ -149,7 +147,7 @@ void OdinTuneNode::declare_and_load_params() {
         for (const auto& p : params) {
             const auto& n = p.get_name();
             if (n == "scan_topic" || n == "odom_topic" || n == "output_frame") {
-                continue;  // topic/frame 变更需重启
+                continue; // topic/frame 变更需重启
             }
             const std::string allowed[] = { "conf_threshold", "voxel_leaf", "roi_enabled",
                 "roi_x_min", "roi_x_max", "roi_y_min", "roi_y_max", "roi_z_min", "roi_z_max",
@@ -158,7 +156,7 @@ void OdinTuneNode::declare_and_load_params() {
             if (std::find(std::begin(allowed), std::end(allowed), n) == std::end(allowed)) {
                 rcl_interfaces::msg::SetParametersResult result;
                 result.successful = false;
-                result.reason = "unknown parameter: " + n;
+                result.reason     = "unknown parameter: " + n;
                 return result;
             }
         }
@@ -176,8 +174,7 @@ void OdinTuneNode::declare_and_load_params() {
             else if (n == "roi_z_max") params_.roi.z_max = p.as_double();
             else if (n == "bg_num_frames") params_.bg_num_frames = p.as_int();
             else if (n == "diff_threshold") params_.diff_threshold = p.as_double();
-            else if (n == "cluster_tolerance")
-                params_.cluster.cluster_tolerance = p.as_double();
+            else if (n == "cluster_tolerance") params_.cluster.cluster_tolerance = p.as_double();
             else if (n == "min_cluster_size") params_.cluster.min_cluster_size = p.as_int();
             else if (n == "max_cluster_size") params_.cluster.max_cluster_size = p.as_int();
         }
@@ -187,7 +184,7 @@ void OdinTuneNode::declare_and_load_params() {
         rebuild_differencer_and_cluster();
         rcl_interfaces::msg::SetParametersResult result;
         result.successful = true;
-        result.reason = "";
+        result.reason     = "";
         return result;
     });
 }
@@ -198,7 +195,7 @@ void OdinTuneNode::rebuild_stages() {
 }
 
 void OdinTuneNode::rebuild_differencer_and_cluster() {
-    differencer_  = odin_tune::FrameDifferencer(params_.diff_threshold);
+    differencer_   = odin_tune::FrameDifferencer(params_.diff_threshold);
     cluster_stage_ = cluster::ClusterStage(params_.cluster);
 }
 
@@ -211,8 +208,7 @@ void OdinTuneNode::on_odom(const nav_msgs::msg::Odometry::SharedPtr& msg) {
     const auto& p          = msg->pose.pose.position;
     const auto& o          = msg->pose.pose.orientation;
     pose.translation()     = Eigen::Vector3d(p.x, p.y, p.z);
-    pose.linear() =
-        Eigen::Quaterniond(o.w, o.x, o.y, o.z).toRotationMatrix();
+    pose.linear()          = Eigen::Quaterniond(o.w, o.x, o.y, o.z).toRotationMatrix();
     pose_buffer_.add(rclcpp::Time(msg->header.stamp).nanoseconds(), pose);
 }
 
@@ -252,10 +248,12 @@ void OdinTuneNode::on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg) 
         pcl::PointCloud<pcl::PointXYZ>::Ptr in(new pcl::PointCloud<pcl::PointXYZ>);
         in->reserve(frame_pts.size());
         for (const auto& p : frame_pts) {
-            in->emplace_back(static_cast<float>(p.x()), static_cast<float>(p.y()),
-                static_cast<float>(p.z()));
+            in->emplace_back(
+                static_cast<float>(p.x()), static_cast<float>(p.y()), static_cast<float>(p.z()));
         }
-        in->width = in->size(); in->height = 1; in->is_dense = true;
+        in->width    = in->size();
+        in->height   = 1;
+        in->is_dense = true;
         pcl::PointCloud<pcl::PointXYZ>::Ptr ds(new pcl::PointCloud<pcl::PointXYZ>);
         pcl::VoxelGrid<pcl::PointXYZ> vg;
         vg.setLeafSize(static_cast<float>(params_.voxel_leaf),
@@ -290,15 +288,15 @@ void OdinTuneNode::on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg) 
             if (result) {
                 clusters = *result;
             } else {
-                RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "ClusterStage: %s",
-                    result.error().c_str());
+                RCLCPP_WARN_THROTTLE(
+                    get_logger(), *get_clock(), 2000, "ClusterStage: %s", result.error().c_str());
             }
         }
 
         publish_dynamic(dynamic_pts, pub_stamp);
         publish_clusters(clusters, pub_stamp);
 
-        const auto t1 = std::chrono::steady_clock::now();
+        const auto t1           = std::chrono::steady_clock::now();
         const double elapsed_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
         publish_diag(dynamic_pts.size(), clusters.size(), elapsed_ms, pub_stamp);
         return;
@@ -354,15 +352,15 @@ void OdinTuneNode::on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg) 
         if (result) {
             clusters = *result;
         } else {
-            RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "ClusterStage: %s",
-                result.error().c_str());
+            RCLCPP_WARN_THROTTLE(
+                get_logger(), *get_clock(), 2000, "ClusterStage: %s", result.error().c_str());
         }
     }
 
     publish_dynamic(dynamic_pts, pub_stamp);
     publish_clusters(clusters, pub_stamp);
 
-    const auto t1 = std::chrono::steady_clock::now();
+    const auto t1           = std::chrono::steady_clock::now();
     const double elapsed_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
     publish_diag(dynamic_pts.size(), clusters.size(), elapsed_ms, pub_stamp);
 }
@@ -371,13 +369,15 @@ void OdinTuneNode::publish_dynamic(const types::PointCloud& pts, types::Timestam
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
     cloud->reserve(pts.size());
     for (const auto& p : pts) {
-        cloud->emplace_back(static_cast<float>(p.x()), static_cast<float>(p.y()),
-            static_cast<float>(p.z()));
+        cloud->emplace_back(
+            static_cast<float>(p.x()), static_cast<float>(p.y()), static_cast<float>(p.z()));
     }
-    cloud->width = cloud->size(); cloud->height = 1; cloud->is_dense = true;
+    cloud->width    = cloud->size();
+    cloud->height   = 1;
+    cloud->is_dense = true;
     sensor_msgs::msg::PointCloud2 msg;
     pcl::toROSMsg(*cloud, msg);
-    msg.header.stamp = rclcpp::Time(stamp);
+    msg.header.stamp    = rclcpp::Time(stamp);
     msg.header.frame_id = params_.output_frame;
     pub_dynamic_->publish(msg);
 }
@@ -386,13 +386,15 @@ void OdinTuneNode::publish_background(const types::PointCloud& pts, types::Times
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
     cloud->reserve(pts.size());
     for (const auto& p : pts) {
-        cloud->emplace_back(static_cast<float>(p.x()), static_cast<float>(p.y()),
-            static_cast<float>(p.z()));
+        cloud->emplace_back(
+            static_cast<float>(p.x()), static_cast<float>(p.y()), static_cast<float>(p.z()));
     }
-    cloud->width = cloud->size(); cloud->height = 1; cloud->is_dense = true;
+    cloud->width    = cloud->size();
+    cloud->height   = 1;
+    cloud->is_dense = true;
     sensor_msgs::msg::PointCloud2 msg;
     pcl::toROSMsg(*cloud, msg);
-    msg.header.stamp = rclcpp::Time(stamp);
+    msg.header.stamp    = rclcpp::Time(stamp);
     msg.header.frame_id = params_.output_frame;
     pub_background_->publish(msg);
 }
@@ -405,10 +407,12 @@ void OdinTuneNode::publish_clusters(
         centroids->emplace_back(static_cast<float>(c.centroid.x()),
             static_cast<float>(c.centroid.y()), static_cast<float>(c.centroid.z()));
     }
-    centroids->width = centroids->size(); centroids->height = 1; centroids->is_dense = true;
+    centroids->width    = centroids->size();
+    centroids->height   = 1;
+    centroids->is_dense = true;
     sensor_msgs::msg::PointCloud2 centroid_msg;
     pcl::toROSMsg(*centroids, centroid_msg);
-    centroid_msg.header.stamp = rclcpp::Time(stamp);
+    centroid_msg.header.stamp    = rclcpp::Time(stamp);
     centroid_msg.header.frame_id = params_.output_frame;
     pub_clusters_->publish(centroid_msg);
 
@@ -417,38 +421,45 @@ void OdinTuneNode::publish_clusters(
         const auto& c = clusters[i];
 
         visualization_msgs::msg::Marker box;
-        box.header.stamp = rclcpp::Time(stamp);
-        box.header.frame_id = params_.output_frame;
-        box.ns = "clusters";
-        box.id = static_cast<int>(i);
-        box.type = visualization_msgs::msg::Marker::CUBE;
-        box.action = visualization_msgs::msg::Marker::ADD;
-        box.pose.position.x = (c.min_bound.x() + c.max_bound.x()) / 2.0;
-        box.pose.position.y = (c.min_bound.y() + c.max_bound.y()) / 2.0;
-        box.pose.position.z = (c.min_bound.z() + c.max_bound.z()) / 2.0;
+        box.header.stamp       = rclcpp::Time(stamp);
+        box.header.frame_id    = params_.output_frame;
+        box.ns                 = "clusters";
+        box.id                 = static_cast<int>(i);
+        box.type               = visualization_msgs::msg::Marker::CUBE;
+        box.action             = visualization_msgs::msg::Marker::ADD;
+        box.pose.position.x    = (c.min_bound.x() + c.max_bound.x()) / 2.0;
+        box.pose.position.y    = (c.min_bound.y() + c.max_bound.y()) / 2.0;
+        box.pose.position.z    = (c.min_bound.z() + c.max_bound.z()) / 2.0;
         box.pose.orientation.w = 1.0;
-        box.scale.x = std::max(0.01, c.max_bound.x() - c.min_bound.x());
-        box.scale.y = std::max(0.01, c.max_bound.y() - c.min_bound.y());
-        box.scale.z = std::max(0.01, c.max_bound.z() - c.min_bound.z());
-        box.color.r = 0.0f; box.color.g = 1.0f; box.color.b = 0.0f; box.color.a = 0.3f;
-        box.lifetime = rclcpp::Duration::from_seconds(0.5);
+        box.scale.x            = std::max(0.01, c.max_bound.x() - c.min_bound.x());
+        box.scale.y            = std::max(0.01, c.max_bound.y() - c.min_bound.y());
+        box.scale.z            = std::max(0.01, c.max_bound.z() - c.min_bound.z());
+        box.color.r            = 0.0f;
+        box.color.g            = 1.0f;
+        box.color.b            = 0.0f;
+        box.color.a            = 0.3f;
+        box.lifetime           = rclcpp::Duration::from_seconds(0.5);
         markers.markers.push_back(box);
 
         visualization_msgs::msg::Marker centroid;
-        centroid.header.stamp = rclcpp::Time(stamp);
-        centroid.header.frame_id = params_.output_frame;
-        centroid.ns = "centroids";
-        centroid.id = static_cast<int>(i);
-        centroid.type = visualization_msgs::msg::Marker::SPHERE;
-        centroid.action = visualization_msgs::msg::Marker::ADD;
-        centroid.pose.position.x = c.centroid.x();
-        centroid.pose.position.y = c.centroid.y();
-        centroid.pose.position.z = c.centroid.z();
+        centroid.header.stamp       = rclcpp::Time(stamp);
+        centroid.header.frame_id    = params_.output_frame;
+        centroid.ns                 = "centroids";
+        centroid.id                 = static_cast<int>(i);
+        centroid.type               = visualization_msgs::msg::Marker::SPHERE;
+        centroid.action             = visualization_msgs::msg::Marker::ADD;
+        centroid.pose.position.x    = c.centroid.x();
+        centroid.pose.position.y    = c.centroid.y();
+        centroid.pose.position.z    = c.centroid.z();
         centroid.pose.orientation.w = 1.0;
-        centroid.scale.x = 0.15; centroid.scale.y = 0.15; centroid.scale.z = 0.15;
-        centroid.color.r = 1.0f; centroid.color.g = 0.0f; centroid.color.b = 0.0f;
-        centroid.color.a = 1.0f;
-        centroid.lifetime = rclcpp::Duration::from_seconds(0.5);
+        centroid.scale.x            = 0.15;
+        centroid.scale.y            = 0.15;
+        centroid.scale.z            = 0.15;
+        centroid.color.r            = 1.0f;
+        centroid.color.g            = 0.0f;
+        centroid.color.b            = 0.0f;
+        centroid.color.a            = 1.0f;
+        centroid.lifetime           = rclcpp::Duration::from_seconds(0.5);
         markers.markers.push_back(centroid);
     }
     pub_cluster_viz_->publish(markers);
@@ -457,10 +468,10 @@ void OdinTuneNode::publish_clusters(
 void OdinTuneNode::publish_diag(std::size_t dynamic_count, std::size_t cluster_count,
     double elapsed_ms, types::Timestamp stamp) {
     diagnostic_msgs::msg::DiagnosticStatus diag;
-    diag.name = "odin_tune/detection";
-    diag.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
-    diag.message = std::format("dynamic={} clusters={} time_ms={:.2f}", dynamic_count,
-        cluster_count, elapsed_ms);
+    diag.name    = "odin_tune/detection";
+    diag.level   = diagnostic_msgs::msg::DiagnosticStatus::OK;
+    diag.message = std::format(
+        "dynamic={} clusters={} time_ms={:.2f}", dynamic_count, cluster_count, elapsed_ms);
     diag.hardware_id = "odin1";
     pub_diag_->publish(diag);
 

@@ -36,13 +36,9 @@ public:
         return result;
     }
 
-    auto frame_count() const -> int {
-        return static_cast<int>(frames_.size());
-    }
+    auto frame_count() const -> int { return static_cast<int>(frames_.size()); }
 
-    void clear() {
-        frames_.clear();
-    }
+    void clear() { frames_.clear(); }
 
 private:
     struct Frame {

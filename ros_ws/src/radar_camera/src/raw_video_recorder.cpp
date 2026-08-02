@@ -421,7 +421,7 @@ void RawVideoRecorder::loop() {
             break;
         }
         const std::uint8_t* source[] = { frame->rgb.ptr<std::uint8_t>() };
-        const int source_stride[] = { static_cast<int>(frame->rgb.step) };
+        const int source_stride[]    = { static_cast<int>(frame->rgb.step) };
         if (sws_scale((*segment)->scaler, source, source_stride, 0, config_.height,
                 (*segment)->frame->data, (*segment)->frame->linesize)
             <= 0) {

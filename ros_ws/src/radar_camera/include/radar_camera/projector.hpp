@@ -28,9 +28,7 @@ public:
         -> std::expected<void, std::string>;
 
     /// @brief 运行时更新相机→地图外参（GICP 配准 + 安装外参，TF 查询获得）
-    void set_map_camera(const Eigen::Isometry3d& t_map_camera) {
-        t_map_camera_ = t_map_camera;
-    }
+    void set_map_camera(const Eigen::Isometry3d& t_map_camera) { t_map_camera_ = t_map_camera; }
 
     auto proj_init_map(const projection_config::ProjectionConfig& proj_cfg)
         -> std::expected<void, std::string>;

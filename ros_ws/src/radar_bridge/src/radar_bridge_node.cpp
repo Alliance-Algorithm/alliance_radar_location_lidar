@@ -11,7 +11,8 @@ auto ConfigsLoader(rclcpp::Node& node, BridgeConfig& config) -> std::expected<vo
         node.declare_parameter("video_pub_address", std::string("tcp://*:5559"));
         node.declare_parameter("image_topic", std::string("/hikcamera_image"));
         node.declare_parameter("enable_inference", false);
-        node.declare_parameter("model_dir", std::string("/workspace/ros_ws/src/radar_camera/model"));
+        node.declare_parameter(
+            "model_dir", std::string("/workspace/ros_ws/src/radar_camera/model"));
         node.declare_parameter("l1_conf", radar_camera::armor_infer::kL1Conf);
         node.declare_parameter("l2_conf", radar_camera::armor_infer::kL2Conf);
         node.declare_parameter("l3_conf", radar_camera::armor_infer::kL3Conf);
@@ -90,8 +91,8 @@ RadarBridgeNode::RadarBridgeNode()
                 created.error().c_str());
         }
     }
-    auto init_ret = video_bridge_.video_init(
-        config_.shm_name, config_.video_pub_address, std::move(infer));
+    auto init_ret =
+        video_bridge_.video_init(config_.shm_name, config_.video_pub_address, std::move(infer));
     if (!init_ret.has_value()) {
         // SHM 可能尚未就绪（相机/回放器后启动）。坐标转发（ZMQ 5555）不依赖视频，
         // 仅禁用视频推流，不阻塞整个节点。

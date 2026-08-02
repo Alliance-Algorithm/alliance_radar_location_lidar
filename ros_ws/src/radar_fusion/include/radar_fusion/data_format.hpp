@@ -33,7 +33,7 @@ struct CameraObservation {
     double y          = 0.0;
     double z          = 0.0;
     double confidence = 0.0;
-    int class_id      = -1;  // 0=hero 1=eng 2=inf3 3=inf4 4=sentry 5=drone
+    int class_id      = -1; // 0=hero 1=eng 2=inf3 3=inf4 4=sentry 5=drone
 };
 
 } // namespace radar_fusion::camera_observation
@@ -56,7 +56,7 @@ struct KalmanState {
     int miss_count           = 0;
     int color                = -1;
     int number               = -1;
-    int class_id             = -1;  // 0=hero 1=eng 2=inf3 3=inf4 4=sentry 5=drone; -1=unset
+    int class_id             = -1; // 0=hero 1=eng 2=inf3 3=inf4 4=sentry 5=drone; -1=unset
     TrackLifecycle lifecycle = TrackLifecycle::TENTATIVE;
 
     [[nodiscard]] auto position() const -> Eigen::Vector2d { return x.head<2>(); }
