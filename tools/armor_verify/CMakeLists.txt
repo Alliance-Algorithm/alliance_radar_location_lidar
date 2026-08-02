@@ -8,7 +8,7 @@ find_package(OpenCV REQUIRED)
 
 set(RADAR_SRC /workspace/ros_ws/src/radar_camera)
 set(TRT_ROOT  /opt/radar_camera_trt)
-set(CUDA_ROOT /usr/local/cuda)
+set(CUDA_ROOT ${TRT_ROOT})
 
 add_executable(validate_3layer
     validate_3layer.cpp
@@ -18,6 +18,7 @@ add_executable(validate_3layer
 
 add_executable(annotate_l1l2l3
     annotate_l1l2l3.cpp
+    ${RADAR_SRC}/src/armor_infer.cpp
     ${RADAR_SRC}/src/tensorrt_inference.cpp
 )
 
@@ -125,6 +126,58 @@ target_link_directories(annotate_l3 PRIVATE
 )
 
 target_link_libraries(annotate_l3
+    ${OpenCV_LIBS}
+    nvinfer
+    nvinfer_plugin
+    cudart
+)
+
+add_executable(test_armor_infer
+    test_armor_infer.cpp
+    ${RADAR_SRC}/src/armor_infer.cpp
+    ${RADAR_SRC}/src/tensorrt_inference.cpp
+)
+
+target_include_directories(test_armor_infer PRIVATE
+    ${RADAR_SRC}/include
+    ${TRT_ROOT}/include
+    ${CUDA_ROOT}/include
+    ${OpenCV_INCLUDE_DIRS}
+)
+
+target_link_directories(test_armor_infer PRIVATE
+    ${TRT_ROOT}/lib
+    ${CUDA_ROOT}/lib64
+)
+
+target_compile_options(test_armor_infer PRIVATE -UNDEBUG)
+
+target_link_libraries(test_armor_infer
+    ${OpenCV_LIBS}
+    nvinfer
+    nvinfer_plugin
+    cudart
+)
+
+add_executable(video_annotate
+    video_annotate.cpp
+    ${RADAR_SRC}/src/armor_infer.cpp
+    ${RADAR_SRC}/src/tensorrt_inference.cpp
+)
+
+target_include_directories(video_annotate PRIVATE
+    ${RADAR_SRC}/include
+    ${TRT_ROOT}/include
+    ${CUDA_ROOT}/include
+    ${OpenCV_INCLUDE_DIRS}
+)
+
+target_link_directories(video_annotate PRIVATE
+    ${TRT_ROOT}/lib
+    ${CUDA_ROOT}/lib64
+)
+
+target_link_libraries(video_annotate
     ${OpenCV_LIBS}
     nvinfer
     nvinfer_plugin

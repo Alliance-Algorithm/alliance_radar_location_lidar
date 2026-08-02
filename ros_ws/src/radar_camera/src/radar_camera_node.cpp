@@ -1,30 +1,33 @@
 #include "radar_camera/radar_camera_node.hpp"
 
 #include <algorithm>
-#include <fcntl.h>
-#include <sys/mman.h>
-#include <unistd.h>
 
 #include <cstdint>
+#include <functional>
 #include <mutex>
-#include <scope>
 #include <stdexcept>
 #include <utility>
 
 namespace radar_camera::node {
 
 namespace {
-    struct FdGuard {
-        int fd = -1;
-        ~FdGuard() {
-            if (fd != -1) close(fd);
+    class ConstructorCleanupGuard {
+    public:
+        explicit ConstructorCleanupGuard(std::function<void()> cleanup)
+            : cleanup_(std::move(cleanup)) { }
+        ~ConstructorCleanupGuard() { cleanup_(); }
+        void release() noexcept {
+            cleanup_ = [] { };
         }
+
+    private:
+        std::function<void()> cleanup_;
     };
 } // namespace
 
 RadarCameraNode::RadarCameraNode()
     : Node("radar_camera_node") {
-    auto cleanup_guard = std::scope_exit([this]() noexcept { constructor_cleanup(); });
+    auto cleanup_guard = ConstructorCleanupGuard([this]() noexcept { constructor_cleanup(); });
     auto ret           = ConfigsLoader(*this, camera_config_, inference_config_, projection_config_,
         recording_config_, armor_refine_config_, number_refine_config_);
     if (!ret) {
@@ -61,6 +64,11 @@ RadarCameraNode::RadarCameraNode()
     if (!cam_ret)
         RCLCPP_WARN(get_logger(), "Projector camera init skipped: %s", cam_ret.error().c_str());
 
+    // TF: map→camera_optical_frame（GICP 配准 + 固定安装外参）。
+    // 可用时用 TF 外参（跟随 GICP/锁定）；不可用时 fallback 写死初值。
+    tf_buffer_   = std::make_unique<tf2_ros::Buffer>(get_clock());
+    tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+
     auto map_ret = projector_.proj_init_map(projection_config_);
     if (!map_ret)
         RCLCPP_WARN(get_logger(), "Projector map init skipped: %s", map_ret.error().c_str());
@@ -69,14 +77,8 @@ RadarCameraNode::RadarCameraNode()
         camera_config_.pub_topic_name, 10);
     RCLCPP_INFO(get_logger(), "Publisher created");
 
-    FdGuard shm_guard { shm_open(camera_config_.shm_name.c_str(), O_RDWR, 0666) };
-    if (shm_guard.fd == -1) {
-        throw std::runtime_error("SHM shm_open failed: " + camera_config_.shm_name);
-    }
-    shm_fd_      = shm_guard.fd;
-    shm_guard.fd = -1;
-    RCLCPP_INFO(get_logger(), "SHM shm_open succeeded: %s", camera_config_.shm_name.c_str());
-
+    // SHM open 延迟到 infer_thread 内重试：相机驱动可能晚于本节点启动。
+    // 重试超时（30s）仍失败则 Fatal + shutdown，保证错误可见。
     ret = infer_thread_start();
     if (!ret) {
         throw std::runtime_error("infer_thread_start failed: " + ret.error());
@@ -218,7 +220,7 @@ auto make_recording_components(
 
 auto RadarCameraNode::constructor_cleanup() noexcept -> void {
     std::vector<LifecycleComponent> started;
-    if (shm_fd_ != -1) started.emplace_back(LifecycleComponent::shm);
+    if (shm_reader_.is_open()) started.emplace_back(LifecycleComponent::shm);
     if (infer_thread_.joinable() || infer_running_)
         started.emplace_back(LifecycleComponent::inference);
     if (raw_video_recorder_) started.emplace_back(LifecycleComponent::recorder);
@@ -241,10 +243,6 @@ auto RadarCameraNode::constructor_cleanup() noexcept -> void {
             infer_thread_stop();
             break;
         case LifecycleComponent::shm:
-            if (shm_fd_ != -1) {
-                close(shm_fd_);
-                shm_fd_ = -1;
-            }
             break;
         }
     }
@@ -258,18 +256,56 @@ auto RadarCameraNode::recording_monitor_stop() -> void {
 auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
     infer_running_ = true;
     infer_thread_  = std::thread([this]() {
+        // SHM open 重试：相机驱动可能晚于本节点启动。
+        // 30s 超时仍失败 → Fatal + shutdown（保留错误可见性）。
+        constexpr auto kShmOpenTimeout = std::chrono::seconds { 30 };
+        const auto shm_open_start      = std::chrono::steady_clock::now();
+        bool shm_ready                 = false;
+        while (infer_running_.load(std::memory_order_acquire) && !shm_ready) {
+            auto open_ret = shm_reader_.open(camera_config_.shm_name.c_str());
+            if (open_ret) {
+                shm_ready = true;
+                RCLCPP_INFO(
+                    get_logger(), "SHM open succeeded: %s", camera_config_.shm_name.c_str());
+                break;
+            }
+            if (std::chrono::steady_clock::now() - shm_open_start > kShmOpenTimeout) {
+                RCLCPP_FATAL(
+                    get_logger(), "SHM open timed out after 30s: %s", open_ret.error().c_str());
+                infer_running_.store(false, std::memory_order_release);
+                rclcpp::shutdown();
+                return;
+            }
+            RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+                "SHM not ready yet (waiting for camera driver): %s", open_ret.error().c_str());
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        }
         while (infer_running_.load(std::memory_order_acquire)) {
+            ++frame_count_;
             cv::Mat orig_frame;
-            std::chrono::steady_clock::time_point ts;
-            // Read at full sensor resolution (dst_w=0 → no internal resize).
-            auto ret = hikcamera::SHMRead(
-                shm_fd_, orig_frame, ts, camera_config_.width, camera_config_.height, 0, 0);
-            if (!ret.has_value()) {
-                RCLCPP_WARN(get_logger(), "SHMRead failed: %s", ret.error().c_str());
+            auto shm_frame = shm_reader_.wait_next(std::chrono::milliseconds { 100 });
+            if (!shm_frame) {
+                if (shm_frame.error().code != hikcamera::FrameReadErrorCode::Timeout) {
+                    RCLCPP_WARN(get_logger(), "SHM read error (code=%d): %s",
+                        static_cast<int>(shm_frame.error().code),
+                        shm_frame.error().message.c_str());
+                }
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 continue;
             }
-            capture_timestamp_ = ts;
+            if (!shm_frame->valid()) {
+                RCLCPP_WARN(get_logger(), "SHM frame failed integrity check");
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                continue;
+            }
+            orig_frame         = shm_frame->mat().clone();
+            capture_timestamp_ = std::chrono::steady_clock::time_point(
+                std::chrono::nanoseconds(shm_frame->metadata().host_monotonic_ns));
+
+            // 低频更新相机外参（TF 可用时跟随 GICP 锁定结果）
+            if (!tf_ready_ || (frame_count_ & 0x3F) == 0) {
+                update_camera_extrinsic_from_tf();
+            }
 
             // Resize to L1 model input separately; L2/L3 will crop from orig_frame.
             cv::Mat frame;
@@ -315,7 +351,19 @@ auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
                 }
             }
 
-            auto projected = projector_.proj_preprocess(refined);
+            // L1 detections are in model-input (1280x1280) pixel space; map
+            // detection centers back to the full-res frame before ray projection.
+            const float proj_scale_x =
+                static_cast<float>(orig_frame.cols) / static_cast<float>(frame.cols);
+            const float proj_scale_y =
+                static_cast<float>(orig_frame.rows) / static_cast<float>(frame.rows);
+            std::vector<detection::Detection> proj_dets = refined;
+            for (auto& det : proj_dets) {
+                det.center.x *= proj_scale_x;
+                det.center.y *= proj_scale_y;
+            }
+
+            auto projected = projector_.proj_preprocess(proj_dets);
             auto pose = std::expected<robot_pose::RobotPose, std::string>(std::unexpected("projecti"
                                                                                           "on "
                                                                                           "preproce"
@@ -342,9 +390,29 @@ auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
 auto RadarCameraNode::infer_thread_stop() -> void {
     infer_running_ = false;
     if (infer_thread_.joinable()) infer_thread_.join();
-    if (shm_fd_ != -1) {
-        close(shm_fd_);
-        shm_fd_ = -1;
+}
+
+void RadarCameraNode::update_camera_extrinsic_from_tf() {
+    if (!tf_buffer_) return;
+    geometry_msgs::msg::TransformStamped tf_msg;
+    try {
+        tf_msg = tf_buffer_->lookupTransform(
+            "map", "camera_optical_frame", tf2::TimePointZero, tf2::durationFromSec(0.1));
+    } catch (const tf2::TransformException&) {
+        return; // TF 未就绪，保留 fallback 外参
+    }
+    Eigen::Isometry3d t_map_camera = Eigen::Isometry3d::Identity();
+    t_map_camera.translation()     = Eigen::Vector3d(tf_msg.transform.translation.x,
+        tf_msg.transform.translation.y, tf_msg.transform.translation.z);
+    t_map_camera.linear()          = Eigen::Quaterniond(tf_msg.transform.rotation.w,
+        tf_msg.transform.rotation.x, tf_msg.transform.rotation.y, tf_msg.transform.rotation.z)
+                                         .toRotationMatrix();
+    projector_.set_map_camera(t_map_camera);
+    if (!tf_ready_) {
+        tf_ready_ = true;
+        RCLCPP_INFO(get_logger(), "camera extrinsic from TF: t=(%.3f, %.3f, %.3f)",
+            tf_msg.transform.translation.x, tf_msg.transform.translation.y,
+            tf_msg.transform.translation.z);
     }
 }
 

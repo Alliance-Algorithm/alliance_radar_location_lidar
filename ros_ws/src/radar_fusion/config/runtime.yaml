@@ -1,7 +1,7 @@
 radar_fusion_node:
   ros__parameters:
     # 关联门限 (m)
-    gate_distance: 1.0
+    gate_distance: 2.0
     # track 超时删除 (s)
     track_timeout_sec: 1.5
     # 确认 track 所需最小命中帧数
@@ -14,6 +14,8 @@ radar_fusion_node:
     enable_camera_fusion: true
     # 视觉数据超时 (s)
     camera_timeout_sec: 1.5
+    # 相机检测话题 (radar_camera 发布 /radar_camera/robot_pose)
+    camera_topic: "/radar_camera/robot_pose"
     # 地图坐标系 → 裁判系统坐标系偏移 (m)
     map_to_rm_offset_x: 14.0
     map_to_rm_offset_y: 7.5

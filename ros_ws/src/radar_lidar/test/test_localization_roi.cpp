@@ -46,11 +46,15 @@ TEST_F(LocalizationRoiTest, RejectsCloudWhenOnlyOutsideLocalizationRoiRemain) {
     radar_lidar::localization::LocalizationStage localization(*map_result, cfg);
 
     radar_lidar::types::Frame frame;
+    // 默认 ROI: x∈[-15,30], y∈[-15,15], z∈[-2,7] — 这些点都在范围外
     for (int i = 0; i < 80; ++i) {
-        frame.points.emplace_back(4.0, -2.0 + i * 0.01, 1.0);
+        frame.points.emplace_back(32.0, 0.0, 1.0); // x > 30
     }
     for (int i = 0; i < 80; ++i) {
-        frame.points.emplace_back(10.0, 9.0 + i * 0.01, 1.0);
+        frame.points.emplace_back(10.0, 20.0, 1.0); // y > 15
+    }
+    for (int i = 0; i < 80; ++i) {
+        frame.points.emplace_back(10.0, 0.0, -3.0); // z < -2
     }
 
     auto result = localization.process(frame);

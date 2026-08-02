@@ -1,0 +1,44 @@
+# Odin 驱动配置 — 直出点云 + odometry（调参用，不影响比赛主配置 odin_driver.yaml）
+# 用法: ros2 launch odin_ros_driver odin1_ros2.launch.py config_file:=此文件路径
+# 差异: sendodom 1（比赛主配置为 0）
+
+register_keys:
+  strict_usb3.0_check: 0
+  use_host_ros_time: 0
+  streamctrl: 1
+
+  sendrgbcompressed: 0
+  sendrgb: 0
+  sendrgbundistort: 0
+  sendimu: 0
+  enable_imu_smooth: 0
+
+  sendodom: 1
+  # 发布 odom -> odin1_base_link tf，Foxglove 渲染依赖 tf 树
+  send_odom_baselink_tf: 1
+
+  senddtof: 1
+  cloud_raw_confidence_threshold: 35
+  dtof_fps: 100
+
+  sendcloudslam: 0
+  sendcloudrender: 0
+  senddepth: 0
+  sendreprojection: 0
+  sendoverlay: 0
+
+  recorddata: 0
+  devstatuslog: 1
+  save_log: 0
+  pubintensitygray: 0
+  showpath: 0
+  showcamerapose: 0
+
+  custom_map_mode: 0
+  custom_init_pos: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+  relocalization_map_abs_path: ""
+  mapping_result_dest_dir: ""
+  mapping_result_file_name: ""
+  sendimagemask: 0
+  image_mask_abs_path: ""
+  resetalgo: 0

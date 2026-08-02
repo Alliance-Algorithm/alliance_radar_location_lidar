@@ -66,16 +66,23 @@ TEST(RawShmReader, ValidatesDimensionsAndRgbByteCount) {
     EXPECT_TRUE(validate_raw_frame_dimensions(4, 2));
     EXPECT_FALSE(validate_raw_frame_dimensions(0, 2));
     EXPECT_FALSE(validate_raw_frame_dimensions(4, -1));
-    EXPECT_FALSE(validate_raw_frame_dimensions(5473, 3648));
+    EXPECT_FALSE(validate_raw_frame_dimensions(7000, 3000));
 
     ASSERT_EQ(raw_frame_byte_count(4, 2), 24U);
     EXPECT_FALSE(raw_frame_byte_count(0, 2));
 }
 
-TEST(RawShmReader, ValidatesExistingShmObjectSize) {
-    EXPECT_TRUE(valid_shm_object_size(sizeof(hikcamera::imageSHM)));
-    EXPECT_FALSE(valid_shm_object_size(sizeof(hikcamera::imageSHM) - 1));
-    EXPECT_FALSE(valid_shm_object_size(sizeof(hikcamera::imageSHM) + 1));
+TEST(RawShmReader, OpenFailureMarksReaderFailed) {
+    RecordingFifo fifo(1);
+    RawShmReader reader("/radar_camera_test_shm_that_does_not_exist", 4, 2, fifo);
+
+    const auto result = reader.start();
+
+    ASSERT_FALSE(result);
+    EXPECT_EQ(reader.state(), ReaderState::failed);
+    EXPECT_FALSE(reader.failure_reason().empty());
+    reader.stop();
+    EXPECT_EQ(reader.state(), ReaderState::failed);
 }
 
 TEST(RawShmReader, RawFramePreservesImageAndMetadata) {

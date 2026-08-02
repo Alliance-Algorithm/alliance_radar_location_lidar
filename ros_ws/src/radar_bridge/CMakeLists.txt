@@ -14,6 +14,10 @@ find_package(cppzmq REQUIRED)
 find_package(hikcamera REQUIRED)
 find_package(radar_interfaces REQUIRED)
 
+set(RADAR_SRC /workspace/ros_ws/src/radar_camera)
+set(TRT_ROOT /opt/radar_camera_trt)
+set(CUDA_ROOT ${TRT_ROOT})
+
 ament_auto_find_build_dependencies()
 set(SOURCE_FILES
     src/radar_bridge_node.cpp
@@ -33,6 +37,19 @@ endif()
 
 target_include_directories(${PROJECT_NAME}_node PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${RADAR_SRC}/include
+    ${TRT_ROOT}/include
+    ${CUDA_ROOT}/include
+)
+
+target_sources(${PROJECT_NAME}_node PRIVATE
+    ${RADAR_SRC}/src/armor_infer.cpp
+    ${RADAR_SRC}/src/tensorrt_inference.cpp
+)
+
+target_link_directories(${PROJECT_NAME}_node PRIVATE
+    ${TRT_ROOT}/lib
+    ${CUDA_ROOT}/lib64
 )
 
 target_link_libraries(${PROJECT_NAME}_node
@@ -40,6 +57,9 @@ target_link_libraries(${PROJECT_NAME}_node
     cppzmq
     ${OpenCV_LIBRARIES}
     nlohmann_json::nlohmann_json
+    nvinfer
+    nvinfer_plugin
+    cudart
 )
 
 install(TARGETS ${PROJECT_NAME}_node DESTINATION lib/${PROJECT_NAME})

@@ -20,6 +20,7 @@
 #include <iostream>
 #include <numeric>
 #include <optional>
+#include <print>
 #include <string>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -263,7 +264,7 @@ int write_to_shm(const pcl::PointCloud<pcl::PointXYZRGBNormal>& cloud) {
     constexpr const char* shm_name = "/pointcloud_frame";
 
     if (cloud.empty()) {
-        std::cerr << "[model_to_map] SHM: point cloud is empty" << std::endl;
+        std::println(std::cerr, "[model_to_map] SHM: point cloud is empty");
         return 1;
     }
 
@@ -273,11 +274,11 @@ int write_to_shm(const pcl::PointCloud<pcl::PointXYZRGBNormal>& cloud) {
     shm_unlink(shm_name);
     const int fd = shm_open(shm_name, O_CREAT | O_RDWR, 0666);
     if (fd < 0) {
-        std::cerr << "[model_to_map] SHM: shm_open failed: " << std::strerror(errno) << std::endl;
+        std::println(std::cerr, "[model_to_map] SHM: shm_open failed: {}", std::strerror(errno));
         return 1;
     }
     if (ftruncate(fd, static_cast<off_t>(shm_size)) != 0) {
-        std::cerr << "[model_to_map] SHM: ftruncate failed: " << std::strerror(errno) << std::endl;
+        std::println(std::cerr, "[model_to_map] SHM: ftruncate failed: {}", std::strerror(errno));
         close(fd);
         shm_unlink(shm_name);
         return 1;
@@ -285,7 +286,7 @@ int write_to_shm(const pcl::PointCloud<pcl::PointXYZRGBNormal>& cloud) {
 
     void* addr = mmap(nullptr, shm_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (addr == MAP_FAILED) {
-        std::cerr << "[model_to_map] SHM: mmap failed: " << std::strerror(errno) << std::endl;
+        std::println(std::cerr, "[model_to_map] SHM: mmap failed: {}", std::strerror(errno));
         close(fd);
         shm_unlink(shm_name);
         return 1;
@@ -324,8 +325,8 @@ int write_to_shm(const pcl::PointCloud<pcl::PointXYZRGBNormal>& cloud) {
     header->frame_seq.store(1, std::memory_order_release);
 
     munmap(addr, shm_size);
-    std::cout << "[model_to_map] SHM: wrote " << n_points << " points to "
-              << shm_name << " (" << shm_size << " bytes)" << std::endl;
+    std::println("[model_to_map] SHM: wrote {} points to {} ({} bytes)", n_points, shm_name,
+        shm_size);
     return 0;
 }
 
@@ -333,7 +334,7 @@ int write_to_shm(const pcl::PointCloud<pcl::PointXYZRGBNormal>& cloud) {
 int write_to_shm_file(const std::string& pcd_path) {
     pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGBNormal>());
     if (pcl::io::loadPCDFile<pcl::PointXYZRGBNormal>(pcd_path, *cloud) != 0) {
-        std::cerr << "[model_to_map] SHM: failed to load " << pcd_path << std::endl;
+        std::println(std::cerr, "[model_to_map] SHM: failed to load {}", pcd_path);
         return 1;
     }
     return write_to_shm(*cloud);
@@ -344,7 +345,7 @@ int write_to_shm_file(const std::string& pcd_path) {
 int main(int argc, char** argv) {
     const auto args_result = parse_args(argc, argv);
     if (!args_result) {
-        std::cerr << args_result.error() << std::endl;
+        std::println(std::cerr, "{}", args_result.error());
         return 1;
     }
     const auto args = *args_result;
@@ -355,14 +356,14 @@ int main(int argc, char** argv) {
 
     if (is_pcd_input) {
         if (!args.write_shm) {
-            std::cerr << "[model_to_map] PCD input requires --shm" << std::endl;
+            std::println(std::cerr, "[model_to_map] PCD input requires --shm");
             return 1;
         }
         return write_to_shm_file(args.input_path);
     }
 
     // ── 1. 加载 FBX ──────────────────────────────────────────────
-    std::cout << "[model_to_map] Loading: " << args.input_path << std::endl;
+    std::println("[model_to_map] Loading: {}", args.input_path);
     Assimp::Importer importer;
     const aiScene* scene = importer.ReadFile(
         args.input_path,
@@ -371,14 +372,14 @@ int main(int argc, char** argv) {
         | aiProcess_GenNormals);
 
     if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
-        std::cerr << "[model_to_map] ERROR: Assimp failed to load: "
-                  << importer.GetErrorString() << std::endl;
+        std::println(std::cerr, "[model_to_map] ERROR: Assimp failed to load: {}",
+            importer.GetErrorString());
         return 1;
     }
 
     std::vector<TriangleRecord> triangles;
     collect_triangles(scene->mRootNode, scene, Eigen::Matrix4f::Identity(), triangles);
-    std::cout << "[model_to_map] Triangles: " << triangles.size() << std::endl;
+    std::println("[model_to_map] Triangles: {}", triangles.size());
 
     pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGBNormal>());
 
@@ -424,13 +425,13 @@ int main(int argc, char** argv) {
             triangle, num_samples_per_triangle[i], static_cast<float>(args.scale), *cloud, args.y_up);
     }
 
-    std::cout << "[model_to_map] Total triangles: " << triangles.size() << std::endl;
+    std::println("[model_to_map] Total triangles: {}", triangles.size());
     const double total_area_m2 = total_area * args.scale * args.scale;
-    std::cout << "[model_to_map] Total surface area: " << total_area_m2 << " m^2" << std::endl;
-    std::cout << "[model_to_map] Sampled points: " << cloud->size() << std::endl;
+    std::println("[model_to_map] Total surface area: {} m^2", total_area_m2);
+    std::println("[model_to_map] Sampled points: {}", cloud->size());
 
     if (cloud->empty()) {
-        std::cerr << "[model_to_map] ERROR: No points generated. Check FBX file." << std::endl;
+        std::println(std::cerr, "[model_to_map] ERROR: No points generated. Check FBX file.");
         return 1;
     }
 
@@ -444,7 +445,7 @@ int main(int argc, char** argv) {
             }
         }
         *cloud = *filtered;
-        std::cout << "[model_to_map] After ROI filter: " << cloud->size() << " points" << std::endl;
+        std::println("[model_to_map] After ROI filter: {} points", cloud->size());
     }
 
     if (args.voxel_leaf > 0.0) {
@@ -454,8 +455,8 @@ int main(int argc, char** argv) {
         vg.setInputCloud(cloud);
         vg.filter(*downsampled);
         *cloud = *downsampled;
-        std::cout << "[model_to_map] After VoxelGrid " << args.voxel_leaf << "m: "
-                  << cloud->size() << " points" << std::endl;
+        std::println("[model_to_map] After VoxelGrid {}m: {} points", args.voxel_leaf,
+            cloud->size());
     }
 
     cloud->width    = cloud->size();
@@ -463,12 +464,11 @@ int main(int argc, char** argv) {
     cloud->is_dense = true;
 
     if (pcl::io::savePCDFileBinary(args.output_path, *cloud) != 0) {
-        std::cerr << "[model_to_map] ERROR: Failed to write PCD: " << args.output_path << std::endl;
+        std::println(std::cerr, "[model_to_map] ERROR: Failed to write PCD: {}", args.output_path);
         return 1;
     }
 
-    std::cout << "[model_to_map] Done. Output: " << args.output_path
-              << " (" << cloud->size() << " points)" << std::endl;
+    std::println("[model_to_map] Done. Output: {} ({} points)", args.output_path, cloud->size());
 
     if (args.write_shm) {
         const int shm_rc = write_to_shm(*cloud);

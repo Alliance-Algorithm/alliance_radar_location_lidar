@@ -55,6 +55,22 @@ python3 tools/pcd_postprocess/pcd_postprocess.py <raw_map.pcd> \
 
 通常不直接调用，用 `.script/odin-map-export` 一步完成"触发保存 + 后处理"。
 
+## livo2-build（.script/livo2-build）
+
+一键建图 + 退出自动回环/后处理/彩色导出。后台录 bag + 前台启动
+`odin_fast_livo2_mapping.launch.py`，Ctrl-C 退出后自动执行：
+回环优化（optimize_pose_graph.py）→ 颜色迁移（loop_closure/color_transfer.py，
+把 rgb_colorizer 在线彩色图迁移到优化几何）→ pcd_postprocess → 导出
+`model/generated/livo2_final_rgb.pcd`。
+
+```bash
+.script/livo2-build                        # 全自动（推荐）
+.script/livo2-build --skip-record          # 不录包，无回环
+.script/livo2-build --no-postprocess       # 跳过降采样/离群剔除
+```
+
+管线日志：`model/generated/optimization/pipeline.log`。
+
 ## make_synth_scan
 
 从规范 Z-up 地图合成一个**已知真值部署位姿**的 Odin scan，用于验证离线配准工具能否恢复

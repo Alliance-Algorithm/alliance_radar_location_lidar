@@ -72,11 +72,39 @@ struct LocalizationConfig {
     bool use_lock_strategy = true;
     double lock_fitness    = 0.2;
 
+    // 锁定后 watchdog：低开销残差监测，检测雷达站被移动/碰撞
+    // 残差 = 当前 scan 在锁定位姿下与地图的最近邻距离均值（每帧或抽帧）
+    // 若残差连续 exceed_watchdog_frames 帧 > watchdog_fitness → 解锁重配准
+    bool enable_watchdog        = false;
+    double watchdog_fitness     = 0.5;
+    int watchdog_check_interval = 10; // 锁定后每 N 帧检测一次
+    int watchdog_unlock_frames  = 3;  // 连续超标帧数 → 解锁
+
+    // 解锁后 coarse 重定位搜索（watchdog 触发时自动执行）
+    // 在锁定位姿附近做 yaw + 平移多起点 coarse GICP，inlier 选优后精配
+    bool enable_coarse_relocalize   = false;
+    double coarse_yaw_range_deg     = 30.0; // yaw 搜索范围 ±
+    double coarse_yaw_step_deg      = 5.0;  // yaw 搜索步长
+    double coarse_translate_range_m = 3.0;  // 平移搜索范围 ± (x/y)
+    double coarse_translate_step_m  = 1.0;  // 平移搜索步长
+    double coarse_voxel             = 0.5;  // coarse 配准降采样
+    double coarse_max_corr          = 5.0;  // coarse 对应距离
+    int coarse_max_iter             = 20;   // coarse 迭代上限
+    double coarse_inlier_threshold  = 0.3;  // inlier 判定阈值 (m)
+    double coarse_min_inlier        = 0.3;  // 重定位成功所需最小 inlier 比
+
     bool has_initial_pose = false;
     double initial_tx = 0, initial_ty = 0, initial_tz = 0;
     double initial_roll = 0, initial_pitch = 0, initial_yaw = 0;
 
-    RoiBounds roi;
+    // 定位 ROI（map 系，场地覆盖范围）：默认全场地
+    RoiBounds roi { .use_roi = true,
+        .x_min               = -15,
+        .x_max               = 30,
+        .y_min               = -15,
+        .y_max               = 15,
+        .z_min               = -2,
+        .z_max               = 7 };
 };
 
 } // namespace radar_lidar::config

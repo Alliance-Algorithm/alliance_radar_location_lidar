@@ -27,7 +27,7 @@ def generate_launch_description():
 
     map_path_arg = DeclareLaunchArgument(
         "map_path",
-        default_value="/workspace/model/generated/map_zup.pcd",
+        default_value="/workspace/model/generated/jinan_field_map_reg.pcd",
         description="GICP 回退用的地图 PCD 绝对路径",
     )
     relocalization_map_path_arg = DeclareLaunchArgument(

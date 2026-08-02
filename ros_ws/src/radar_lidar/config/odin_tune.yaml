@@ -1,0 +1,39 @@
+odin_tune_node:
+  ros__parameters:
+    scan_topic: /odin1/cloud_raw
+    odom_topic: /odin1/odometry
+    output_frame: odom
+    conf_threshold: 35.0
+    voxel_leaf: 0.05
+    roi_enabled: false
+    roi_x_min: -11.0
+    roi_x_max: 14.0
+    roi_y_min: -7.5
+    roi_y_max: 7.5
+    roi_z_min: 0.0
+    roi_z_max: 1.4
+    bg_num_frames: 10
+    diff_threshold: 0.3
+    cluster_tolerance: 0.25
+    min_cluster_size: 5
+    max_cluster_size: 1000
+    # ── 背景模式 ────────────────────────────────────────────────
+    # map_path 为空 → 帧差模式（odin1 直出，仅移动目标）
+    # map_path 非空 → 静态地图背景差分（动静目标均可检出）
+    # 启用地图模式示例:
+    #   map_path: /workspace/model/generated/jinan_field_map_reg.pcd
+    #   output_frame: map
+    #   roi_enabled: true
+    #   initial_tx: -14.0        # 红方; 蓝方: 14.0
+    #   initial_ty: 0.0
+    #   initial_tz: 4.0
+    #   initial_roll: 0.0
+    #   initial_pitch: 0.24504423
+    #   initial_yaw: 0.0         # 蓝方: 3.14159
+    map_path: ""
+    initial_tx: 0.0
+    initial_ty: 0.0
+    initial_tz: 0.0
+    initial_roll: 0.0
+    initial_pitch: 0.0
+    initial_yaw: 0.0

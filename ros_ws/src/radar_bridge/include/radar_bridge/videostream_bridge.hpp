@@ -1,12 +1,15 @@
 #pragma once
 
-#include <hikcamera/shm.hpp>
+#include <hikcamera/shared_frame_reader.hpp>
 
 #include <atomic>
 #include <expected>
+#include <memory>
 #include <string>
 #include <thread>
 #include <zmq.hpp>
+
+#include "radar_camera/armor_infer.hpp"
 
 namespace radar_bridge::videostream_bridge {
 
@@ -16,15 +19,17 @@ public:
     ~VideoBridge();
 
     auto video_init(const std::string& shm_name, const std::string& pub_address,
-        int image_width = 4096, int image_height = 3000) -> std::expected<void, std::string>;
+        std::shared_ptr<radar_camera::armor_infer::ArmorInfer> infer)
+        -> std::expected<void, std::string>;
     auto video_thread() -> std::expected<void, std::string>;
     auto video_thread_stop() -> std::expected<void, std::string>;
 
 private:
-    int shm_fd_                   = -1;
-    hikcamera::imageSHM* shm_ptr_ = nullptr;
-    int image_width_              = 0;
-    int image_height_             = 0;
+    void draw_overlay(
+        cv::Mat& bgr, const std::vector<radar_camera::armor_infer::ArmorResult>& results);
+
+    hikcamera::SharedFrameReader reader_;
+    std::shared_ptr<radar_camera::armor_infer::ArmorInfer> infer_;
     std::string pub_address_;
     std::string shm_name_;
     zmq::context_t ctx_ { 1 };

@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+# start-live-inference - 一键启动相机(全分辨率+曝光/增益配置) + radar_bridge
+# 推理叠加推流，并可选打开 ffplay 查看 5559 流。
+#
+# 用法 (宿主机或容器内均可):
+#   start-live-inference                 # 相机 + 推理bridge + ffplay
+#   start-live-inference --no-viewer     # 相机 + 推理bridge，不开 ffplay
+#   start-live-inference --passthrough   # 相机 + 纯透传 bridge（无推理）
+#   start-live-inference --stop          # 停止相机 + bridge + ffplay
+#
+# 环境变量覆盖:
+#   HIK_SERIAL   相机 SN      (默认 DB0067863, CS200-10UC)
+#   HIK_FPS      帧率         (默认 20.0)
+#   ZMQ_ADDR     视频流地址   (默认 tcp://localhost:5559)
+#   RADAR_WS     容器内工作区 (默认 /workspace)
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+RADAR_WS="${RADAR_WS:-/workspace}"
+HIK_SERIAL="${HIK_SERIAL:-DB0067863}"
+HIK_FPS="${HIK_FPS:-20.0}"
+ZMQ_ADDR="${ZMQ_ADDR:-tcp://localhost:5559}"
+
+MODE=inference
+VIEWER=1
+case "${1:-}" in
+    --no-viewer) VIEWER=0; shift ;;
+    --passthrough) MODE=passthrough; shift ;;
+    --stop) MODE=stop; shift ;;
+    -h|--help)
+        sed -n '1,24p' "${BASH_SOURCE[0]}"
+        exit 0 ;;
+esac
+
+# ---------- 容器执行封装 ----------
+# 宿主机环境 → 通过 docker exec 在 devcontainer 内执行；
+# 容器内环境 → 直接执行。
+IN_CONTAINER=0
+[ -f /.dockerenv ] && IN_CONTAINER=1
+
+cam_env() {
+    # 相机驱动启动：setsid 脱离进程组 + 全部 fd 重定向，保证 docker exec 立即返回
+    local cmd="setsid bash -c 'source /opt/ros/jazzy/setup.bash; source ${RADAR_WS}/ros_ws/install/setup.bash; cd ${RADAR_WS}/ros_ws; exec ros2 run hikcamera_ros_driver hikcamera_ros_driver --ros-args --params-file ${RADAR_WS}/ros_ws/install/radar_bringup/share/radar_bringup/config/camera/hikcamera.yaml -p device_serial:=${HIK_SERIAL} -p framerate:=${HIK_FPS} > /tmp/hikcamera_driver.log 2>&1' < /dev/null &"
+    if [ "${IN_CONTAINER}" = "1" ]; then
+        eval "${cmd}"
+    else
+        docker exec -d devcontainer-radar-develop-1 bash -c "${cmd}"
+    fi
+}
+
+bridge_env() {
+    local inf="true"
+    [ "${MODE}" = "passthrough" ] && inf="false"
+    local cmd="setsid bash -c 'source /opt/ros/jazzy/setup.bash; source ${RADAR_WS}/ros_ws/install/setup.bash; cd ${RADAR_WS}/ros_ws; exec ros2 run radar_bridge radar_bridge_node --ros-args --params-file ${RADAR_WS}/ros_ws/install/radar_bringup/share/radar_bringup/config/bridge/radar_bridge.yaml -p enable_inference:=${inf} > /tmp/radar_bridge.log 2>&1' < /dev/null &"
+    if [ "${IN_CONTAINER}" = "1" ]; then
+        eval "${cmd}"
+    else
+        docker exec -d devcontainer-radar-develop-1 bash -c "${cmd}"
+    fi
+}
+
+stop_all() {
+    # 注意: 必须用 [h] 正则技巧，否则 pkill -f 会匹配执行它的 bash 自身导致挂起
+    # 同时清掉残留 SHM：相机驱动用 O_EXCL 创建，残留会导致 shm_init failed
+    local cmd="pkill -f '[h]ikcamera_ros_driver' 2>/dev/null || true; pkill -f '[r]adar_bridge_node' 2>/dev/null || true; pkill -f '[z]mq_mjpeg_player' 2>/dev/null || true; pkill -f '[m]p4_replay' 2>/dev/null || true; sleep 1; rm -f /dev/shm/hikcamera_shm 2>/dev/null || true"
+    if [ "${IN_CONTAINER}" = "1" ]; then
+        bash -c "${cmd}"
+    else
+        docker exec devcontainer-radar-develop-1 bash -c "${cmd}"
+    fi
+    pkill -f "[f]fplay -f mjpeg" 2>/dev/null || true
+}
+
+container_tail() {
+    if [ "${IN_CONTAINER}" = "1" ]; then
+        bash -c "$1"
+    else
+        docker exec devcontainer-radar-develop-1 bash -c "$1"
+    fi
+}
+
+# ---------- 主流程 ----------
+case "${MODE}" in
+    stop)
+        stop_all
+        echo "[STOP] camera/bridge/viewer stopped"
+        exit 0 ;;
+esac
+
+stop_all
+sleep 1
+
+echo "[START] camera  ${HIK_SERIAL} 5472x3648 @${HIK_FPS}fps (hikcamera.yaml 曝光/增益)"
+cam_env
+
+# 等待相机 SHM 就绪后再启动 bridge（bridge 打开 SHM 失败会 abort）
+shm_ok=no
+for i in $(seq 1 15); do
+    shm_ok=$(container_tail "test -e /dev/shm/hikcamera_shm && echo yes || echo no")
+    [ "${shm_ok}" = "yes" ] && break
+    sleep 1
+done
+if [ "${shm_ok}" != "yes" ]; then
+    echo "[ERROR] /hikcamera_shm 未在 15s 内创建，检查相机日志:" >&2
+    container_tail "tail -10 /tmp/hikcamera_driver.log" >&2
+    exit 1
+fi
+
+echo "[START] radar_bridge enable_inference=${inf:-true}"
+inf="true"; [ "${MODE}" = "passthrough" ] && inf="false"
+bridge_env
+
+sleep 3
+container_tail "echo '--- camera ---'; tail -2 /tmp/hikcamera_driver.log; echo '--- bridge ---'; tail -3 /tmp/radar_bridge.log"
+
+if [ "${VIEWER}" = "1" ]; then
+    if command -v ffplay >/dev/null 2>&1 && python3 -c 'import zmq' 2>/dev/null; then
+        echo "[VIEW] ffplay <- ${ZMQ_ADDR}  (Ctrl+C 关闭查看器，服务继续)"
+        python3 "${ROOT_DIR}/tools/video_zmq/zmq_mjpeg_player.py" --addr "${ZMQ_ADDR}" \
+            | ffplay -f mjpeg -i - -loglevel error -window_title "Camera 5472x3648 L1L2L3"
+    else
+        echo "[VIEW] 宿主机缺少 ffplay/python-zmq，手动查看:"
+        echo "       python3 ${ROOT_DIR}/tools/video_zmq/zmq_mjpeg_player.py --addr ${ZMQ_ADDR} | ffplay -f mjpeg -i -"
+    fi
+fi

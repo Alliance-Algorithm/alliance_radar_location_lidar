@@ -10,6 +10,7 @@
 #include <iostream>
 #include <numeric>
 #include <optional>
+#include <print>
 #include <string>
 #include <vector>
 
@@ -75,16 +76,15 @@ struct Latency {
     void add(double ms) { samples.push_back(ms); }
     void print(const std::string& name) const {
         if (samples.empty()) {
-            std::cout << name << ": (no calls)\n";
+            std::println("{}: (no calls)", name);
             return;
         }
         auto s = samples;
         std::sort(s.begin(), s.end());
         double mean = std::accumulate(s.begin(), s.end(), 0.0) / s.size();
-        std::cout << name << "  n=" << s.size() << "  mean=" << mean << "ms"
-                  << "  p50=" << s[s.size() * 50 / 100] << "ms"
-                  << "  p95=" << s[s.size() * 95 / 100] << "ms"
-                  << "  p99=" << s[s.size() * 99 / 100] << "ms\n";
+        std::println("{}  n={}  mean={}ms  p50={}ms  p95={}ms  p99={}ms",
+            name, s.size(), mean, s[s.size() * 50 / 100], s[s.size() * 95 / 100],
+            s[s.size() * 99 / 100]);
     }
 };
 
@@ -106,12 +106,12 @@ int main(int argc, char* argv[]) {
     model_inference::TensorRtInference l1_trt;
     std::string l1_path = model_dir + "/best_fixed_names_1280_fp16.engine";
     if (auto r = l1_trt.init(l1_path); !r) {
-        std::cerr << "L1 init failed: " << r.error() << "\n";
+        std::println(std::cerr, "L1 init failed: {}", r.error());
         return 1;
     }
-    std::cout << "L1 engine loaded: " << l1_path << "\n";
-    std::cout << "  input_elements=" << l1_trt.input_elements()
-              << "  output_elements=" << l1_trt.output_elements() << "\n";
+    std::println("L1 engine loaded: {}", l1_path);
+    std::println("  input_elements={}  output_elements={}", l1_trt.input_elements(),
+        l1_trt.output_elements());
 
     armor_refine::ArmorRefiner refiner;
     armor_refine::ArmorRefineConfig acfg;
@@ -122,10 +122,10 @@ int main(int argc, char* argv[]) {
     ncfg.number_model_path = model_dir + "/armor-number_fp16.engine";
     ncfg.conf_threshold    = 0.80f;
     if (auto r = refiner.init(acfg, ncfg); !r) {
-        std::cerr << "ArmorRefiner init failed: " << r.error() << "\n";
+        std::println(std::cerr, "ArmorRefiner init failed: {}", r.error());
         return 1;
     }
-    std::cout << "L2/L3 engines loaded\n";
+    std::println("L2/L3 engines loaded");
 
     // ── collect frames ────────────────────────────────────────────────────────
     std::vector<fs::path> files;
@@ -133,7 +133,7 @@ int main(int argc, char* argv[]) {
         if (e.path().extension() == ".jpg" || e.path().extension() == ".png")
             files.push_back(e.path());
     std::sort(files.begin(), files.end());
-    std::cout << "Processing " << files.size() << " frames...\n";
+    std::println("Processing {} frames...", files.size());
 
     Latency lat_l1, lat_refine;
     int total_dets = 0, drone_dets = 0;
@@ -146,7 +146,7 @@ int main(int argc, char* argv[]) {
     for (size_t fi = 0; fi < files.size(); ++fi) {
         cv::Mat bgr = cv::imread(files[fi].string());
         if (bgr.empty()) {
-            std::cerr << "skip (empty): " << files[fi] << "\n";
+            std::println(std::cerr, "skip (empty): {}", files[fi].string());
             continue;
         }
         cv::Mat rgb;
@@ -159,13 +159,13 @@ int main(int argc, char* argv[]) {
 
         double t0 = now_ms();
         if (auto r = l1_trt.start(blob.data(), blob.size()); !r) {
-            std::cerr << "L1 start: " << r.error() << "\n";
+            std::println(std::cerr, "L1 start: {}", r.error());
             continue;
         }
         auto l1_wait = l1_trt.wait();
         double l1_ms = now_ms() - t0;
         if (!l1_wait) {
-            std::cerr << "L1 wait: " << l1_wait.error() << "\n";
+            std::println(std::cerr, "L1 wait: {}", l1_wait.error());
             continue;
         }
         lat_l1.add(l1_ms);
@@ -221,18 +221,19 @@ int main(int argc, char* argv[]) {
 
         cv::imwrite(out_dir + "/" + files[fi].filename().string(), vis);
 
-        if ((fi + 1) % 10 == 0)
-            std::cout << "  " << fi + 1 << "/" << files.size() << " done\n" << std::flush;
+        if ((fi + 1) % 10 == 0) {
+            std::print("  {}/{}\n", fi + 1, files.size());
+            std::flush(std::cout);
+        }
     }
 
     // ── report ────────────────────────────────────────────────────────────────
-    std::cout << "\n=== latency (GPU TensorRT, H2D+infer+D2H) ===\n";
+    std::println("\n=== latency (GPU TensorRT, H2D+infer+D2H) ===");
     lat_l1.print("L1 (1280x1280)  ");
     lat_refine.print("L2+L3 per-det   ");
-    std::cout << "\n=== detection stats ===\n"
-              << "total_dets=" << total_dets << "  drones=" << drone_dets
-              << "  robots=" << (total_dets - drone_dets) << "\n";
-    std::cout << "annotated images -> " << out_dir << "\n";
-    std::cout << "CSV              -> " << out_dir << "/results.csv\n";
+    std::println("\n=== detection stats ===\ntotal_dets={}  drones={}  robots={}",
+        total_dets, drone_dets, total_dets - drone_dets);
+    std::println("annotated images -> {}", out_dir);
+    std::println("CSV              -> {}/results.csv", out_dir);
     return 0;
 }

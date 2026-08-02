@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 
+#include "radar_camera/armor_infer.hpp"
+
 namespace radar_bridge::node {
 
 struct BridgeConfig {
@@ -17,8 +19,11 @@ struct BridgeConfig {
     std::string shm_name;
     std::string video_pub_address;
     std::string image_topic;
-    int video_width  = 4096;
-    int video_height = 3000;
+    bool enable_inference = false;
+    std::string model_dir = "/workspace/ros_ws/src/radar_camera/model";
+    float l1_conf         = radar_camera::armor_infer::kL1Conf;
+    float l2_conf         = radar_camera::armor_infer::kL2Conf;
+    float l3_conf         = radar_camera::armor_infer::kL3Conf;
 };
 
 auto ConfigsLoader(rclcpp::Node& node, BridgeConfig& config) -> std::expected<void, std::string>;

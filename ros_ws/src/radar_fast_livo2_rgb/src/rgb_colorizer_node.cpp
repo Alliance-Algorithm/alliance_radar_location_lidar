@@ -145,6 +145,7 @@ public:
         publish_timer_->cancel();
         pcd_timer_->cancel();
         stop_camera_input();
+        save_shutdown_pcd();
     }
 
 private:
@@ -604,6 +605,22 @@ private:
                 get_logger(), *get_clock(), 10000, "PCD save failed: %s (code %d)", filename, ret);
         }
         return ret;
+    }
+
+    // 退出时保存在线累积的彩色地图（LIO 位姿着色），供离线回环管线使用。
+    // 析构运行在 rclcpp::shutdown 后的正常执行上下文（非 signal handler），
+    // PCL 文件 I/O 安全——与 livmapper_node 的 ~LivMapperNode()→save_pcd()
+    // 同一模式。
+    void save_shutdown_pcd() {
+        std::lock_guard<std::mutex> lock(color_map_mutex_);
+        if (!color_map_ || color_map_->size() == 0) {
+            RCLCPP_WARN(get_logger(), "Shutdown: colored map empty, skip PCD save");
+            return;
+        }
+        int ret = save_pcd_impl("shutdown");
+        if (ret != 0) {
+            RCLCPP_ERROR(get_logger(), "Shutdown PCD save failed (code %d)", ret);
+        }
     }
 
     // ── Members ────────────────────────────────────────────────────────

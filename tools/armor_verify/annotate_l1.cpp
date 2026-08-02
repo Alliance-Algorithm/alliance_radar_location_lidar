@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <print>
 #include <string>
 #include <vector>
 
@@ -72,7 +73,7 @@ void label(cv::Mat& image, const std::string& value, cv::Point point, cv::Scalar
 
 auto main_impl(int argc, char** argv) -> int {
     if (argc < 4) {
-        std::cerr << "usage: annotate_l1 <frames> <output> <model_dir>\n";
+        std::println(std::cerr, "usage: annotate_l1 <frames> <output> <model_dir>");
         return 2;
     }
     const fs::path frames = argv[1];

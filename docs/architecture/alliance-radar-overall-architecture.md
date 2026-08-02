@@ -226,7 +226,7 @@ map
 - **dynamic tf 只表达系统自身刚体位姿**，不表达目标观测、聚类结果、轨迹或其他
   非刚体数据。
 - **目标观测 / 聚类 / 轨迹继续走 topic**：`/lidar/dynamic`、`/lidar/cluster`、
-  `/fusion/tracks`、未来的 `/camera/detection` 都是数据流，不应塞进 TF tree。
+  `/fusion/tracks`、未来的 `/radar_camera/robot_pose` 都是数据流，不应塞进 TF tree。
 - **当前阶段**：`radar::LidarPipeline` 持有 `t_map_lidar`，因此可作为临时的
   dynamic tf authority，发布 `map -> radar_base`（若 `radar_base` 尚未显式建模，
   可先退化为 `map -> lidar_link`）。
@@ -330,7 +330,7 @@ radar_bringup (launch / YAML / static tf)
 │   └── 发布 dynamic tf（当前阶段 authority）
 ├── radar_camera_node
 │   ├── 读取 radar_camera/config/extrinsic.yaml
-│   └── 发布 /camera/detection 或 /camera/pose
+│   └── 发布 /radar_camera/robot_pose
 ├── radar_fusion_node
 │   ├── 订阅 /lidar/pose + /lidar/cluster + camera observation
 │   ├── 发布 /localization/pose
@@ -389,7 +389,7 @@ topics/
 │   ├── type: sensor_msgs/msg/Image, sensor_msgs/msg/CameraInfo
 │   ├── producer: 相机驱动 (ros2-hikcamera)
 │   └── consumer: radar_camera
-├── /camera/pose  或  /camera/detection
+├── /radar_camera/robot_pose
 │   ├── type: geometry_msgs/msg/PoseWithCovarianceStamped  或  vision_msgs/msg/Detection3DArray
 │   ├── producer: radar_camera
 │   └── consumer: radar_fusion
@@ -524,7 +524,7 @@ runtime/
   `radar_lidar` 内部用 GICP 求出的 `t_map_lidar`（纯 `Eigen::Isometry3d` 内存变量）
   直接把点云变换到 map frame，再发布 `/lidar/cluster`（`frame_id=map`）。
   未来 `radar_camera` 同理：自己用标定外参把检测结果投影到 map frame 后再发布
-  `/camera/detection`。`radar_fusion` 订阅到的都已经是 map frame 坐标，**不需要、
+  `/radar_camera/robot_pose`。`radar_fusion` 订阅到的都已经是 map frame 坐标，**不需要、
   也不应该**通过 `tf2_ros::Buffer::lookupTransform` 去查任何 TF 才能完成融合。
   这一条决定了模块解耦程度，和下面的 TF authority 无关。
 - **dynamic tf 广播（`map -> radar_base`）**：

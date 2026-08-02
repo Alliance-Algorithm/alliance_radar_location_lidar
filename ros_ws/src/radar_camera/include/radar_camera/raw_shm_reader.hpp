@@ -10,13 +10,10 @@
 #include <string>
 #include <thread>
 #include <utility>
-#include <vector>
-
-#include <sys/types.h>
 
 #include <opencv2/core/mat.hpp>
 
-#include "hikcamera/shm.hpp"
+#include "hikcamera/shared_frame_reader.hpp"
 
 namespace radar_camera::recording {
 
@@ -50,7 +47,6 @@ struct ReaderStats {
 [[nodiscard]] auto is_counter_reset(std::uint64_t last_seen, std::uint64_t current) -> bool;
 [[nodiscard]] auto validate_raw_frame_dimensions(int width, int height) -> bool;
 [[nodiscard]] auto raw_frame_byte_count(int width, int height) -> std::optional<std::size_t>;
-[[nodiscard]] auto valid_shm_object_size(std::intmax_t size) -> bool;
 
 class RawShmReader final {
 public:
@@ -68,13 +64,11 @@ public:
 
 private:
     void loop();
-    void close_shm();
     void join_finished_thread();
 
     const std::string shm_name_;
     const int width_;
     const int height_;
-    const std::size_t image_bytes_;
     RecordingFifo& fifo_;
     std::atomic<bool> running_ { false };
     mutable std::mutex lifecycle_mutex_;
@@ -83,9 +77,7 @@ private:
     ReaderStats stats_;
     std::string failure_reason_;
     std::thread thread_;
-    std::vector<std::shared_ptr<cv::Mat>> buffer_pool_;
-    int shm_fd_                         = -1;
-    const hikcamera::imageSHM* shm_ptr_ = nullptr;
+    hikcamera::SharedFrameReader reader_;
 
     void fail(std::string reason, bool overrun = false);
 };

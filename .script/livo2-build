@@ -1,0 +1,193 @@
+#!/bin/bash
+# livo2-build — 一键建图：后台录 bag + 前台启动建图 launch；
+# Ctrl-C 退出后自动：停录 → 回环优化 → 颜色迁移 → 后处理 → 导出彩色地图。
+#
+# 用法:
+#   .script/livo2-build                 # 全自动
+#   .script/livo2-build --skip-record   # 不录包（直接建图，退出时无回环）
+#   .script/livo2-build --no-postprocess  # 跳过 pcd_postprocess 一步
+#
+# 流程:
+#   1. 后台录 /fast_livo2/odom /fast_livo2/cloud_world /fast_livo2/path
+#   2. 前台启动 odin_fast_livo2_mapping.launch.py（pcd_save_en 默认 true）
+#   3. 退出后: 停录 → 回环优化 → 颜色迁移 → 后处理 → model/generated/livo2_final_rgb.pcd
+#
+# 关键机制:
+#   - set -m: 后台录包进入独立进程组，Ctrl-C 不会误杀录包进程
+#   - trap 'true' INT: wrapper 自身忽略 SIGINT，只让前台 launch 收到退出
+#   - 管线每步独立，失败不中断；日志追加 model/generated/optimization/pipeline.log
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+: "${RADAR_WS:=$(cd "${SCRIPT_DIR}/.." && pwd -P)}"
+MODEL="${RADAR_WS}/model/generated"
+OPT_DIR="${MODEL}/optimization"
+PIPE_LOG="${OPT_DIR}/pipeline.log"
+
+SKIP_RECORD=0
+NO_POSTPROCESS=0
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --skip-record)   SKIP_RECORD=1; shift ;;
+        --no-postprocess) NO_POSTPROCESS=1; shift ;;
+        -h|--help) sed -n '3,16p' "$0"; exit 0 ;;
+        *) echo "未知参数: $1" >&2; exit 1 ;;
+    esac
+done
+
+log() { echo "$(date '+%H:%M:%S') $*" | tee -a "$PIPE_LOG"; }
+
+mkdir -p "$OPT_DIR"
+: > "$PIPE_LOG"
+REC_PID=""
+
+cleanup_recorder() {
+    if [[ -n "$REC_PID" ]] && kill -0 "$REC_PID" 2>/dev/null; then
+        log "停止 bag 录制..."
+        kill -INT "$REC_PID" 2>/dev/null || true
+        # rosbag2 键盘处理被禁用时不响应 SIGINT（实测挂死），逐级升级：
+        # INT 等 30s → TERM 等 10s → KILL
+        for _ in $(seq 1 30); do
+            kill -0 "$REC_PID" 2>/dev/null || break
+            sleep 1
+        done
+        if kill -0 "$REC_PID" 2>/dev/null; then
+            log "录制器未响应 SIGINT，升级 SIGTERM"
+            kill -TERM "$REC_PID" 2>/dev/null || true
+            for _ in $(seq 1 10); do
+                kill -0 "$REC_PID" 2>/dev/null || break
+                sleep 1
+            done
+            if kill -0 "$REC_PID" 2>/dev/null; then
+                log "录制器仍未退出，强制 SIGKILL"
+                kill -KILL "$REC_PID" 2>/dev/null || true
+            fi
+        fi
+        wait "$REC_PID" 2>/dev/null || true
+    fi
+    if [[ -n "$REC_LOG" && -f "$REC_LOG" ]]; then
+        log "录制日志尾部:"
+        tail -5 "$REC_LOG" >> "$PIPE_LOG" 2>/dev/null || true
+    fi
+}
+trap 'cleanup_recorder' EXIT
+# 用空 trap（忽略处置）而非非空 trap：bash 在前台子进程等待中收到 SIGINT
+# 时，非空 trap 会在子进程退出后执行 trap 并带着 130 退出脚本（实测踩中，
+# 管线中断）。忽略处置则脚本继续；launch 由终端 Ctrl-C 直接送达，无需转发。
+trap '' INT
+set -m
+
+BAG=""
+REC_LOG=""
+if [[ $SKIP_RECORD -eq 0 ]]; then
+    BAG="${MODEL}/lio_bag_$(date +%Y%m%d_%H%M%S)"
+    REC_LOG="${OPT_DIR}/record_$(basename "$BAG").log"
+    log "开始录制 → $BAG (日志: $(basename "$REC_LOG"))"
+    # 健康检查：15s 内未创建 bag 目录视为录制器启动异常，杀后重启一次
+    for attempt in 1 2; do
+        # stdin 必须 < /dev/null：set -m 让录制器独立进程组，继承 TTY stdin 时
+        # rosbag2 键盘处理器读控制终端 → SIGTTIN 停死（实测 INT/TERM 均无效）
+        ros2 bag record --topics /fast_livo2/odom /fast_livo2/cloud_world /fast_livo2/path \
+            -o "$BAG" --max-cache-size 500000000 < /dev/null > "$REC_LOG" 2>&1 &
+        REC_PID=$!
+        for _ in $(seq 1 15); do
+            [[ -d "$BAG" ]] && break
+            kill -0 "$REC_PID" 2>/dev/null || break
+            sleep 1
+        done
+        if [[ -d "$BAG" ]]; then
+            log "录制器就绪 ($(ls "$BAG" | wc -l) 个文件)"
+            break
+        fi
+        log "录制器 ${attempt}/2 次未创建 bag（日志: $(tail -c 200 "$REC_LOG" 2>/dev/null | tr '\n' ' ')）"
+        kill -KILL "$REC_PID" 2>/dev/null || true
+        wait "$REC_PID" 2>/dev/null || true
+    done
+fi
+
+log "启动建图 launch..."
+set +e
+ros2 launch radar_bringup odin_fast_livo2_mapping.launch.py
+LAUNCH_RC=$?
+set -e
+
+cleanup_recorder
+log "launch 已退出 (rc=$LAUNCH_RC)"
+log "bag 状态: $(ls -d "$BAG" 2>/dev/null && ls -la "$BAG" | head -5 || echo '目录不存在')"
+
+# 异常快速退出判定：无任何地图产物（彩色图或几何图都没存下来）→ 跳过管线
+if [[ $LAUNCH_RC -ne 0 ]] \
+    && ! ls "${MODEL}"/cloud_rgb_shutdown_*.pcd >/dev/null 2>&1 \
+    && ! ls "${MODEL}"/fast_livo2_map*.pcd >/dev/null 2>&1; then
+    log "WARNING: launch 异常退出且无地图产物，跳过管线（检查雷达驱动/数据源）"
+    exit $LAUNCH_RC
+fi
+
+log "=== 退出管线开始 ==="
+OPT_OK=0; TRANSFER_OK=0; POST_OK=0
+MAP_OPT=""; COLORED=""; FINAL="${MODEL}/livo2_final_rgb.pcd"
+# 清理上次运行残留的优化产物，避免 stale map_optimized.pcd 让颜色迁移误报成功
+rm -f "${OPT_DIR}"/map_optimized*.pcd
+
+# ── 1. 回环优化 ─────────────────────────────────────────────
+if [[ -n "$BAG" && -d "$BAG" ]] \
+    && find "$BAG" -maxdepth 1 -type f \( -name '*.db3' -o -name '*.mcap' \) | grep -q .; then
+    log "回环优化: $BAG"
+    python3 "${RADAR_WS}/tools/loop_closure/optimize_pose_graph.py" \
+        --bag "$BAG" --output-dir "$OPT_DIR" --reproject \
+        --keyframe-dist 0.3 --loop-radius 2.0 --loop-min-skip 30 \
+        >> "$PIPE_LOG" 2>&1 && OPT_OK=1
+    MAP_OPT="${OPT_DIR}/map_optimized.pcd"
+else
+    log "WARNING: bag 缺失/为空，跳过回环优化"
+fi
+
+# ── 2. 颜色迁移 ─────────────────────────────────────────────
+COLORED=$(ls -t "${MODEL}"/cloud_rgb_shutdown_*.pcd 2>/dev/null | head -1 || true)
+if [[ -n "$COLORED" && -f "$MAP_OPT" ]]; then
+    log "颜色迁移: $(basename "$COLORED") → $MAP_OPT"
+    python3 "${RADAR_WS}/tools/loop_closure/color_transfer.py" \
+        "$COLORED" "$MAP_OPT" --output "${OPT_DIR}/map_optimized_rgb.pcd" \
+        --keep-uncolored --warp-before "${OPT_DIR}/keyframe_before.csv" --warp-after "${OPT_DIR}/keyframe_optimized.csv" --sanitize-trajectory "${OPT_DIR}/trajectory_before.csv" \
+        >> "$PIPE_LOG" 2>&1 && TRANSFER_OK=1
+elif [[ -z "$COLORED" ]]; then
+    log "WARNING: 未找到彩色地图 cloud_rgb_shutdown_*.pcd，跳过颜色迁移"
+fi
+
+# ── 3. 后处理 → 最终导出 ───────────────────────────────────
+SRC=""
+if [[ $TRANSFER_OK -eq 1 ]]; then SRC="${OPT_DIR}/map_optimized_rgb.pcd"
+elif [[ $OPT_OK -eq 1 ]]; then SRC="${OPT_DIR}/map_optimized.pcd"
+elif [[ -n "$COLORED" ]]; then SRC="$COLORED"
+fi
+
+# 回环前彩色图（LIO 位姿着色）单独保留一份带时间戳的固定名副本
+if [[ -n "$COLORED" ]]; then
+    TS=$(basename "$BAG" 2>/dev/null | sed 's/^lio_bag_//')
+    [[ -z "$TS" ]] && TS=$(date +%Y%m%d_%H%M%S)
+    PRE_RGB="${MODEL}/lio_rgb_map_${TS}.pcd"
+    cp -f "$COLORED" "$PRE_RGB"
+    log "✓ 回环前彩色图  $PRE_RGB ($(grep -a '^POINTS' "$COLORED" | awk '{print $2}') 点)"
+fi
+
+if [[ -n "$SRC" ]]; then
+    [[ -f "$FINAL" ]] && cp -f "$FINAL" "$FINAL.bak"
+    if [[ $NO_POSTPROCESS -eq 1 ]]; then
+        cp -f "$SRC" "$FINAL"; POST_OK=1
+    else
+        log "后处理: $SRC → $FINAL"
+        python3 "${RADAR_WS}/tools/pcd_postprocess/pcd_postprocess.py" \
+            "$SRC" --output "$FINAL" --voxel-size 0.05 \
+            >> "$PIPE_LOG" 2>&1 && POST_OK=1
+    fi
+else
+    log "ERROR: 没有任何地图产物可导出"
+fi
+
+log "=== 汇总 ==="
+[[ $OPT_OK -eq 1 ]]     && log "✓ 回环优化 ${OPT_DIR}/map_optimized.pcd" \
+                        || log "✗ 回环优化"
+[[ $TRANSFER_OK -eq 1 ]] && log "✓ 颜色迁移 ${OPT_DIR}/map_optimized_rgb.pcd" \
+                        || log "✗ 颜色迁移"
+[[ $POST_OK -eq 1 ]]    && log "✓ 最终导出 $FINAL" || log "✗ 最终导出"
+log "管线日志: $PIPE_LOG"

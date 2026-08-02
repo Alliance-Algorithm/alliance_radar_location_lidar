@@ -94,7 +94,7 @@ docker exec -it RADAR zsh
 
 ```bash
 ros2 launch radar_bringup competition.launch.py \
-  side:=red map_path:=/workspace/model/generated/map.pcd \
+  side:=red map_path:=/workspace/model/generated/jinan_field_map_reg.pcd \
   enable_raw_recording:=false
 ```
 
@@ -103,7 +103,7 @@ H.264 NVENC，分段 60 秒，输出到 `/model/devio`：
 
 ```bash
 ros2 launch radar_bringup competition.launch.py \
-  side:=red map_path:=/workspace/model/generated/map.pcd \
+  side:=red map_path:=/workspace/model/generated/jinan_field_map_reg.pcd \
   enable_raw_recording:=true \
   recording_output_dir:=/model/devio
 ```
@@ -245,13 +245,44 @@ ros2 launch radar_bringup odin_slam_mapping.launch.py
 
 # 2. 用保存的地图做重定位 + GICP 回退联合定位
 ros2 launch radar_bringup odin_relocalization_localization.launch.py \
-  map_path:=/workspace/model/generated/map_zup.pcd \
+  map_path:=/workspace/model/generated/jinan_field_map_reg.pcd \
   relocalization_map_path:=/path/to/saved_map.bin
 ```
 
 `custom_init_pos`（红/蓝方安装位置估算值）需在
 `ros_ws/src/radar_bringup/config/lidar/odin_driver_relocalization.yaml`
 中按实际部署位置填入，默认全零仅供占位。
+
+#### Odin1 直出聚类调参（无地图，比赛链路不受影响）
+
+`odin_tune_node` 订阅 Odin1 直出原始点云 `/odin1/cloud_raw`，用 odometry
+对齐的滑动窗口背景模型差分提取动态点，再走欧氏聚类，用于无地图时真机调参。
+**比赛链路不使用此节点**；调参结论回填比赛 YAML。
+
+```bash
+ros2 launch radar_bringup odin_tune.launch.py
+```
+
+Foxglove 查看：
+
+- `/odin_tune/dynamic` 动态点云
+- `/odin_tune/background` 背景模型（调试）
+- `/odin_tune/clusters` 聚类质心 + `/odin_tune/cluster_viz` AABB 边框
+- `/odin_tune/diag` 诊断（dynamic/clusters/time_ms）
+
+实时调参（改完立即生效，无需重启）：
+
+```bash
+ros2 param set /odin_tune_node diff_threshold 0.25
+ros2 param set /odin_tune_node cluster_tolerance 0.15
+ros2 param set /odin_tune_node bg_num_frames 20
+```
+
+可用参数：`conf_threshold`、`voxel_leaf`、`roi_enabled` + `roi_*`、
+`bg_num_frames`、`diff_threshold`、`cluster_tolerance`、`min_cluster_size`、
+`max_cluster_size`。`scan_topic` / `odom_topic` / `output_frame` 需重启生效。
+
+> 背景模型不含当前帧；启动后前 `bg_num_frames` 帧处于预热期不输出动态点。
 
 ---
 

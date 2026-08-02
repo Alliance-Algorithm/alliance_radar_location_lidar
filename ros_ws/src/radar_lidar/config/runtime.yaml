@@ -12,3 +12,22 @@ radar_lidar_node:
     initial_pose_pitch: 0.0
     initial_pose_yaw: 0.0
     use_odin_relocalization_tf: false
+
+    # GICP 锁定后移动检测 watchdog（雷达站被撞自动解锁）
+    # 阈值 0.3: 对应 yaw 偏转 ≈7° / 平移 ≈1.8m 触发（稳态残差 ~0.2，留裕量）
+    enable_watchdog: true
+    watchdog_fitness: 0.3
+    watchdog_check_interval: 10
+    watchdog_unlock_frames: 3
+
+    # 解锁后 coarse 重定位（多起点搜索自动恢复）
+    enable_coarse_relocalize: true
+    coarse_yaw_range_deg: 30.0
+    coarse_yaw_step_deg: 5.0
+    coarse_translate_range_m: 6.0
+    coarse_translate_step_m: 2.0
+    coarse_voxel: 0.5
+    coarse_max_corr: 5.0
+    coarse_max_iter: 20
+    coarse_inlier_threshold: 0.3
+    coarse_min_inlier: 0.3

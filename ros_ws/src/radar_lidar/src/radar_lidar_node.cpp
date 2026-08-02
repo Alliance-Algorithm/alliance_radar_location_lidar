@@ -22,6 +22,20 @@ namespace {
         node.get_parameter("initial_pose_roll", cfg.initial_roll);
         node.get_parameter("initial_pose_pitch", cfg.initial_pitch);
         node.get_parameter("initial_pose_yaw", cfg.initial_yaw);
+        node.get_parameter_or("enable_watchdog", cfg.enable_watchdog, false);
+        node.get_parameter_or("watchdog_fitness", cfg.watchdog_fitness, 0.5);
+        node.get_parameter_or("watchdog_check_interval", cfg.watchdog_check_interval, 10);
+        node.get_parameter_or("watchdog_unlock_frames", cfg.watchdog_unlock_frames, 3);
+        node.get_parameter_or("enable_coarse_relocalize", cfg.enable_coarse_relocalize, false);
+        node.get_parameter_or("coarse_yaw_range_deg", cfg.coarse_yaw_range_deg, 30.0);
+        node.get_parameter_or("coarse_yaw_step_deg", cfg.coarse_yaw_step_deg, 5.0);
+        node.get_parameter_or("coarse_translate_range_m", cfg.coarse_translate_range_m, 6.0);
+        node.get_parameter_or("coarse_translate_step_m", cfg.coarse_translate_step_m, 2.0);
+        node.get_parameter_or("coarse_voxel", cfg.coarse_voxel, 0.5);
+        node.get_parameter_or("coarse_max_corr", cfg.coarse_max_corr, 5.0);
+        node.get_parameter_or("coarse_max_iter", cfg.coarse_max_iter, 20);
+        node.get_parameter_or("coarse_inlier_threshold", cfg.coarse_inlier_threshold, 0.3);
+        node.get_parameter_or("coarse_min_inlier", cfg.coarse_min_inlier, 0.3);
         return cfg;
     }
 

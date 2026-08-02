@@ -58,7 +58,7 @@ def generate_launch_description():
 
     pcd_save_en_arg = DeclareLaunchArgument(
         "pcd_save_en",
-        default_value="false",
+        default_value="true",
         description="Enable geometry PCD accumulation and shutdown save",
     )
     map_save_path_arg = DeclareLaunchArgument(

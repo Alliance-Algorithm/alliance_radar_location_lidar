@@ -19,6 +19,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <optional>
+#include <print>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -49,8 +50,8 @@ auto parse_roi(std::string_view s) -> std::optional<Roi> {
 
 int main(int argc, char** argv) {
     if (argc < 3) {
-        std::cerr << "Usage: " << argv[0]
-                  << " <input.pcd> <output.pcd> [--roi x_min,x_max,y_min,y_max,z_min,z_max]\n";
+        std::println(std::cerr, "Usage: {} <input.pcd> <output.pcd> [--roi x_min,x_max,y_min,y_max,z_min,z_max]",
+            argv[0]);
         return 1;
     }
 
@@ -63,19 +64,19 @@ int main(int argc, char** argv) {
         if (arg == "--roi" && i + 1 < argc) {
             roi = parse_roi(argv[++i]);
             if (!roi) {
-                std::cerr << "ERROR: --roi requires 6 comma-separated floats\n";
+                std::println(std::cerr, "ERROR: --roi requires 6 comma-separated floats");
                 return 1;
             }
         }
     }
 
-    std::cout << "[jinan_to_xyz] Loading " << input_path << " ...\n";
+    std::println("[jinan_to_xyz] Loading {} ...", input_path);
     pcl::PointCloud<pcl::PointXYZ> cloud;
     if (pcl::io::loadPCDFile<pcl::PointXYZ>(input_path, cloud) == -1) {
-        std::cerr << "ERROR: failed to load " << input_path << "\n";
+        std::println(std::cerr, "ERROR: failed to load {}", input_path);
         return 1;
     }
-    std::cout << "[jinan_to_xyz] Loaded " << cloud.size() << " points\n";
+    std::println("[jinan_to_xyz] Loaded {} points", cloud.size());
 
     pcl::PointCloud<pcl::PointXYZ> filtered;
     filtered.points.reserve(cloud.size());
@@ -93,10 +94,10 @@ int main(int argc, char** argv) {
     filtered.is_dense = true;
 
     if (pcl::io::savePCDFileBinary(output_path, filtered) != 0) {
-        std::cerr << "ERROR: failed to write " << output_path << "\n";
+        std::println(std::cerr, "ERROR: failed to write {}", output_path);
         return 1;
     }
-    std::cout << "[jinan_to_xyz] Wrote " << filtered.size() << " points -> " << output_path
-              << (roi ? " (ROI filtered)" : " (no filter)") << "\n";
+    std::println("[jinan_to_xyz] Wrote {} points -> {}{}", filtered.size(), output_path,
+        roi ? " (ROI filtered)" : " (no filter)");
     return 0;
 }
