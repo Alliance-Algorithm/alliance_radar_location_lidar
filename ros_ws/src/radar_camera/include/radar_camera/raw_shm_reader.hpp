@@ -51,7 +51,8 @@ struct ReaderStats {
 
 class RawShmReader final {
 public:
-    RawShmReader(std::string shm_name, int width, int height, RecordingFifo& fifo);
+    RawShmReader(std::string shm_name, int width, int height, RecordingFifo& fifo,
+        double target_fps = 0.0);
     ~RawShmReader();
 
     RawShmReader(const RawShmReader&)                    = delete;
@@ -71,6 +72,8 @@ private:
     const int width_;
     const int height_;
     RecordingFifo& fifo_;
+    const double target_fps_ = 0.0;  // 0 = 不过滤；>0 时按该帧率采样推帧（省 60MB clone）
+    std::chrono::steady_clock::time_point last_push_ { };
     std::atomic<bool> running_ { false };
     mutable std::mutex lifecycle_mutex_;
     mutable std::mutex mutex_;

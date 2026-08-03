@@ -213,8 +213,8 @@ auto make_recording_components(
     if (!config.enabled) return { };
     auto fifo     = std::make_unique<recording::RecordingFifo>(config.buffer_pool_frames);
     auto recorder = std::make_unique<recording::RawVideoRecorder>(config, *fifo);
-    auto reader =
-        std::make_unique<recording::RawShmReader>(shm_name, config.width, config.height, *fifo);
+    auto reader   = std::make_unique<recording::RawShmReader>(
+        shm_name, config.width, config.height, *fifo, config.fps);
     return { std::move(fifo), std::move(recorder), std::move(reader) };
 }
 
