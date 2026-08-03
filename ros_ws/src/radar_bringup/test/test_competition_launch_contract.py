@@ -12,7 +12,7 @@ EXPECTED_DEFAULTS = {
     "recording_bitrate": "12000000",
     "recording_gop": "8",
     "recording_encoder": "hevc_nvenc",
-    "recording_segment_duration_sec": "60",
+    "recording_segment_duration_sec": "0",
     "recording_buffer_pool_frames": "8",
     "recording_max_buffer_bytes": "480000000",
 }

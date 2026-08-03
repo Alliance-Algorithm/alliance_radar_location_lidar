@@ -36,7 +36,7 @@ TEST_F(RadarRecorderContract, LoadsRecordingDefaults) {
     EXPECT_EQ(recording.bitrate, 12000000);
     EXPECT_EQ(recording.gop, 20);
     EXPECT_EQ(recording.encoder, "hevc_nvenc");
-    EXPECT_EQ(recording.segment_duration_sec, 60);
+    EXPECT_EQ(recording.segment_duration_sec, 0);  // 0 = 整段录制
     EXPECT_EQ(recording.buffer_pool_frames, 8U);
     EXPECT_EQ(recording.max_buffer_bytes, 480000000U);
     EXPECT_EQ(shm_name, "/hikcamera_shm");

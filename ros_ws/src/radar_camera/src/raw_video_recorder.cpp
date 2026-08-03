@@ -536,7 +536,7 @@ void RawVideoRecorder::loop() {
             std::lock_guard lock(mutex_);
             ++stats_.encoded;
         }
-        if (frame_index % segment_frames == 0) {
+        if (segment_frames > 0 && frame_index % segment_frames == 0) {
             if (const auto finalized = finalize_segment(**segment); !finalized) {
                 fail(finalized.error(), false);
                 break;

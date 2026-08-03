@@ -121,7 +121,7 @@ def generate_launch_description():
         DeclareLaunchArgument("recording_bitrate", default_value="12000000"),
         DeclareLaunchArgument("recording_gop", default_value="8"),
         DeclareLaunchArgument("recording_encoder", default_value="hevc_nvenc"),
-        DeclareLaunchArgument("recording_segment_duration_sec", default_value="60"),
+        DeclareLaunchArgument("recording_segment_duration_sec", default_value="0"),
         DeclareLaunchArgument("recording_buffer_pool_frames", default_value="8"),
         DeclareLaunchArgument("recording_max_buffer_bytes", default_value="480000000"),
 

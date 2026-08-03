@@ -112,7 +112,7 @@ RadarFusionNode::RadarFusionNode(const rclcpp::NodeOptions& options)
             publish_tracks(tracks_, stamp);
             publish_fused_tracks(tracks_, stamp);
             publish_lidar_tracks(lidar_tracks_, stamp);
-            publish_lidar_location(tracks_);
+            publish_lidar_location(tracks_, lidar_tracks_);
             publish_status(stamp);
         });
     update_fusion_mode(this->now().nanoseconds());
@@ -167,6 +167,30 @@ void RadarFusionNode::on_camera_detection(
 
     update_fusion_mode(latest_camera_stamp_ns_);
     process_measurements(measurements, stamp.nanoseconds(), false, classes);
+
+    // T-DT 风格：相机识别给雷达聚类 track 贴类别——雷达 track 无类别（class_id=-1）
+    // 无法进官方坐标；被相机识别一次后继承类别，之后即使相机停发也持续输出坐标。
+    if (!lidar_tracks_.empty()) {
+        const double gate_sq = cfg_.gate_distance * cfg_.gate_distance;
+        for (const auto& obs : latest_camera_observations_) {
+            double best_d = gate_sq;
+            int best_idx  = -1;
+            for (size_t i = 0; i < lidar_tracks_.size(); ++i) {
+                const auto& s = lidar_tracks_[i].state();
+                if (!s.is_confirmed()) continue;
+                const double dx = obs.x - s.x(0);
+                const double dy = obs.y - s.x(1);
+                const double d  = dx * dx + dy * dy;
+                if (d < best_d) {
+                    best_d  = d;
+                    best_idx = static_cast<int>(i);
+                }
+            }
+            if (best_idx >= 0) {
+                lidar_tracks_[static_cast<size_t>(best_idx)].set_class_id(obs.class_id);
+            }
+        }
+    }
     // 输出统一由 10Hz location_timer_ 发布（见构造函数），回调不再直接发布。
 }
 
@@ -522,7 +546,8 @@ void RadarFusionNode::fill_default_positions(
 }
 
 void RadarFusionNode::publish_lidar_location(
-    const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& tracks) {
+    const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& tracks,
+    const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& lidar_tracks) {
     auto msg = radar_interfaces::msg::LidarLocation { };
 
     uint16_t* const slots_x[] = {
@@ -546,18 +571,23 @@ void RadarFusionNode::publish_lidar_location(
     // 协议槽位顺序: hero(0), engineer(1), inf3(2), inf4(3), aerial无人机(4), sentry(5)。
     // 注意 sentry/drone 槽位与 class_id 交叉: class 4=sentry -> slot 5; class 5=drone -> slot 4。
     static constexpr int kClassToSlot[6] = { 0, 1, 2, 3, 5, 4 };
-    for (const auto& track : tracks) {
-        const auto& s = track.state();
-        if (!s.is_confirmed()) continue;
-        if (s.class_id < 0 || s.class_id >= 6) continue;
-        const int slot_idx = kClassToSlot[s.class_id];
-        // RoboMaster 0x0305 / radar-egui 约定: 厘米 (米 -> cm 乘 100)
-        // 截断负值：track 外推误差可能让 map+offset 为负，uint16_t 转换是 UB
-        *slots_x[slot_idx] =
-            static_cast<uint16_t>(std::max(0.0, s.x(0) + cfg_.map_to_rm_offset_x) * 100.0);
-        *slots_y[slot_idx] =
-            static_cast<uint16_t>(std::max(0.0, s.x(1) + cfg_.map_to_rm_offset_y) * 100.0);
-    }
+    // 相机池先填；雷达池（继承相机类别）后填覆盖——雷达聚类位置更持续准确。
+    const auto fill_slots = [&](const auto& pool) {
+        for (const auto& track : pool) {
+            const auto& s = track.state();
+            if (!s.is_confirmed()) continue;
+            if (s.class_id < 0 || s.class_id >= 6) continue;
+            const int slot_idx = kClassToSlot[s.class_id];
+            // RoboMaster 0x0305 / radar-egui 约定: 厘米 (米 -> cm 乘 100)
+            // 截断负值：track 外推误差可能让 map+offset 为负，uint16_t 转换是 UB
+            *slots_x[slot_idx] =
+                static_cast<uint16_t>(std::max(0.0, s.x(0) + cfg_.map_to_rm_offset_x) * 100.0);
+            *slots_y[slot_idx] =
+                static_cast<uint16_t>(std::max(0.0, s.x(1) + cfg_.map_to_rm_offset_y) * 100.0);
+        }
+    };
+    fill_slots(tracks);
+    fill_slots(lidar_tracks);
 
     fill_default_positions(msg, steady_now_ns());
 

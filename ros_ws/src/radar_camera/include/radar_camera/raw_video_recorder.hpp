@@ -52,8 +52,8 @@ inline auto validate_config(const RecordingConfig& config) -> std::expected<void
         && config.encoder != "libx264") {
         return std::unexpected("encoder must be h264_nvenc, hevc_nvenc or libx264");
     }
-    if (config.segment_duration_sec <= 0) {
-        return std::unexpected("segment_duration_sec must be positive");
+    if (config.segment_duration_sec < 0) {
+        return std::unexpected("segment_duration_sec must be >= 0 (0 = single whole-session file)");
     }
     const auto fps      = static_cast<std::uint64_t>(config.fps);
     const auto duration = static_cast<std::uint64_t>(config.segment_duration_sec);

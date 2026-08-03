@@ -11,6 +11,6 @@ radar_recorder_node:
     recording_bitrate: 12000000
     recording_gop: 20
     recording_encoder: "hevc_nvenc"
-    recording_segment_duration_sec: 60
+    recording_segment_duration_sec: 0  # 整段录制
     recording_buffer_pool_frames: 8
     recording_max_buffer_bytes: 480000000
