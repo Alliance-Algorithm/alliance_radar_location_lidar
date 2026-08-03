@@ -3,6 +3,7 @@
 #include <chrono>
 #include <limits>
 #include <stdexcept>
+#include <sys/resource.h>
 #include <utility>
 
 #include "radar_camera/recording_fifo.hpp"
@@ -107,6 +108,10 @@ auto RawShmReader::start() -> std::expected<void, std::string> {
     }
     try {
         thread_ = std::thread(&RawShmReader::loop, this);
+        // 录制线程低优先级：CPU 紧张时优先保障推理线程（nice +10）。
+        if (thread_.joinable()) {
+            setpriority(PRIO_PROCESS, static_cast<id_t>(thread_.native_handle()), 10);
+        }
     } catch (const std::exception& error) {
         running_.store(false, std::memory_order_release);
         std::lock_guard lock(mutex_);

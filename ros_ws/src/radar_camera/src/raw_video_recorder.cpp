@@ -7,6 +7,7 @@
 #include <iomanip>
 #include <limits>
 #include <memory>
+#include <sys/resource.h>
 #include <sstream>
 #include <thread>
 
@@ -332,6 +333,10 @@ auto RawVideoRecorder::start() -> std::expected<void, std::string> {
             failure_reason_.clear();
         }
         thread_ = std::thread(&RawVideoRecorder::loop, this);
+        // 录制线程低优先级：CPU 紧张时优先保障推理线程（nice +10）。
+        if (thread_.joinable()) {
+            setpriority(PRIO_PROCESS, static_cast<id_t>(thread_.native_handle()), 10);
+        }
     } catch (const std::exception& error) {
         running_.store(false, std::memory_order_release);
         fifo_.request_overrun(std::string("could not start recorder: ") + error.what());
