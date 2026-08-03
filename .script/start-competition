@@ -42,6 +42,16 @@ if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER}$"; then
     exit 1
 fi
 
+# 启动前清理：残留回放/测试进程 + SHM 文件。
+# hikcamera 驱动用 O_EXCL 创建 SHM，mp4_replay 等残留占用会导致 shm_init 失败 abort。
+docker exec "$CONTAINER" bash -lc '
+pkill -f "[m]p4_replay" 2>/dev/null || true
+pkill -f "[l]ocation_recorder" 2>/dev/null || true
+pkill -f "[s]tatic_transform_publisher" 2>/dev/null || true
+sleep 1
+rm -f /dev/shm/hikcamera_shm 2>/dev/null || true
+' >/dev/null 2>&1 || true
+
 # -i 而非 -it：egui 等无 TTY 环境（stdin/stdout 管道）调用时不会报
 # "the input device is not a TTY"；交互终端下功能不受影响。
 docker exec -i "$CONTAINER" bash -c '
