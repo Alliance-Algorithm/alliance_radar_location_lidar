@@ -42,3 +42,17 @@ done
 
 echo "TensorRT stage prepared: ${STAGE_DIR}"
 du -sh "${STAGE_DIR}"
+
+# 容器无 nvcc：预编译 CUDA 预处理 kernel（比赛机 RTX 4060 = sm_89）。
+# 产物放入容器 bind-mount 的源码树，radar_camera 构建时直接链接。
+KERNEL_SRC="${ROOT_DIR}/ros_ws/src/radar_camera/src/image_normalize.cu"
+KERNEL_OUT="${ROOT_DIR}/ros_ws/src/radar_camera/cuda_prebuilt/image_normalize.sm89.o"
+command -v nvcc >/dev/null || {
+    echo "nvcc is required on the host to prebuild the CUDA kernel" >&2
+    exit 1
+}
+mkdir -p "$(dirname "${KERNEL_OUT}")"
+nvcc -c -O3 -arch=sm_89 -std=c++17 \
+    -I"${ROOT_DIR}/ros_ws/src/radar_camera/include" \
+    -o "${KERNEL_OUT}" "${KERNEL_SRC}"
+echo "CUDA kernel prebuilt: ${KERNEL_OUT}"

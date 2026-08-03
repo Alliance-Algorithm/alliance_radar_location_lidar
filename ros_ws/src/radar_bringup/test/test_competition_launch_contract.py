@@ -4,14 +4,14 @@ import unittest
 
 
 EXPECTED_DEFAULTS = {
-    "enable_raw_recording": "false",
+    "enable_raw_recording": "true",
     "recording_output_dir": "/workspace/model/video",
     "recording_width": "5472",
     "recording_height": "3648",
-    "recording_fps": "20",
-    "recording_bitrate": "40000000",
-    "recording_gop": "20",
-    "recording_encoder": "h264_nvenc",
+    "recording_fps": "8",
+    "recording_bitrate": "12000000",
+    "recording_gop": "8",
+    "recording_encoder": "hevc_nvenc",
     "recording_segment_duration_sec": "60",
     "recording_buffer_pool_frames": "8",
     "recording_max_buffer_bytes": "480000000",
@@ -58,6 +58,11 @@ class CompetitionLaunchContract(unittest.TestCase):
         self.assertIn("localization.launch.py", self.source)
         self.assertIn("radar_bridge.launch.py", self.source)
 
+    def test_starts_dedicated_recorder_node(self):
+        recorder = self._radar_recorder_node()
+        self.assertEqual(self._keyword_string(recorder, "package"), "radar_camera")
+        self.assertEqual(self._keyword_string(recorder, "executable"), "radar_camera_recorder_node")
+
     def test_forwards_every_recording_parameter(self):
         recording_parameters = self._recording_parameters_assignment()
         parameter_names = {
@@ -73,12 +78,16 @@ class CompetitionLaunchContract(unittest.TestCase):
 
         self.assertEqual(parameter_names, set(EXPECTED_DEFAULTS))
 
-        radar_camera_node = self._radar_camera_node()
-        parameters = self._keyword_value(radar_camera_node, "parameters")
+        recorder_node = self._radar_recorder_node()
+        parameters = self._keyword_value(recorder_node, "parameters")
         self.assertIsInstance(parameters, ast.List)
         self.assertTrue(self._contains_name(parameters.elts, "recording_parameters"))
 
-    def test_disabled_mode_uses_exact_default_on_radar_camera_override_path(self):
+        camera_node = self._radar_camera_node()
+        camera_parameters = self._keyword_value(camera_node, "parameters")
+        self.assertFalse(self._contains_name(camera_parameters.elts, "recording_parameters"))
+
+    def test_disabled_mode_uses_exact_default_on_recorder_override_path(self):
         disabled_default = next(
             node
             for node in ast.walk(self.tree)
@@ -91,11 +100,11 @@ class CompetitionLaunchContract(unittest.TestCase):
         )
         self.assertEqual(
             self._keyword_value(disabled_default, "default_value").value,
-            "false",
+            "true",
         )
 
-        radar_parameters = self._keyword_value(self._radar_camera_node(), "parameters")
-        self.assertTrue(self._contains_name(radar_parameters.elts, "recording_parameters"))
+        recorder_parameters = self._keyword_value(self._radar_recorder_node(), "parameters")
+        self.assertTrue(self._contains_name(recorder_parameters.elts, "recording_parameters"))
 
     def _recording_parameters_assignment(self):
         return next(
@@ -117,6 +126,16 @@ class CompetitionLaunchContract(unittest.TestCase):
             and isinstance(node.func, ast.Name)
             and node.func.id == "Node"
             and self._keyword_string(node, "name") == "radar_camera_node"
+        )
+
+    def _radar_recorder_node(self):
+        return next(
+            node
+            for node in ast.walk(self.tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "Node"
+            and self._keyword_string(node, "name") == "radar_recorder_node"
         )
 
     @staticmethod

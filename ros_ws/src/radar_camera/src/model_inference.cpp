@@ -81,8 +81,16 @@ auto ModelInference::infer_preprocess(const cv::Mat& image, size_t width, size_t
         if (image.empty()) {
             return std::unexpected("infer_preprocess failed: empty image");
         }
-        // Callers already resize live RGB frames to model input. Only resize direct callers that
-        // provide a different shape, and preserve RGB channel order in both cases.
+        if (config_.backend == "tensorrt") {
+            // 归一化挪到 GPU：CPU 只保留 u8（PCIe 流量降 4 倍：u8 4.9MB vs f32 19.6MB）。
+            if (image.cols != static_cast<int>(width) || image.rows != static_cast<int>(height)) {
+                return std::unexpected(
+                    "infer_preprocess failed: tensorrt requires model-size input");
+            }
+            u8_buffer_ = image.clone();
+            return std::ref(input_buffer_);  // TensorRT 路径不消费 float buffer
+        }
+        // OpenVINO：保持 float blob 预处理。
         cv::Mat input = image;
         if (image.cols != static_cast<int>(width) || image.rows != static_cast<int>(height)) {
             cv::resize(input, input, cv::Size(static_cast<int>(width), static_cast<int>(height)));
@@ -131,7 +139,11 @@ auto ModelInference::infer_runtime_async() -> std::expected<void, std::string> {
     try {
         if (config_.backend == "tensorrt") {
 #ifdef RADAR_CAMERA_HAS_TENSORRT
-            return tensorrt_inference_->start(input_buffer_.data(), input_buffer_.size());
+            if (u8_buffer_.empty()) {
+                return std::unexpected("TensorRT async called before preprocess");
+            }
+            return tensorrt_inference_->start_u8(
+                u8_buffer_.ptr<std::uint8_t>(), u8_buffer_.cols, u8_buffer_.rows);
 #else
             return std::unexpected("TensorRT backend is not compiled in");
 #endif
@@ -153,7 +165,7 @@ auto ModelInference::infer_runtime_wait()
     try {
         if (config_.backend == "tensorrt") {
 #ifdef RADAR_CAMERA_HAS_TENSORRT
-            return tensorrt_inference_->wait();
+            return tensorrt_inference_->wait();  // 双缓冲：返回上一帧结果
 #else
             return std::unexpected("TensorRT backend is not compiled in");
 #endif

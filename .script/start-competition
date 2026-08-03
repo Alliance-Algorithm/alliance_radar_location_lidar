@@ -42,11 +42,19 @@ if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER}$"; then
     exit 1
 fi
 
-# 启动前清理：残留回放/测试进程 + SHM 文件。
+# 启动前清理：残留回放/测试/上一场进程 + SHM 文件。
 # hikcamera 驱动用 O_EXCL 创建 SHM，mp4_replay 等残留占用会导致 shm_init 失败 abort。
+# 必须清掉上一场的全部节点：否则旧 recorder/推理/驱动并存（双录包、SHM 映射错乱）。
 docker exec "$CONTAINER" bash -lc '
 pkill -f "[m]p4_replay" 2>/dev/null || true
 pkill -f "[l]ocation_recorder" 2>/dev/null || true
+pkill -f "[h]ikcamera_ros_driver" 2>/dev/null || true
+pkill -f "[h]ost_sdk_sample" 2>/dev/null || true
+pkill -f "[r]adar_lidar_node" 2>/dev/null || true
+pkill -f "[r]adar_camera_node" 2>/dev/null || true
+pkill -f "[r]adar_camera_recorder_node" 2>/dev/null || true
+pkill -f "[r]adar_fusion_node" 2>/dev/null || true
+pkill -f "[r]adar_bridge_node" 2>/dev/null || true
 pkill -f "[s]tatic_transform_publisher" 2>/dev/null || true
 sleep 1
 rm -f /dev/shm/hikcamera_shm 2>/dev/null || true

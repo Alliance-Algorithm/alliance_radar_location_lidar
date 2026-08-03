@@ -29,7 +29,7 @@ RadarCameraNode::RadarCameraNode()
     : Node("radar_camera_node") {
     auto cleanup_guard = ConstructorCleanupGuard([this]() noexcept { constructor_cleanup(); });
     auto ret           = ConfigsLoader(*this, camera_config_, inference_config_, projection_config_,
-        recording_config_, armor_refine_config_, number_refine_config_);
+        armor_refine_config_, number_refine_config_);
     if (!ret) {
         RCLCPP_ERROR(get_logger(), "ConfigsLoader failed: %s", ret.error().c_str());
         throw std::runtime_error("ConfigsLoader failed: " + ret.error());
@@ -85,95 +85,13 @@ RadarCameraNode::RadarCameraNode()
     }
     RCLCPP_INFO(get_logger(), "infer_thread started");
 
-    if (recording_config_.enabled) {
-        auto components     = make_recording_components(recording_config_, camera_config_.shm_name);
-        recording_fifo_     = std::move(components.fifo);
-        raw_video_recorder_ = std::move(components.recorder);
-        raw_shm_reader_     = std::move(components.reader);
-
-        for (const auto component : recording_lifecycle_order()) {
-            switch (component) {
-            case LifecycleComponent::recorder: {
-                auto recorder_ret = raw_video_recorder_->start();
-                if (!recorder_ret) {
-                    throw std::runtime_error(
-                        "RawVideoRecorder start failed: " + recorder_ret.error());
-                }
-                break;
-            }
-            case LifecycleComponent::reader: {
-                auto reader_ret = raw_shm_reader_->start();
-                if (!reader_ret) {
-                    throw std::runtime_error("RawShmReader start failed: " + reader_ret.error());
-                }
-                break;
-            }
-            case LifecycleComponent::monitor:
-                recording_monitor_start();
-                break;
-            case LifecycleComponent::inference:
-            case LifecycleComponent::shm:
-                break;
-            }
-        }
-        RCLCPP_INFO(
-            get_logger(), "Raw recording started: %s", recording_config_.output_dir.c_str());
-    }
-
     status_.store(NodeStatus::running, std::memory_order_release);
     cleanup_guard.release();
 }
 
 RadarCameraNode::~RadarCameraNode() {
-    recording_monitor_stop();
-    if (raw_shm_reader_) raw_shm_reader_->stop();
-    if (raw_video_recorder_) raw_video_recorder_->stop();
     infer_thread_stop();
     status_.store(NodeStatus::stopped, std::memory_order_release);
-}
-
-auto RadarCameraNode::recording_monitor_start() -> void {
-    recording_monitor_running_ = true;
-    recording_monitor_thread_  = std::thread([this]() {
-        while (recording_monitor_running_.load(std::memory_order_acquire)) {
-            const auto recorder_state = raw_video_recorder_->state();
-            const auto reader_state   = raw_shm_reader_->state();
-            if (recorder_state == recording::RecorderState::failed
-                || recorder_state == recording::RecorderState::overrun
-                || reader_state == recording::ReaderState::failed
-                || reader_state == recording::ReaderState::overrun) {
-                const auto recorder_failed = recorder_state == recording::RecorderState::failed
-                    || recorder_state == recording::RecorderState::overrun;
-                const auto reason = recorder_failed ? raw_video_recorder_->failure_reason()
-                                                    : raw_shm_reader_->failure_reason();
-                RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 5000,
-                    "Raw recording failed (state=%s): %s; stopping camera inference",
-                    recorder_state == recording::RecorderState::overrun
-                            || reader_state == recording::ReaderState::overrun
-                        ? "OVERRUN"
-                        : "FAILED",
-                    reason.c_str());
-                infer_running_     = false;
-                const auto cleanup = constructor_cleanup_order(
-                    { LifecycleComponent::recorder, LifecycleComponent::reader });
-                for (const auto component : cleanup) {
-                    if (component == LifecycleComponent::reader && raw_shm_reader_) {
-                        raw_shm_reader_->stop();
-                    } else if (component == LifecycleComponent::recorder && raw_video_recorder_) {
-                        raw_video_recorder_->stop();
-                    }
-                }
-                {
-                    std::lock_guard lock(status_mutex_);
-                    failure_reason_ = reason;
-                }
-                status_.store(NodeStatus::failed, std::memory_order_release);
-                rclcpp::shutdown();
-                break;
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
-    });
 }
 
 auto RadarCameraNode::status() const -> NodeStatus {
@@ -185,20 +103,15 @@ auto RadarCameraNode::failure_reason() const -> std::string {
     return failure_reason_;
 }
 
-auto recording_lifecycle_order() -> std::vector<LifecycleComponent> {
-    return { LifecycleComponent::inference, LifecycleComponent::recorder,
-        LifecycleComponent::reader, LifecycleComponent::monitor };
+auto lifecycle_order() -> std::vector<LifecycleComponent> {
+    return { LifecycleComponent::inference, LifecycleComponent::shm };
 }
 
 auto constructor_cleanup_order(const std::vector<LifecycleComponent>& started)
     -> std::vector<LifecycleComponent> {
     std::vector<LifecycleComponent> cleanup;
-    if (std::find(started.begin(), started.end(), LifecycleComponent::monitor) != started.end()) {
-        cleanup.emplace_back(LifecycleComponent::monitor);
-    }
     for (auto it = started.rbegin(); it != started.rend(); ++it) {
-        if (*it == LifecycleComponent::reader || *it == LifecycleComponent::recorder
-            || *it == LifecycleComponent::inference) {
+        if (*it == LifecycleComponent::inference) {
             cleanup.push_back(*it);
         }
     }
@@ -208,37 +121,14 @@ auto constructor_cleanup_order(const std::vector<LifecycleComponent>& started)
     return cleanup;
 }
 
-auto make_recording_components(
-    const recording::RecordingConfig& config, const std::string& shm_name) -> RecordingComponents {
-    if (!config.enabled) return { };
-    auto fifo     = std::make_unique<recording::RecordingFifo>(config.buffer_pool_frames);
-    auto recorder = std::make_unique<recording::RawVideoRecorder>(config, *fifo);
-    auto reader   = std::make_unique<recording::RawShmReader>(
-        shm_name, config.width, config.height, *fifo, config.fps);
-    return { std::move(fifo), std::move(recorder), std::move(reader) };
-}
-
 auto RadarCameraNode::constructor_cleanup() noexcept -> void {
     std::vector<LifecycleComponent> started;
     if (shm_reader_.is_open()) started.emplace_back(LifecycleComponent::shm);
     if (infer_thread_.joinable() || infer_running_)
         started.emplace_back(LifecycleComponent::inference);
-    if (raw_video_recorder_) started.emplace_back(LifecycleComponent::recorder);
-    if (raw_shm_reader_) started.emplace_back(LifecycleComponent::reader);
-    if (recording_monitor_thread_.joinable() || recording_monitor_running_)
-        started.emplace_back(LifecycleComponent::monitor);
 
     for (const auto component : constructor_cleanup_order(started)) {
         switch (component) {
-        case LifecycleComponent::monitor:
-            recording_monitor_stop();
-            break;
-        case LifecycleComponent::reader:
-            if (raw_shm_reader_) raw_shm_reader_->stop();
-            break;
-        case LifecycleComponent::recorder:
-            if (raw_video_recorder_) raw_video_recorder_->stop();
-            break;
         case LifecycleComponent::inference:
             infer_thread_stop();
             break;
@@ -246,11 +136,6 @@ auto RadarCameraNode::constructor_cleanup() noexcept -> void {
             break;
         }
     }
-}
-
-auto RadarCameraNode::recording_monitor_stop() -> void {
-    recording_monitor_running_ = false;
-    if (recording_monitor_thread_.joinable()) recording_monitor_thread_.join();
 }
 
 auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
@@ -283,7 +168,9 @@ auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
         while (infer_running_.load(std::memory_order_acquire)) {
             ++frame_count_;
             cv::Mat orig_frame;
+            const auto t_frame = std::chrono::steady_clock::now();
             auto shm_frame = shm_reader_.wait_next(std::chrono::milliseconds { 100 });
+            const auto t_wait = std::chrono::steady_clock::now();
             if (!shm_frame) {
                 if (shm_frame.error().code != hikcamera::FrameReadErrorCode::Timeout) {
                     RCLCPP_WARN(get_logger(), "SHM read error (code=%d): %s",
@@ -300,23 +187,20 @@ auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
             }
             capture_timestamp_ = std::chrono::steady_clock::time_point(
                 std::chrono::nanoseconds(shm_frame->metadata().host_monotonic_ns));
-            const bool shm_continuous = shm_frame->mat().isContinuous();
 
             // 低频更新相机外参（TF 可用时跟随 GICP 锁定结果）
             if (!tf_ready_ || (frame_count_ & 0x3F) == 0) {
                 update_camera_extrinsic_from_tf();
             }
-            // 全分辨率源：SHM 视图连续时零拷贝引用，非连续才 clone。
-            if (shm_continuous) {
-                orig_frame = shm_frame->mat();
-            } else {
-                orig_frame = shm_frame->mat().clone();
-            }
+            // 必须保留原图副本：流水线下 refine 在下一轮才消费，SHM 视图会被写者
+            // 覆盖。复用预分配池（round-robin 3 槽），clone 退化为纯 memcpy。
+            shm_frame->mat().copyTo(orig_pool_[frame_count_ % 3]);
+            orig_frame = orig_pool_[frame_count_ % 3];
+            const auto t_clone = std::chrono::steady_clock::now();
 
             // Letterbox 到 L1 模型输入（与 annotate/训练预处理一致，保持宽高比+黑边填充）。
             // 此前用拉伸 resize：小目标（远距离机器人/无人机）变形后模型检出率显著下降
             // （同一帧 annotate letterbox conf 0.94 vs camera resize dets=0）。
-            // orig_frame 为全分辨率源（视图或 clone，见 shm_continuous 分支）。
             const float lb_scale = std::min(
                 static_cast<float>(inference_config_.model_input_width) / orig_frame.cols,
                 static_cast<float>(inference_config_.model_input_height) / orig_frame.rows);
@@ -331,6 +215,7 @@ auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
             cv::Mat resized;
             cv::resize(orig_frame, resized, cv::Size(resized_w, resized_h));
             resized.copyTo(frame(cv::Rect(pad_x, pad_y, resized_w, resized_h)));
+            const auto t_resize = std::chrono::steady_clock::now();
 
             auto tensor = model_inference_->infer_preprocess(frame,
                 static_cast<size_t>(inference_config_.model_input_width),
@@ -341,61 +226,97 @@ auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
                 continue;
             }
 
+            // 流水线：enqueue 帧 N（H2D u8 + GPU normalize + L1 前向）后，
+            // GPU 跑 N 的同时 CPU 处理上一帧 N-1（wait 返回 N-1 结果）。
             auto async_ret = model_inference_->infer_runtime_async();
             if (!async_ret) {
                 RCLCPP_WARN(get_logger(), "Inference start failed: %s", async_ret.error().c_str());
                 continue;
             }
-            auto raw = model_inference_->infer_runtime_wait();
-            if (!raw) {
-                RCLCPP_WARN(get_logger(), "Inference wait failed: %s", raw.error().c_str());
-                continue;
-            }
+            const auto t_async = std::chrono::steady_clock::now();
 
-            auto dets = model_inference_->infer_postprocess(raw->get(), frame.cols, frame.rows);
-            if (!dets) {
-                RCLCPP_WARN(get_logger(), "Inference postprocess failed: %s", dets.error().c_str());
-                continue;
-            }
-            std::vector<detection::Detection> refined(dets->get());
-            if (armor_refine_enabled_) {
-                // bbox/center 已在上面逆映射到原图空间；refine 的 scale 参数置 1。
-                for (auto& det : refined) {
-                    armor_refiner_.refine(orig_frame, det, inference_config_.drone_class_ids, 1.0f,
-                        1.0f);
-                }
-            }
-
-            // L1 检测在 letterbox 模型空间 (1280x1280)；映射回全分辨率原图：
-            // (x - pad) / scale 逆变换。refine/投影直接用原图空间坐标。
-            for (auto& det : refined) {
-                det.bbox.x      = (det.bbox.x - static_cast<float>(pad_x)) / lb_scale;
-                det.bbox.y      = (det.bbox.y - static_cast<float>(pad_y)) / lb_scale;
-                det.bbox.width /= lb_scale;
-                det.bbox.height /= lb_scale;
-                det.center.x = (det.center.x - static_cast<float>(pad_x)) / lb_scale;
-                det.center.y = (det.center.y - static_cast<float>(pad_y)) / lb_scale;
-            }
-
-            auto projected = projector_.proj_preprocess(refined);
-            auto pose = std::expected<robot_pose::RobotPose, std::string>(std::unexpected("projecti"
-                                                                                          "on "
-                                                                                          "preproce"
-                                                                                          "ss "
-                                                                                          "faile"
-                                                                                          "d"));
-            if (!projected) {
-                RCLCPP_WARN(
-                    get_logger(), "Projection preprocess failed: %s", projected.error().c_str());
-            } else {
-                pose = projector_.proj_postprocess(*projected, refined);
-                if (!pose) {
+            if (have_prev_) {
+                auto raw = model_inference_->infer_runtime_wait();
+                const auto t_waitgpu = std::chrono::steady_clock::now();
+                if (!raw) {
                     RCLCPP_WARN(
-                        get_logger(), "Projection postprocess failed: %s", pose.error().c_str());
+                        get_logger(), "Inference wait failed: %s", raw.error().c_str());
+                    have_prev_ = false;
+                    prev_orig_frame_.release();
+                    continue;
+                }
+
+                auto dets = model_inference_->infer_postprocess(
+                    raw->get(), inference_config_.model_input_width,
+                    inference_config_.model_input_height);
+                if (!dets) {
+                    RCLCPP_WARN(get_logger(), "Inference postprocess failed: %s",
+                        dets.error().c_str());
+                    have_prev_ = false;
+                    prev_orig_frame_.release();
+                    continue;
+                }
+                std::vector<detection::Detection> refined(dets->get());
+                if (armor_refine_enabled_) {
+                    // refine 用上一帧全分辨率原图（已 clone，跨帧安全）。
+                    for (auto& det : refined) {
+                        armor_refiner_.refine(prev_orig_frame_, det,
+                            inference_config_.drone_class_ids, 1.0f, 1.0f);
+                    }
+                }
+
+                // L1 检测在 letterbox 模型空间 (1280x1280)；映射回全分辨率原图：
+                // (x - pad) / scale 逆变换（用上一帧的 pad/scale）。
+                for (auto& det : refined) {
+                    det.bbox.x      = (det.bbox.x - static_cast<float>(prev_pad_x_))
+                        / prev_lb_scale_;
+                    det.bbox.y      = (det.bbox.y - static_cast<float>(prev_pad_y_))
+                        / prev_lb_scale_;
+                    det.bbox.width /= prev_lb_scale_;
+                    det.bbox.height /= prev_lb_scale_;
+                    det.center.x = (det.center.x - static_cast<float>(prev_pad_x_))
+                        / prev_lb_scale_;
+                    det.center.y = (det.center.y - static_cast<float>(prev_pad_y_))
+                        / prev_lb_scale_;
+                }
+
+                auto projected = projector_.proj_preprocess(refined);
+                auto pose = std::expected<robot_pose::RobotPose, std::string>(
+                    std::unexpected("projection preprocess failed"));
+                if (!projected) {
+                    RCLCPP_WARN(
+                        get_logger(), "Projection preprocess failed: %s", projected.error().c_str());
+                } else {
+                    pose = projector_.proj_postprocess(*projected, refined);
+                    if (!pose) {
+                        RCLCPP_WARN(get_logger(), "Projection postprocess failed: %s",
+                            pose.error().c_str());
+                    }
+                }
+
+                const auto stamp = prev_capture_timestamp_;
+                if (pose) PublishCallback(*pose, stamp);
+                const auto t_done = std::chrono::steady_clock::now();
+                if (frame_count_ % 100 == 0) {
+                    const auto ms = [](auto a, auto b) {
+                        return std::chrono::duration<double, std::milli>(b - a).count();
+                    };
+                    RCLCPP_INFO(get_logger(),
+                        "[perf] wait=%5.1f clone=%5.1f resize=%5.1f async=%5.1f "
+                        "gpu_wait=%5.1f post+refine+proj=%5.1f cycle=%5.1f n_dets=%zu",
+                        ms(t_frame, t_wait), ms(t_wait, t_clone), ms(t_clone, t_resize),
+                        ms(t_resize, t_async), ms(t_async, t_waitgpu), ms(t_waitgpu, t_done),
+                        ms(t_frame, t_done), refined.size());
                 }
             }
 
-            if (pose) PublishCallback(*pose);
+            // 帧 N 成为下一轮的"上一帧"
+            prev_orig_frame_         = orig_frame;
+            prev_lb_scale_           = lb_scale;
+            prev_pad_x_              = pad_x;
+            prev_pad_y_              = pad_y;
+            prev_capture_timestamp_  = capture_timestamp_;
+            have_prev_               = true;
         }
     });
     return { };
@@ -432,9 +353,10 @@ void RadarCameraNode::update_camera_extrinsic_from_tf() {
     }
 }
 
-auto RadarCameraNode::PublishCallback(const robot_pose::RobotPose& robot_poses) -> void {
+auto RadarCameraNode::PublishCallback(const robot_pose::RobotPose& robot_poses,
+    std::chrono::steady_clock::time_point stamp) -> void {
     auto pose_msg                  = radar_interfaces::msg::CameraDetectionPose();
-    pose_msg.header.stamp          = rclcpp::Time(capture_timestamp_.time_since_epoch().count());
+    pose_msg.header.stamp          = rclcpp::Time(stamp.time_since_epoch().count());
     pose_msg.header.frame_id       = "map";
     pose_msg.hero_position.x       = robot_poses.hero_position.x;
     pose_msg.hero_position.y       = robot_poses.hero_position.y;
@@ -459,7 +381,7 @@ auto RadarCameraNode::PublishCallback(const robot_pose::RobotPose& robot_poses) 
 
 auto ConfigsLoader(rclcpp::Node& node, camera_config::CameraConfig& camera,
     inference_config::InferenceConfig& inference, projection_config::ProjectionConfig& projection,
-    recording::RecordingConfig& recording, armor_refine::ArmorRefineConfig& armor,
+    armor_refine::ArmorRefineConfig& armor,
     armor_refine::NumberRefineConfig& number) -> std::expected<void, std::string> {
     try {
         node.declare_parameter("enemy_color", std::string("blue"));
@@ -497,17 +419,6 @@ auto ConfigsLoader(rclcpp::Node& node, camera_config::CameraConfig& camera,
         node.declare_parameter("model_input_width", 1280);
         node.declare_parameter("model_input_height", 1280);
         node.declare_parameter("mesh_path", std::string(""));
-        node.declare_parameter("enable_raw_recording", false);
-        node.declare_parameter("recording_output_dir", std::string("/workspace/model/video"));
-        node.declare_parameter("recording_width", 5472);
-        node.declare_parameter("recording_height", 3648);
-        node.declare_parameter("recording_fps", 8);
-        node.declare_parameter("recording_bitrate", 12000000);
-        node.declare_parameter("recording_gop", 20);
-        node.declare_parameter("recording_encoder", std::string("hevc_nvenc"));
-        node.declare_parameter("recording_segment_duration_sec", 60);
-        node.declare_parameter("recording_buffer_pool_frames", 8);
-        node.declare_parameter("recording_max_buffer_bytes", 480000000);
         node.declare_parameter("armor_model_path", std::string(""));
         node.declare_parameter("armor_score_threshold", 0.8);
         node.declare_parameter("armor_nms_threshold", 0.3);
@@ -544,30 +455,6 @@ auto ConfigsLoader(rclcpp::Node& node, camera_config::CameraConfig& camera,
         node.get_parameter("model_input_height", inference.model_input_height);
 
         node.get_parameter("mesh_path", projection.mesh_path);
-        node.get_parameter("enable_raw_recording", recording.enabled);
-        node.get_parameter("recording_output_dir", recording.output_dir);
-        node.get_parameter("recording_width", recording.width);
-        node.get_parameter("recording_height", recording.height);
-        node.get_parameter("recording_fps", recording.fps);
-        node.get_parameter("recording_bitrate", recording.bitrate);
-        node.get_parameter("recording_gop", recording.gop);
-        node.get_parameter("recording_encoder", recording.encoder);
-        node.get_parameter("recording_segment_duration_sec", recording.segment_duration_sec);
-        std::int64_t buffer_pool_frames = 0;
-        std::int64_t max_buffer_bytes   = 0;
-        node.get_parameter("recording_buffer_pool_frames", buffer_pool_frames);
-        node.get_parameter("recording_max_buffer_bytes", max_buffer_bytes);
-        if (buffer_pool_frames < 0 || max_buffer_bytes < 0) {
-            return std::unexpected("recording buffer parameters must not be negative");
-        }
-        recording.buffer_pool_frames = static_cast<std::size_t>(buffer_pool_frames);
-        recording.max_buffer_bytes   = static_cast<std::size_t>(max_buffer_bytes);
-        if (recording.enabled) {
-            const auto recording_ret = recording::validate_config(recording);
-            if (!recording_ret) {
-                return std::unexpected("recording configuration invalid: " + recording_ret.error());
-            }
-        }
 
         node.get_parameter("armor_model_path", armor.armor_model_path);
         double armor_score = armor.score_threshold;

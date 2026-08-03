@@ -39,6 +39,7 @@ def _make_camera_node(context: LaunchContext):
     camera_pose_yaml = os.path.join(
         bringup_dir, "config", "camera", f"{side_val}_camera_pose.yaml"
     )
+    recorder_yaml = os.path.join(bringup_dir, "config", "camera", "radar_recorder.yaml")
     recording_parameters = {
         "enable_raw_recording": LaunchConfiguration("enable_raw_recording"),
         "recording_output_dir": LaunchConfiguration("recording_output_dir"),
@@ -66,6 +67,17 @@ def _make_camera_node(context: LaunchContext):
                 camera_pose_yaml,
                 {"pub_topic_name": "/radar_camera/robot_pose"},
                 {"enemy_color": enemy_color},
+            ],
+        ),
+
+        # 3b. 独立录制进程 (推理零开销：采样+编码全在本进程，失败只丢录像)
+        Node(
+            package="radar_camera",
+            executable="radar_camera_recorder_node",
+            name="radar_recorder_node",
+            output="screen",
+            parameters=[
+                recorder_yaml,
                 recording_parameters,
             ],
         ),

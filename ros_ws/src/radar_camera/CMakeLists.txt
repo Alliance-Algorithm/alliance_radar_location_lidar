@@ -56,9 +56,20 @@ add_library(${PROJECT_NAME}_core STATIC
     src/projector.cpp
     src/raw_shm_reader.cpp
     src/raw_video_recorder.cpp
+    src/radar_recorder_contract.cpp
 )
 if(RADAR_CAMERA_ENABLE_TENSORRT)
-    target_sources(${PROJECT_NAME}_core PRIVATE src/tensorrt_inference.cpp)
+    # 容器无 nvcc：CUDA kernel 由宿主机 nvcc 预编译（prepare-radar-camera-tensorrt-runtime
+    # 的配套步骤，sm_89 与比赛机 RTX 4060 绑定），这里直接链接对象文件。
+    set(CUDA_PREBUILT "${CMAKE_CURRENT_SOURCE_DIR}/cuda_prebuilt/image_normalize.sm89.o")
+    if(NOT EXISTS "${CUDA_PREBUILT}")
+        message(FATAL_ERROR
+            "cuda_prebuilt/image_normalize.sm89.o missing — rebuild it on the host:\n"
+            "  nvcc -c -O3 -arch=sm_89 -std=c++17 -Iinclude src/image_normalize.cu "
+            "-o src/radar_camera/cuda_prebuilt/image_normalize.sm89.o")
+    endif()
+    target_sources(${PROJECT_NAME}_core PRIVATE
+        "${CUDA_PREBUILT}" src/tensorrt_inference.cpp)
     target_compile_definitions(${PROJECT_NAME}_core PUBLIC RADAR_CAMERA_HAS_TENSORRT=1)
 endif()
 set_target_properties(${PROJECT_NAME}_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -78,6 +89,7 @@ target_link_libraries(${PROJECT_NAME}_core
         assimp::assimp
         PkgConfig::FFMPEG
         hikcamera::hikcamera
+        rclcpp::rclcpp
 )
 if(RADAR_CAMERA_ENABLE_TENSORRT)
     target_include_directories(${PROJECT_NAME}_core PRIVATE
@@ -98,6 +110,12 @@ ament_auto_add_executable(${PROJECT_NAME}_node
 target_link_libraries(${PROJECT_NAME}_node ${PROJECT_NAME}_core)
 ament_target_dependencies(${PROJECT_NAME}_node rclcpp tf2_ros geometry_msgs)
 
+ament_auto_add_executable(${PROJECT_NAME}_recorder_node
+    src/radar_recorder_node.cpp
+)
+target_link_libraries(${PROJECT_NAME}_recorder_node ${PROJECT_NAME}_core)
+ament_target_dependencies(${PROJECT_NAME}_recorder_node rclcpp)
+
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   set(ament_cmake_copyright_FOUND TRUE)
@@ -109,8 +127,10 @@ if(BUILD_TESTING)
   ament_add_gtest(radar_camera_tests
       src/radar_camera_node.cpp
       test/test_camera_recording_contract.cpp
+      test/test_image_normalize.cpp
       test/test_model_inference.cpp
       test/test_projector.cpp
+      test/test_radar_recorder_node.cpp
       test/test_recording_fifo.cpp
       test/test_raw_shm_reader.cpp
       test/test_raw_video_recorder.cpp
@@ -121,8 +141,12 @@ if(BUILD_TESTING)
   target_compile_definitions(radar_camera_tests PRIVATE
       RADAR_CAMERA_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test"
   )
+  if(RADAR_CAMERA_ENABLE_TENSORRT)
+      target_include_directories(radar_camera_tests PRIVATE ${CUDA_INCLUDE_DIR})
+  endif()
 endif()
 
-install(TARGETS ${PROJECT_NAME}_node DESTINATION lib/${PROJECT_NAME})
+install(TARGETS ${PROJECT_NAME}_node ${PROJECT_NAME}_recorder_node
+    DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY model DESTINATION share/${PROJECT_NAME})
 ament_package()

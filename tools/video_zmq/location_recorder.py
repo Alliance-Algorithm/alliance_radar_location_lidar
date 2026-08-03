@@ -151,7 +151,11 @@ class MatchRecorder(Node):
             f"done: locations={self.n_rows['locations']} "
             f"localization={self.n_rows['localization']} "
             f"status={self.n_rows['status']} -> {self.session_dir}")
-        rclpy.shutdown()
+        # SIGINT 时 rclpy 已因信号关闭 context；这里只幂等地触发一次，重复调用忽略。
+        try:
+            rclpy.shutdown()
+        except Exception:
+            pass
 
 
 def main():
