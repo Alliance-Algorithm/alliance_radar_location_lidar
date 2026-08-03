@@ -47,7 +47,7 @@ auto RecordingConfigsLoader(rclcpp::Node& node, recording::RecordingConfig& reco
         node.declare_parameter("recording_width", 5472);
         node.declare_parameter("recording_height", 3648);
         node.declare_parameter("recording_fps", 8);
-        node.declare_parameter("recording_bitrate", 12000000);
+        node.declare_parameter("recording_bitrate", 25000000);
         node.declare_parameter("recording_gop", 20);
         node.declare_parameter("recording_encoder", std::string("hevc_nvenc"));
         node.declare_parameter("recording_segment_duration_sec", 0);  // 0 = 整段

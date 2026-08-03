@@ -33,7 +33,7 @@ TEST_F(RadarRecorderContract, LoadsRecordingDefaults) {
     EXPECT_EQ(recording.width, 5472);
     EXPECT_EQ(recording.height, 3648);
     EXPECT_EQ(recording.fps, 8);
-    EXPECT_EQ(recording.bitrate, 12000000);
+    EXPECT_EQ(recording.bitrate, 25000000);
     EXPECT_EQ(recording.gop, 20);
     EXPECT_EQ(recording.encoder, "hevc_nvenc");
     EXPECT_EQ(recording.segment_duration_sec, 0);  // 0 = 整段录制

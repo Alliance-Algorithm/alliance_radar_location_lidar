@@ -9,7 +9,7 @@ EXPECTED_DEFAULTS = {
     "recording_width": "5472",
     "recording_height": "3648",
     "recording_fps": "8",
-    "recording_bitrate": "12000000",
+    "recording_bitrate": "25000000",
     "recording_gop": "8",
     "recording_encoder": "hevc_nvenc",
     "recording_segment_duration_sec": "0",
