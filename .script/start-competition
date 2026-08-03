@@ -4,8 +4,8 @@
 # 用法 (宿主机执行，在容器内运行 ROS2):
 #   bash .script/start-competition red
 #   bash .script/start-competition blue
-#   bash .script/start-competition red /workspace/model/generated/jinan_field_map_reg.pcd
-#   bash .script/start-competition red /workspace/model/generated/jinan_field_map_reg.pcd mid70
+#   bash .script/start-competition red /workspace/model/generated/jinan_field_map_reg_walls_v2.pcd
+#   bash .script/start-competition red /workspace/model/generated/jinan_field_map_reg_walls_v2.pcd mid70
 #
 # 完整链路:
 #   相机驱动(SHM) → LiDAR GICP 定位 → radar_camera_node(L1/L2/L3)
@@ -14,7 +14,7 @@
 set -euo pipefail
 
 SIDE="${1:-red}"
-MAP_PATH="${2:-/workspace/model/generated/jinan_field_map_reg.pcd}"
+MAP_PATH="${2:-/workspace/model/generated/jinan_field_map_reg_walls_v2.pcd}"
 SENSOR="${3:-odin}"
 ENABLE_RAW_RECORDING="${4:-}"
 CONTAINER="${RADAR_CONTAINER:-devcontainer-radar-develop-1}"

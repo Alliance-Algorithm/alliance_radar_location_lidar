@@ -180,3 +180,33 @@ TEST_F(LocalizationTest, SetInitialPoseAndReset) {
 
     EXPECT_NO_THROW(localization.reset());
 }
+
+TEST_F(LocalizationTest, InitialPoseDoesNotLockUntilRegistrationSucceeds) {
+    auto map_result = radar_lidar::map_data::MapData::load(map_pcd_, 0.1);
+    ASSERT_TRUE(map_result.has_value());
+    auto map = *map_result;
+
+    radar_lidar::config::LocalizationConfig cfg;
+    cfg.use_lock_strategy = true;
+    cfg.has_initial_pose  = true;
+    cfg.initial_tx        = 15.0;
+    cfg.initial_ty        = 0.0;
+    cfg.initial_tz        = 1.0;
+    cfg.initial_yaw       = 0.0;
+    cfg.use_spherical_grid = false;
+    cfg.accumulate_frames  = 0;
+
+    auto localization = radar_lidar::localization::LocalizationStage(map, cfg);
+
+    // 初始位姿只作猜测：开局必须经过一次真实 GICP 配准后才允许锁定。
+    EXPECT_FALSE(localization.is_locked())
+        << "has_initial_pose must not lock without a registration pass";
+
+    auto frame = make_frame_from_cloud(map->pcl_cloud());
+    auto result = localization.process(frame);
+    ASSERT_TRUE(result.has_value()) << result.error();
+
+    // 配准收敛（error < lock_fitness）后锁定。
+    EXPECT_TRUE(localization.is_locked())
+        << "registration converged but localization did not lock";
+}

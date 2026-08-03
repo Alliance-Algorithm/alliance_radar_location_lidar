@@ -108,7 +108,7 @@ def generate_launch_description():
         DeclareLaunchArgument("side", default_value="red",
             description="场地侧: red | blue"),
         DeclareLaunchArgument("map_path",
-            default_value="/workspace/model/generated/jinan_field_map_reg.pcd",
+            default_value="/workspace/model/generated/jinan_field_map_reg_walls_v2.pcd",
             description="地图 PCD 路径 (默认济南场地配准地图，无墙版实测配准更准)"),
         DeclareLaunchArgument("sensor", default_value="odin",
             description="雷达型号: odin | mid70"),

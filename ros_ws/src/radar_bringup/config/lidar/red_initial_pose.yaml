@@ -1,11 +1,12 @@
 # 红方雷达初始位姿（地图坐标系，中心原点）
-# 雷达站位于红方短边中轴线上，距地 4m，指向场地中心，俯仰向下 10°
+# 由 LIO 建图离线配准到场地地图求得（lio_rgb_map_20260803_204747.pcd → jinan_field_map_reg.pcd）：
+#   tx=-14.79 ty=0.02 yaw=6.2°（z 保持安装高度 4m；LIO 图 z 基准有漂移，不采用配准 z）
 radar_lidar_node:
   ros__parameters:
     initial_pose_enabled: true
-    initial_pose_tx: -14.0
-    initial_pose_ty: 0.0
+    initial_pose_tx: -14.79
+    initial_pose_ty: 0.02
     initial_pose_tz: 4.0
     initial_pose_roll: 0.0
     initial_pose_pitch: 0.24504423  # +14.04° 低头指向场地中心
-    initial_pose_yaw: 0.0
+    initial_pose_yaw: 0.10821  # 6.2°
