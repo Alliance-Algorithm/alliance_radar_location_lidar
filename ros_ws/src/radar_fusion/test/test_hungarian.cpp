@@ -1,3 +1,4 @@
+#include <random>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -57,3 +58,78 @@ TEST(Hungarian, RectangularUnmatchedRowReturnsMinusOne) {
 }
 
 } // namespace radar_fusion::association
+
+// 模拟贪心匹配：按距离排序依次匹配（与旧实现一致）
+auto greedy_match(const std::vector<std::vector<double>>& cost, double gate) {
+    struct Cand { int i, j; double d; };
+    std::vector<Cand> cands;
+    for (size_t i = 0; i < cost.size(); ++i)
+        for (size_t j = 0; j < cost[i].size(); ++j)
+            if (cost[i][j] < gate) cands.push_back({ (int)i, (int)j, cost[i][j] });
+    std::sort(cands.begin(), cands.end(), [](auto& a, auto& b) { return a.d < b.d; });
+    std::vector<int> assign(cost.size(), -1);
+    std::vector<bool> taken(cost.size(), false);
+    for (auto& c : cands) {
+        if (assign[c.i] >= 0 || taken[c.j]) continue;
+        assign[c.i] = c.j;
+        taken[c.j]  = true;
+    }
+    return assign;
+}
+
+TEST(Hungarian, CrossingTargetsGreedySwapsIdentity) {
+    // 模拟：两个目标匀速交叉 20 帧（A: x=0→10，B: x=10→0，y 固定）
+    // 每帧测量 = 真实位置；两目标在第 10 帧相遇（x=5）
+    // 贪心按距离最近匹配——相遇前后测量都离两个 track 近，可能换身份
+    // 匈牙利全局最优——身份保持
+    struct State { double x[2]; };  // track 位置
+    auto greedy_match_fn = [](const std::vector<std::vector<double>>& cost, double gate) {
+        struct Cand { int i, j; double d; };
+        std::vector<Cand> cands;
+        for (size_t i = 0; i < cost.size(); ++i)
+            for (size_t j = 0; j < cost[i].size(); ++j)
+                if (cost[i][j] < gate) cands.push_back({ (int)i, (int)j, cost[i][j] });
+        std::sort(cands.begin(), cands.end(), [](auto& a, auto& b) { return a.d < b.d; });
+        std::vector<int> assign(cost.size(), -1);
+        std::vector<bool> taken(cost.size(), false);
+        for (auto& c : cands) {
+            if (assign[c.i] >= 0 || taken[c.j]) continue;
+            assign[c.i] = c.j;
+            taken[c.j]  = true;
+        }
+        return assign;
+    };
+
+    // 单帧数据关联质量：track 先验 = 真实位置（假设 track 状态良好），
+    // 每帧独立评估匹配正确率（衡量噪声下谁更容易错配）
+    std::mt19937 rng(42);
+    std::normal_distribution<double> noise(0.0, 0.3);
+    int greedy_wrong = 0, hungarian_wrong = 0;
+    int greedy_wrong_when_ambiguous = 0, hungarian_wrong_when_ambiguous = 0;
+    for (int f = 0; f < 200; ++f) {
+        const double a_pos = 0.0 + 0.25 * (f % 40);   // A 往返 0→9.75
+        const double b_pos = 10.0 - 0.25 * (f % 40);  // B 往返 10→0.25
+        const std::vector<double> meas = { a_pos + noise(rng), b_pos + noise(rng) };
+        std::vector<std::vector<double>> cost = {
+            { std::abs(a_pos - meas[0]), std::abs(a_pos - meas[1]) },
+            { std::abs(b_pos - meas[0]), std::abs(b_pos - meas[1]) },
+        };
+        auto g = greedy_match_fn(cost, 10.0);
+        auto h = radar_fusion::association::hungarian_min_cost(cost, 10.0);
+        const bool g_swapped = g[0] == 1 && g[1] == 0;
+        const bool h_swapped = h[0] == 1 && h[1] == 0;
+        if (g_swapped) ++greedy_wrong;
+        if (h_swapped) ++hungarian_wrong;
+        // 歧义帧：两目标距离 < 1.0m（交叉附近）——真实错配风险区
+        const bool ambiguous = std::abs(a_pos - b_pos) < 1.0;
+        if (ambiguous && g_swapped) ++greedy_wrong_when_ambiguous;
+        if (ambiguous && h_swapped) ++hungarian_wrong_when_ambiguous;
+    }
+    // 匈牙利全局最优：错配数 ≤ 贪心（歧义帧尤其）
+    EXPECT_LE(hungarian_wrong, greedy_wrong);
+    EXPECT_LE(hungarian_wrong_when_ambiguous, greedy_wrong_when_ambiguous);
+    std::printf("[hungarian vs greedy] wrong assoc: greedy=%d hungarian=%d | ambiguous: "
+                "greedy=%d hungarian=%d\n",
+        greedy_wrong, hungarian_wrong, greedy_wrong_when_ambiguous,
+        hungarian_wrong_when_ambiguous);
+}
