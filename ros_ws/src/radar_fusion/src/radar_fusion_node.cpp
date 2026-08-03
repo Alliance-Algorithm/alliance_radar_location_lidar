@@ -103,7 +103,7 @@ RadarFusionNode::RadarFusionNode(const rclcpp::NodeOptions& options)
     pub_pose_ = this->create_publisher<PoseCov>("/localization/pose", 10);
     pub_status_ =
         this->create_publisher<diagnostic_msgs::msg::DiagnosticStatus>("/localization/status", 10);
-    // 输出节奏统一 10Hz（跟随雷达点云频率，T-DT 风格）：
+    // 输出节奏统一 10Hz（跟随雷达点云频率）：
     // camera(7Hz)/cluster(10Hz) 回调只更新测量，location/marker 由本定时器统一发布，
     // 避免 camera 路径把输出拖慢或双路径叠加（此前 ~17Hz）。
     location_timer_ = this->create_wall_timer(std::chrono::milliseconds(100),
@@ -168,7 +168,7 @@ void RadarFusionNode::on_camera_detection(
     update_fusion_mode(latest_camera_stamp_ns_);
     process_measurements(measurements, stamp.nanoseconds(), false, classes);
 
-    // T-DT 风格：相机识别给雷达聚类 track 贴类别——雷达 track 无类别（class_id=-1）
+    // 相机识别给雷达聚类 track 贴类别——雷达 track 无类别（class_id=-1）
     // 无法进官方坐标；被相机识别一次后继承类别，之后即使相机停发也持续输出坐标。
     if (!lidar_tracks_.empty()) {
         const double gate_sq = cfg_.gate_distance * cfg_.gate_distance;
