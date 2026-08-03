@@ -67,7 +67,7 @@ private:
     bool fallback_active_      = false;
     std::uint32_t failed_count_ { 0 };
     static constexpr std::uint32_t kFallbackAfterFails = 30;  // ~3s @10Hz
-    static constexpr double kFallbackFitnessMax       = 1.0;  // fitness 超过此值视为未配准
+    static constexpr double kFallbackFitnessMax       = 0.5;  // fitness 超过此值视为未配准（正常 <0.2）
 
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr sub_scan_;
     rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pub_pose_;
