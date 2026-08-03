@@ -81,13 +81,21 @@ auto RawShmReader::start() -> std::expected<void, std::string> {
         return std::unexpected("reader is already running");
     }
 
-    auto open_ret = reader_.open(shm_name_.c_str());
-    if (!open_ret) {
-        running_.store(false, std::memory_order_release);
-        std::lock_guard lock(mutex_);
-        state_          = ReaderState::failed;
-        failure_reason_ = "could not open SHM: " + open_ret.error();
-        return std::unexpected(failure_reason_);
+    // SHM 重试：相机驱动可能晚于本节点启动（并发 launch）。
+    // 与 infer_thread 的 30s 超时一致；超时仍失败才报错。
+    constexpr auto kOpenTimeout = std::chrono::seconds { 30 };
+    const auto open_start       = std::chrono::steady_clock::now();
+    auto open_ret               = reader_.open(shm_name_.c_str());
+    while (!open_ret) {
+        if (std::chrono::steady_clock::now() - open_start > kOpenTimeout) {
+            running_.store(false, std::memory_order_release);
+            std::lock_guard lock(mutex_);
+            state_          = ReaderState::failed;
+            failure_reason_ = "could not open SHM: " + open_ret.error();
+            return std::unexpected(failure_reason_);
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        open_ret = reader_.open(shm_name_.c_str());
     }
     {
         std::lock_guard lock(mutex_);
