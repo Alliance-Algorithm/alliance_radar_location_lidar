@@ -6,10 +6,9 @@ hikcamera_ros_driver_node:
     white_balance_green: 512
     auto_white_balance: 1
 
-    # 曝光与增益（对齐 HKUST ENTERPRIZE 验证配置：同款 MV-CS200-10UC 用
-    # exposure 10ms + gain 23 全国赛局均易伤第一；检测率主因是目标距离非画面亮度）
-    exposure_us: 10000.0
-    gain: 23.0
+    # 曝光与增益
+    exposure_us: 7500.0
+    gain: 20.0
 
     # 帧率（CS200-10UC USB3 稳定 20fps）
     framerate: 20.0
