@@ -83,6 +83,7 @@ if(BUILD_TESTING)
   find_package(PCL REQUIRED COMPONENTS common io)
   ament_add_gtest(radar_fusion_tests
       test/test_fusion_node.cpp
+      test/test_hungarian.cpp
       test/test_kalman_tracker.cpp
   )
   target_include_directories(radar_fusion_tests PRIVATE

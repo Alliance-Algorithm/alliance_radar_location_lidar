@@ -1,4 +1,5 @@
 #include "radar_fusion/radar_fusion_node.hpp"
+#include "radar_fusion/hungarian.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -200,37 +201,32 @@ void RadarFusionNode::process_measurements(const std::vector<Eigen::Vector2d>& m
         track.predict(now_ns);
     }
 
-    std::vector<bool> matched_tracks(tracks_.size(), false);
-    std::vector<bool> matched_meas(measurements.size(), false);
+    // 匈牙利全局最优匹配（替换贪心：目标交叉/靠近时防身份混淆）
     const double gate_distance_sq = cfg_.gate_distance * cfg_.gate_distance;
-    std::vector<AssociationCandidate> candidates;
-    candidates.reserve(tracks_.size() * measurements.size());
-
+    constexpr double kUnreachable = 1e9;
+    std::vector<std::vector<double>> cost(
+        tracks_.size(), std::vector<double>(measurements.size(), kUnreachable));
     for (size_t i = 0; i < tracks_.size(); ++i) {
         for (size_t j = 0; j < measurements.size(); ++j) {
             // 带类别时只匹配同类别（camera 路径防跨类跳变）；无类别（lidar 路径）全匹配。
             if (!classes.empty() && tracks_[i].state().class_id != classes[j]) continue;
             const double d_sq = tracks_[i].distance_squared_to(measurements[j]);
             if (d_sq < gate_distance_sq) {
-                candidates.push_back({ i, j, d_sq });
+                cost[i][j] = d_sq;
             }
         }
     }
+    const auto assignment = association::hungarian_min_cost(cost, kUnreachable);
 
-    std::sort(candidates.begin(), candidates.end(),
-        [](const AssociationCandidate& lhs, const AssociationCandidate& rhs) {
-            return lhs.distance_sq < rhs.distance_sq;
-        });
-
-    for (const auto& candidate : candidates) {
-        if (matched_tracks[candidate.track_idx] || matched_meas[candidate.measurement_idx]) {
-            continue;
-        }
-
-        tracks_[candidate.track_idx].update(
-            measurements[candidate.measurement_idx], now_ns, cfg_.min_hits_to_confirm);
-        matched_tracks[candidate.track_idx]     = true;
-        matched_meas[candidate.measurement_idx] = true;
+    std::vector<bool> matched_tracks(tracks_.size(), false);
+    std::vector<bool> matched_meas(measurements.size(), false);
+    for (size_t i = 0; i < assignment.size(); ++i) {
+        if (assignment[i] < 0) continue;
+        const size_t j = static_cast<size_t>(assignment[i]);
+        if (j >= measurements.size()) continue;
+        tracks_[i].update(measurements[j], now_ns, cfg_.min_hits_to_confirm);
+        matched_tracks[i] = true;
+        matched_meas[j]   = true;
     }
 
     if (mark_unmatched_tracks) {
@@ -287,34 +283,30 @@ void RadarFusionNode::process_lidar_clusters(
         track.predict(now_ns);
     }
 
-    std::vector<bool> matched_tracks(lidar_tracks_.size(), false);
-    std::vector<bool> matched_meas(measurements.size(), false);
+    // 匈牙利全局最优匹配
     const double gate_distance_sq = cfg_.gate_distance * cfg_.gate_distance;
-    std::vector<AssociationCandidate> candidates;
-    candidates.reserve(lidar_tracks_.size() * measurements.size());
-
+    constexpr double kUnreachable = 1e9;
+    std::vector<std::vector<double>> cost(
+        lidar_tracks_.size(), std::vector<double>(measurements.size(), kUnreachable));
     for (size_t i = 0; i < lidar_tracks_.size(); ++i) {
         for (size_t j = 0; j < measurements.size(); ++j) {
             const double d_sq = lidar_tracks_[i].distance_squared_to(measurements[j]);
             if (d_sq < gate_distance_sq) {
-                candidates.push_back({ i, j, d_sq });
+                cost[i][j] = d_sq;
             }
         }
     }
+    const auto assignment = association::hungarian_min_cost(cost, kUnreachable);
 
-    std::sort(candidates.begin(), candidates.end(),
-        [](const AssociationCandidate& lhs, const AssociationCandidate& rhs) {
-            return lhs.distance_sq < rhs.distance_sq;
-        });
-
-    for (const auto& candidate : candidates) {
-        if (matched_tracks[candidate.track_idx] || matched_meas[candidate.measurement_idx]) {
-            continue;
-        }
-        lidar_tracks_[candidate.track_idx].update(
-            measurements[candidate.measurement_idx], now_ns, cfg_.min_hits_to_confirm);
-        matched_tracks[candidate.track_idx]     = true;
-        matched_meas[candidate.measurement_idx] = true;
+    std::vector<bool> matched_tracks(lidar_tracks_.size(), false);
+    std::vector<bool> matched_meas(measurements.size(), false);
+    for (size_t i = 0; i < assignment.size(); ++i) {
+        if (assignment[i] < 0) continue;
+        const size_t j = static_cast<size_t>(assignment[i]);
+        if (j >= measurements.size()) continue;
+        lidar_tracks_[i].update(measurements[j], now_ns, cfg_.min_hits_to_confirm);
+        matched_tracks[i] = true;
+        matched_meas[j]   = true;
     }
 
     for (size_t i = 0; i < lidar_tracks_.size(); ++i) {
