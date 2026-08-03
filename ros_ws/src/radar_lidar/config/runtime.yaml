@@ -20,7 +20,7 @@ radar_lidar_node:
     num_threads: 4
     use_spherical_grid: true
     spherical_grid_deg: 0.1
-    accumulate_frames: 20
+    accumulate_frames: 0
     lock_fitness: 0.2
 
     # GICP 锁定后移动检测 watchdog（雷达站被撞自动解锁）
