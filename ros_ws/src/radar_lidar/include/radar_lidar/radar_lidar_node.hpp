@@ -44,6 +44,10 @@ private:
     auto try_odin_relocalization_pose(const std::string& source_frame, const rclcpp::Time& stamp)
         -> std::optional<types::PoseEstimate>;
 
+    /// @brief GICP 长期未配准时的默认位姿兜底（安装位姿，比赛允许先用固定坐标）
+    /// 连续失败帧数超过阈值后启用；配准恢复后自动切回
+    void update_fallback();
+
     std::shared_ptr<const map_data::MapData> map_;
     localization::LocalizationStage localization_;
     dynamic_cloud::DynamicCloudStage dynamic_stage_;
@@ -56,6 +60,14 @@ private:
 
     // Odin1 内置重定位 TF 作为可选主位姿源；GICP 始终保留作为重定位未成功时的回退
     bool use_odin_relocalization_tf_ = false;
+
+    // GICP 兜底：连续配准失败超阈值时用初始安装位姿发坐标
+    types::PoseEstimate fallback_pose_;
+    bool fallback_initialized_ = false;
+    bool fallback_active_      = false;
+    std::uint32_t failed_count_ { 0 };
+    static constexpr std::uint32_t kFallbackAfterFails = 30;  // ~3s @10Hz
+    static constexpr double kFallbackFitnessMax       = 1.0;  // fitness 超过此值视为未配准
 
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr sub_scan_;
     rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pub_pose_;
