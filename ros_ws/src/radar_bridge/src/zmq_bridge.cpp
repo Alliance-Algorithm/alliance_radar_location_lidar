@@ -5,6 +5,9 @@ namespace radar_bridge::zmq_bridge {
 auto ZmqBridge::zmqpub_init(const std::string& pub_address) -> std::expected<void, std::string> {
     try {
         publisher_ = zmq::socket_t(context_, zmq::socket_type::pub);
+        // linger=0：socket 关闭时立即释放端口，避免异常退出后孤儿 socket 占用
+        // （libzmq 4.3.5 无 ZMQ_REUSEADDR，linger 0 是等效的标准做法）
+        publisher_.set(zmq::sockopt::linger, 0);
         publisher_.bind(pub_address.data());
     } catch (const zmq::error_t& e) {
         return std::unexpected(std::string("zmqpub_init failed: ") + e.what());

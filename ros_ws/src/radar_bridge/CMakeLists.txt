@@ -45,6 +45,8 @@ target_include_directories(${PROJECT_NAME}_node PRIVATE
 target_sources(${PROJECT_NAME}_node PRIVATE
     ${RADAR_SRC}/src/armor_infer.cpp
     ${RADAR_SRC}/src/tensorrt_inference.cpp
+    # CUDA kernel 预编译对象（与 radar_camera 一致，sm_89 = 比赛机 RTX 4060）
+    ${RADAR_SRC}/cuda_prebuilt/image_normalize.sm89.o
 )
 
 target_link_directories(${PROJECT_NAME}_node PRIVATE
