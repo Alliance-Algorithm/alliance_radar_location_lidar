@@ -25,7 +25,8 @@ radar_lidar_node:
 
     # GICP 锁定后移动检测 watchdog（雷达站被撞自动解锁）
     # 阈值 0.3: 对应 yaw 偏转 ≈7° / 平移 ≈1.8m 触发（稳态残差 ~0.2，留裕量）
-    enable_watchdog: true
+    # T-DT 方案：配准成功后永久锁定不重配；watchdog 用原始点会被场地车误触发，关闭。
+    enable_watchdog: false
     watchdog_fitness: 0.3
     watchdog_check_interval: 10
     watchdog_unlock_frames: 3
