@@ -52,6 +52,7 @@ private:
     BridgeConfig config_ { };
     radar_bridge::zmq_bridge::ZmqBridge zmq_bridge_ { };
     radar_bridge::videostream_bridge::VideoBridge video_bridge_ { };
+    rclcpp::TimerBase::SharedPtr video_retry_timer_;
 };
 
 } // namespace radar_bridge::node

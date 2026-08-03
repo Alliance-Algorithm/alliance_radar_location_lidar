@@ -95,10 +95,28 @@ RadarBridgeNode::RadarBridgeNode()
         video_bridge_.video_init(config_.shm_name, config_.video_pub_address, std::move(infer));
     if (!init_ret.has_value()) {
         // SHM 可能尚未就绪（相机/回放器后启动）。坐标转发（ZMQ 5555）不依赖视频，
-        // 仅禁用视频推流，不阻塞整个节点。
+        // 每 2s 重试 video_init 直到 SHM 就绪，保证推流可用（调相机位姿需要画面）。
         RCLCPP_WARN(this->get_logger(),
-            "video_init failed, video push disabled (coordinate forwarding unaffected): %s",
+            "video_init failed, will retry every 2s (coordinate forwarding unaffected): %s",
             init_ret.error().c_str());
+        video_retry_timer_ = this->create_wall_timer(std::chrono::seconds(2), [this]() {
+            auto retry = video_bridge_.video_init(
+                config_.shm_name, config_.video_pub_address, nullptr);
+            if (!retry.has_value()) {
+                RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+                    "video retry pending: %s", retry.error().c_str());
+                return;
+            }
+            RCLCPP_INFO(this->get_logger(), "video_init succeeded (retry)");
+            video_retry_timer_->cancel();
+            video_retry_timer_.reset();
+            auto video_ret = video_bridge_.video_thread();
+            if (!video_ret.has_value()) {
+                RCLCPP_ERROR(get_logger(), "video_thread failed: %s", video_ret.error().c_str());
+            } else {
+                RCLCPP_INFO(get_logger(), "video_thread started");
+            }
+        });
     } else {
         RCLCPP_INFO(this->get_logger(), "video_init succeeded");
         auto video_ret = video_bridge_.video_thread();
