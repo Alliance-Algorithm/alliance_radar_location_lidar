@@ -4,7 +4,7 @@ namespace radar_bridge::node {
 
 auto ConfigsLoader(rclcpp::Node& node, BridgeConfig& config) -> std::expected<void, std::string> {
     try {
-        node.declare_parameter("zmq_pub_address", std::string("tcp://*:5555"));
+        node.declare_parameter("zmq_pub_address", std::string("tcp://*:5556"));
         node.declare_parameter(
             "zmq_sub_addresses", std::vector<std::string> { "tcp://localhost:5558" });
         node.declare_parameter("shm_name", std::string("/hikcamera_shm"));
@@ -94,7 +94,7 @@ RadarBridgeNode::RadarBridgeNode()
     auto init_ret =
         video_bridge_.video_init(config_.shm_name, config_.video_pub_address, std::move(infer));
     if (!init_ret.has_value()) {
-        // SHM 可能尚未就绪（相机/回放器后启动）。坐标转发（ZMQ 5555）不依赖视频，
+        // SHM 可能尚未就绪（相机/回放器后启动）。坐标转发（ZMQ 5556）不依赖视频，
         // 每 2s 重试 video_init 直到 SHM 就绪，保证推流可用（调相机位姿需要画面）。
         RCLCPP_WARN(this->get_logger(),
             "video_init failed, will retry every 2s (coordinate forwarding unaffected): %s",

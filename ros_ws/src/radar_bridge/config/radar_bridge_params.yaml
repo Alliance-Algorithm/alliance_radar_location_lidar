@@ -1,7 +1,7 @@
 radar_bridge_node:
   ros__parameters:
-    # ZMQ
-    zmq_pub_address: "tcp://*:5555"
+    # ZMQ（LidarLocation → radar-egui；5556 与 SDR 的 5555 分离，避免端口冲突）
+    zmq_pub_address: "tcp://*:5556"
     zmq_sub_addresses: ["tcp://localhost:5558"]
     # Video stream
     shm_name: "/hikcamera_shm"
