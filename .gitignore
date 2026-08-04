@@ -50,3 +50,6 @@ learnlog.md
 # Local agent worktrees
 /.worktrees/
 tools/armor_verify/build/
+
+# 宿主机 nvcc 预编译的 CUDA kernel（架构相关，见 .script/prepare-radar-camera-tensorrt-runtime）
+ros_ws/src/radar_camera/cuda_prebuilt/

@@ -109,11 +109,15 @@ auto VideoBridge::video_thread() -> std::expected<void, std::string> {
             // mat() 是 SHM 上的 RGB8 非拥有视图（hikcamera SDK 输出 RGB8，与模型训练一致）；
             // clone 保证短生命周期内数据安全。imencode/overlay 按 OpenCV BGR 惯例，编码前转回。
             cv::Mat rgb = frame->mat().clone();
+            // 降采样推流：SHM 为 5472×3648 全分辨率，编码太重；960×540 编码开销降 ~30 倍
+            // （调相机位姿/监控用，无需 5K）
+            cv::Mat small;
+            cv::resize(rgb, small, cv::Size(960, 540), 0, 0, cv::INTER_AREA);
             cv::Mat bgr;
-            cv::cvtColor(rgb, bgr, cv::COLOR_RGB2BGR);
+            cv::cvtColor(small, bgr, cv::COLOR_RGB2BGR);
             if (infer_) {
                 try {
-                    const auto results = infer_->infer(rgb);
+                    const auto results = infer_->infer(small);
                     draw_overlay(bgr, results);
                 } catch (const std::exception& e) {
                     std::println(std::cerr, "[VideoBridge] inference failed, passthrough frame: {}",

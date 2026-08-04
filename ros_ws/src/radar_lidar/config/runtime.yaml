@@ -13,9 +13,20 @@ radar_lidar_node:
     initial_pose_yaw: 0.0
     use_odin_relocalization_tf: false
 
+    # GICP 核心参数（离线验证值；accumulate_frames=0 避免每帧 100 万点配准卡死）
+    voxel_leaf_size: 0.1
+    max_corr_distance: 2.0
+    max_iterations: 50
+    num_threads: 4
+    use_spherical_grid: true
+    spherical_grid_deg: 0.1
+    accumulate_frames: 0
+    lock_fitness: 0.2
+
     # GICP 锁定后移动检测 watchdog（雷达站被撞自动解锁）
     # 阈值 0.3: 对应 yaw 偏转 ≈7° / 平移 ≈1.8m 触发（稳态残差 ~0.2，留裕量）
-    enable_watchdog: true
+    # 配准成功后永久锁定不重配；watchdog 用原始点会被场地上的车误触发，关闭。
+    enable_watchdog: false
     watchdog_fitness: 0.3
     watchdog_check_interval: 10
     watchdog_unlock_frames: 3

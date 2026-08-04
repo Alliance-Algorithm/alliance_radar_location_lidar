@@ -271,20 +271,22 @@ private:
 
     void start_camera_input() {
         if (camera_input_mode_ == "shm") {
-            open_shm();
-            shm_running_.store(true, std::memory_order_release);
-            shm_thread_ = std::thread(&RgbColorizerNode::shm_loop, this);
-        } else {
-            // ros_image mode: subscribe to BGR8 topic
-            image_sub_ = create_subscription<sensor_msgs::msg::Image>(camera_image_topic_,
-                rclcpp::SensorDataQoS(),
-                [this](sensor_msgs::msg::Image::SharedPtr msg) { on_image(msg); });
-            RCLCPP_INFO(
-                get_logger(), "Subscribed to camera image topic: %s", camera_image_topic_.c_str());
+            // Hik SHM 模式已废弃（新 hikcamera_sdk 移除 imageSHM/SHMGetPtr）。
+            // 比赛统一用 Odin1 内置相机（ros_image 模式）。
+            throw std::runtime_error("camera_input_mode 'shm' is no longer supported; use "
+                                     "'ros_image' "
+                                     "(Odin1 built-in camera /odin1/image/undistorted)");
         }
+        // ros_image mode: subscribe to BGR8 topic
+        image_sub_ = create_subscription<sensor_msgs::msg::Image>(camera_image_topic_,
+            rclcpp::SensorDataQoS(),
+            [this](sensor_msgs::msg::Image::SharedPtr msg) { on_image(msg); });
+        RCLCPP_INFO(
+            get_logger(), "Subscribed to camera image topic: %s", camera_image_topic_.c_str());
     }
 
     void stop_camera_input() {
+#if 0
         if (shm_thread_.joinable()) {
             shm_running_.store(false, std::memory_order_release);
             shm_thread_.join();
@@ -297,9 +299,11 @@ private:
             std::ignore = hikcamera::SHMClose(shm_fd_);
             shm_fd_     = -1;
         }
+#endif
     }
 
-    // ── SHM (live mode) ────────────────────────────────────────────────
+#if 0
+    // ── SHM (live mode) — removed: new hikcamera_sdk has no imageSHM ──
 
     void open_shm() {
         auto fd_ret = hikcamera::SHMInit(shm_name_, sizeof(hikcamera::imageSHM));
@@ -378,6 +382,7 @@ private:
             }
         }
     }
+#endif
 
     // ── ROS image callback (replay mode) ───────────────────────────────
 

@@ -7,6 +7,8 @@
 #include <sstream>
 #include <utility>
 
+#include "radar_camera/image_normalize.hpp"
+
 namespace radar_camera::model_inference {
 
 namespace {
@@ -27,6 +29,17 @@ namespace {
         return std::string(operation) + ": " + cudaGetErrorString(code);
     }
 
+    constexpr std::size_t kPipelineSlots = 2;
+
+    struct Slot {
+        cudaStream_t stream { nullptr };
+        void* device_input { nullptr };
+        void* device_input_u8 { nullptr };
+        void* device_output { nullptr };
+        std::vector<float> output;
+        bool pending { false };
+    };
+
 } // namespace
 
 struct TensorRtInference::Impl {
@@ -34,20 +47,23 @@ struct TensorRtInference::Impl {
     nvinfer1::IRuntime* runtime { nullptr };
     nvinfer1::ICudaEngine* engine { nullptr };
     nvinfer1::IExecutionContext* context { nullptr };
-    cudaStream_t stream { nullptr };
-    void* device_input { nullptr };
-    void* device_output { nullptr };
+    std::array<Slot, kPipelineSlots> slots;
     std::size_t input_count { 0 };
     std::size_t output_count { 0 };
+    int input_width { 0 };
+    int input_height { 0 };
     std::string input_name;
     std::string output_name;
-    std::vector<float> output;
-    bool enqueued { false };
+    std::size_t next_write { 0 };
+    std::size_t next_wait { 0 };
 
     ~Impl() {
-        if (stream != nullptr) cudaStreamDestroy(stream);
-        if (device_input != nullptr) cudaFree(device_input);
-        if (device_output != nullptr) cudaFree(device_output);
+        for (auto& slot : slots) {
+            if (slot.stream != nullptr) cudaStreamDestroy(slot.stream);
+            if (slot.device_input != nullptr) cudaFree(slot.device_input);
+            if (slot.device_input_u8 != nullptr) cudaFree(slot.device_input_u8);
+            if (slot.device_output != nullptr) cudaFree(slot.device_output);
+        }
         delete context;
         delete engine;
         delete runtime;
@@ -145,23 +161,36 @@ auto TensorRtInference::init(const std::string& engine_path) -> std::expected<vo
         output_count *= static_cast<std::size_t>(output_dims.d[i]);
     }
 
-    impl_->input_count  = input_count;
-    impl_->output_count = output_count;
-    impl_->output.resize(impl_->output_count);
+    // CHW float input: dims are {1, C, H, W}. The u8 staging buffer holds the
+    // same pixel count as RGB u8, so its byte size equals input_count.
+    const std::size_t channels =
+        input_dims.nbDims >= 3 ? static_cast<std::size_t>(input_dims.d[1]) : 3;
+    impl_->input_count     = input_count;
+    impl_->output_count    = output_count;
+    impl_->input_width     = input_dims.nbDims >= 4 ? static_cast<int>(input_dims.d[3]) : 0;
+    impl_->input_height    = input_dims.nbDims >= 3 ? static_cast<int>(input_dims.d[2]) : 0;
+    const auto pixel_bytes = input_count; // pixels * 3 bytes (RGB u8)
 
-    if (auto code = cudaStreamCreate(&impl_->stream); code != cudaSuccess) {
-        return std::unexpected(trt_error(code, "cudaStreamCreate"));
+    for (auto& slot : impl_->slots) {
+        slot.output.resize(impl_->output_count);
+        if (auto code = cudaStreamCreate(&slot.stream); code != cudaSuccess) {
+            return std::unexpected(trt_error(code, "cudaStreamCreate"));
+        }
+        if (auto code = cudaMalloc(&slot.device_input, impl_->input_count * sizeof(float));
+            code != cudaSuccess) {
+            return std::unexpected(trt_error(code, "cudaMalloc input"));
+        }
+        if (auto code = cudaMalloc(&slot.device_input_u8, pixel_bytes); code != cudaSuccess) {
+            return std::unexpected(trt_error(code, "cudaMalloc u8 input"));
+        }
+        if (auto code = cudaMalloc(&slot.device_output, impl_->output_count * sizeof(float));
+            code != cudaSuccess) {
+            return std::unexpected(trt_error(code, "cudaMalloc output"));
+        }
     }
-    if (auto code = cudaMalloc(&impl_->device_input, impl_->input_count * sizeof(float));
-        code != cudaSuccess) {
-        return std::unexpected(trt_error(code, "cudaMalloc input"));
-    }
-    if (auto code = cudaMalloc(&impl_->device_output, impl_->output_count * sizeof(float));
-        code != cudaSuccess) {
-        return std::unexpected(trt_error(code, "cudaMalloc output"));
-    }
-    if (!impl_->context->setTensorAddress(impl_->input_name.c_str(), impl_->device_input)
-        || !impl_->context->setTensorAddress(impl_->output_name.c_str(), impl_->device_output)) {
+    if (!impl_->context->setTensorAddress(impl_->input_name.c_str(), impl_->slots[0].device_input)
+        || !impl_->context->setTensorAddress(
+            impl_->output_name.c_str(), impl_->slots[0].device_output)) {
         return std::unexpected("TensorRT setTensorAddress failed");
     }
     return { };
@@ -169,37 +198,64 @@ auto TensorRtInference::init(const std::string& engine_path) -> std::expected<vo
 
 auto TensorRtInference::start(const float* input, std::size_t input_elements)
     -> std::expected<void, std::string> {
-    if (impl_->context == nullptr || impl_->stream == nullptr) {
-        return std::unexpected("TensorRT inference is not initialized");
-    }
+    if (impl_->context == nullptr) return std::unexpected("TensorRT inference is not initialized");
     if (input == nullptr || input_elements != impl_->input_count) {
         return std::unexpected("TensorRT input size mismatch");
     }
-    if (auto code = cudaMemcpyAsync(impl_->device_input, input, impl_->input_count * sizeof(float),
-            cudaMemcpyHostToDevice, impl_->stream);
+    auto& slot = impl_->slots[impl_->next_write];
+    if (slot.pending) return std::unexpected("TensorRT pipeline overrun (no free slot)");
+    if (auto code = cudaMemcpyAsync(slot.device_input, input, impl_->input_count * sizeof(float),
+            cudaMemcpyHostToDevice, slot.stream);
         code != cudaSuccess) {
         return std::unexpected(trt_error(code, "cudaMemcpyAsync input"));
     }
-    if (!impl_->context->enqueueV3(impl_->stream)) {
+    if (!impl_->context->enqueueV3(slot.stream)) {
         return std::unexpected("TensorRT enqueueV3 failed");
     }
-    impl_->enqueued = true;
+    slot.pending      = true;
+    impl_->next_write = (impl_->next_write + 1) % kPipelineSlots;
+    return { };
+}
+
+auto TensorRtInference::start_u8(const std::uint8_t* rgb, int width, int height)
+    -> std::expected<void, std::string> {
+    if (impl_->context == nullptr) return std::unexpected("TensorRT inference is not initialized");
+    if (rgb == nullptr || width != impl_->input_width || height != impl_->input_height) {
+        return std::unexpected("TensorRT u8 input size mismatch");
+    }
+    auto& slot = impl_->slots[impl_->next_write];
+    if (slot.pending) return std::unexpected("TensorRT pipeline overrun (no free slot)");
+    const auto pixel_bytes = static_cast<std::size_t>(width) * height * 3;
+    if (auto code = cudaMemcpyAsync(
+            slot.device_input_u8, rgb, pixel_bytes, cudaMemcpyHostToDevice, slot.stream);
+        code != cudaSuccess) {
+        return std::unexpected(trt_error(code, "cudaMemcpyAsync u8 input"));
+    }
+    normalize_rgb_u8_to_planar_f32(static_cast<const std::uint8_t*>(slot.device_input_u8),
+        static_cast<float*>(slot.device_input), width, height, slot.stream);
+    if (!impl_->context->enqueueV3(slot.stream)) {
+        return std::unexpected("TensorRT enqueueV3 failed");
+    }
+    slot.pending      = true;
+    impl_->next_write = (impl_->next_write + 1) % kPipelineSlots;
     return { };
 }
 
 auto TensorRtInference::wait()
     -> std::expected<std::reference_wrapper<const std::vector<float>>, std::string> {
-    if (!impl_->enqueued) return std::unexpected("TensorRT wait called before start");
-    if (auto code = cudaMemcpyAsync(impl_->output.data(), impl_->device_output,
-            impl_->output_count * sizeof(float), cudaMemcpyDeviceToHost, impl_->stream);
+    auto& slot = impl_->slots[impl_->next_wait];
+    if (!slot.pending) return std::unexpected("TensorRT wait called with no pending enqueue");
+    if (auto code = cudaMemcpyAsync(slot.output.data(), slot.device_output,
+            impl_->output_count * sizeof(float), cudaMemcpyDeviceToHost, slot.stream);
         code != cudaSuccess) {
         return std::unexpected(trt_error(code, "cudaMemcpyAsync output"));
     }
-    if (auto code = cudaStreamSynchronize(impl_->stream); code != cudaSuccess) {
+    if (auto code = cudaStreamSynchronize(slot.stream); code != cudaSuccess) {
         return std::unexpected(trt_error(code, "cudaStreamSynchronize"));
     }
-    impl_->enqueued = false;
-    return std::ref(impl_->output);
+    slot.pending     = false;
+    impl_->next_wait = (impl_->next_wait + 1) % kPipelineSlots;
+    return std::ref(slot.output);
 }
 
 auto TensorRtInference::input_elements() const noexcept -> std::size_t {

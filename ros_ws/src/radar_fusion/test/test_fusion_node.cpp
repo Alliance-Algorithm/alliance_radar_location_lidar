@@ -95,6 +95,15 @@ protected:
                     ++status_gen_;
                     cv_.notify_all();
                 });
+        location_sub_ =
+            subscriber_node_->create_subscription<radar_interfaces::msg::LidarLocation>("/lidar/"
+                                                                                        "location",
+                10, [this](const radar_interfaces::msg::LidarLocation::SharedPtr msg) {
+                    std::lock_guard<std::mutex> lock(mutex_);
+                    last_location_ = *msg;
+                    ++location_gen_;
+                    cv_.notify_all();
+                });
 
         executor_.add_node(fusion_node_);
         executor_.add_node(publisher_node_);
@@ -120,6 +129,7 @@ protected:
         tracks_sub_.reset();
         fused_tracks_sub_.reset();
         status_sub_.reset();
+        location_sub_.reset();
         cluster_pub_.reset();
         lidar_pose_pub_.reset();
         camera_detection_pub_.reset();
@@ -134,6 +144,7 @@ protected:
             last_fused_track_marker_count_ = 0;
             last_pose_                     = geometry_msgs::msg::PoseWithCovarianceStamped();
             last_status_                   = diagnostic_msgs::msg::DiagnosticStatus();
+            last_location_                 = radar_interfaces::msg::LidarLocation();
         }
     }
 
@@ -239,6 +250,7 @@ protected:
     rclcpp::Subscription<visualization_msgs::msg::MarkerArray>::SharedPtr tracks_sub_;
     rclcpp::Subscription<visualization_msgs::msg::MarkerArray>::SharedPtr fused_tracks_sub_;
     rclcpp::Subscription<diagnostic_msgs::msg::DiagnosticStatus>::SharedPtr status_sub_;
+    rclcpp::Subscription<radar_interfaces::msg::LidarLocation>::SharedPtr location_sub_;
     std::thread spin_thread_;
 
     std::mutex mutex_;
@@ -248,12 +260,49 @@ protected:
     std::uint64_t track_pub_gen_       = 0;
     std::uint64_t fused_track_pub_gen_ = 0;
     std::uint64_t status_gen_          = 0;
+    std::uint64_t location_gen_        = 0;
     // Per-callback snapshot fields (reset in TearDown).
     std::size_t last_track_marker_count_       = 0;
     std::size_t last_fused_track_marker_count_ = 0;
     geometry_msgs::msg::PoseWithCovarianceStamped last_pose_;
     diagnostic_msgs::msg::DiagnosticStatus last_status_;
+    radar_interfaces::msg::LidarLocation last_location_;
 };
+
+// 相机检测：指定槽位（class_id）填充
+auto make_camera_slot(double x, double y, int class_id, int32_t sec, uint32_t nanosec)
+    -> radar_interfaces::msg::CameraDetectionPose {
+    radar_interfaces::msg::CameraDetectionPose msg;
+    msg.header.frame_id      = "map";
+    msg.header.stamp.sec     = sec;
+    msg.header.stamp.nanosec = nanosec;
+    auto set                 = [&](geometry_msgs::msg::Point& pos, double& conf) {
+        pos.x = x;
+        pos.y = y;
+        conf  = 0.9f;
+    };
+    switch (class_id) {
+    case 0:
+        set(msg.hero_position, msg.hero_confidence);
+        break;
+    case 1:
+        set(msg.engine_position, msg.engine_confidence);
+        break;
+    case 2:
+        set(msg.infantry_3_position, msg.infantry_3_confidence);
+        break;
+    case 3:
+        set(msg.infantry_4_position, msg.infantry_4_confidence);
+        break;
+    case 4:
+        set(msg.sentry_position, msg.sentry_confidence);
+        break;
+    case 5:
+        set(msg.drone_position, msg.drone_confidence);
+        break;
+    }
+    return msg;
+}
 
 }
 
@@ -804,4 +853,70 @@ TEST(FusionNode, AllySlotsFilledWithCampInjectedQuery) {
     EXPECT_EQ(msg.ally_hero_y, static_cast<uint16_t>(12.0 * 100.0));
     EXPECT_EQ(msg.ally_sentry_x, static_cast<uint16_t>(20.0 * 100.0));
     EXPECT_EQ(msg.opponent_hero_x, 0);
+}
+
+TEST_F(FusionNodeTest, LidarClusterInheritsCameraClassAndOutputsLocation) {
+    // 雷达聚类确认 track：位置 (1.0, 0.0) 附近连续 3 帧
+    cluster_pub_->publish(make_cluster_msg(0.5, 0.0, 0.0, 0, 0u));
+    cluster_pub_->publish(make_cluster_msg(1.0, 0.0, 0.0, 1, 0u));
+    cluster_pub_->publish(make_cluster_msg(1.5, 0.0, 0.0, 2, 0u));
+
+    // 等待 lidar track 确认（/fusion/tracks 出现 lidar_clusters marker）
+    const auto track_bl = track_pub_gen_;
+    ASSERT_TRUE(wait_for_track_pub_gen(track_bl + 1, 1s)) << "lidar track not confirmed";
+
+    // 相机检测：同一位置 + class 2（inf3）→ 给 lidar track 贴类别
+    camera_detection_pub_->publish(make_camera_slot(1.0, 0.0, 2, 3, 0u));
+
+    // 等待 LidarLocation 输出 inf3 槽位（官方坐标 = map + offset）
+    const auto loc_bl = location_gen_;
+    radar_interfaces::msg::LidarLocation got;
+    bool found          = false;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (std::chrono::steady_clock::now() < deadline) {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (last_location_.opponent_infantry_3_x > 0) {
+                got   = last_location_;
+                found = true;
+                break;
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    ASSERT_TRUE(found) << "lidar track with camera class did not reach LidarLocation";
+
+    // 官方坐标 = map + offset(14, 7.5)，×100 cm；雷达 track 位置 ≈ (1.0, 0.0)
+    EXPECT_NEAR(got.opponent_infantry_3_x, (1.0 + 14.0) * 100.0, 50.0);
+    EXPECT_NEAR(got.opponent_infantry_3_y, (0.0 + 7.5) * 100.0, 50.0);
+}
+
+TEST_F(FusionNodeTest, LidarClusterClassPersistsAfterCameraStops) {
+    // 雷达聚类确认 track
+    cluster_pub_->publish(make_cluster_msg(0.5, 0.0, 0.0, 0, 0u));
+    cluster_pub_->publish(make_cluster_msg(1.0, 0.0, 0.0, 1, 0u));
+    cluster_pub_->publish(make_cluster_msg(1.5, 0.0, 0.0, 2, 0u));
+    const auto track_bl = track_pub_gen_;
+    ASSERT_TRUE(wait_for_track_pub_gen(track_bl + 1, 1s)) << "lidar track not confirmed";
+
+    // 相机贴类别后停止相机
+    camera_detection_pub_->publish(make_camera_slot(1.0, 0.0, 2, 3, 0u));
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    camera_detection_pub_->publish(make_empty_camera_detection(4, 0u));
+
+    // 雷达聚类继续（track 保持 class）→ LidarLocation 持续输出
+    cluster_pub_->publish(make_cluster_msg(2.0, 0.0, 0.0, 5, 0u));
+    bool found          = false;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (std::chrono::steady_clock::now() < deadline) {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (last_location_.opponent_infantry_3_x > 0) {
+                found = true;
+                break;
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    EXPECT_TRUE(found) << "class-tagged lidar track should keep outputting after camera stops";
 }

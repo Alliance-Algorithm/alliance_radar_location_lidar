@@ -43,7 +43,8 @@ services:
       - DISPLAY=${DISPLAY}
       - WAYLAND_DISPLAY=${WAYLAND_DISPLAY}
       - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      # video 能力供 NVENC 硬件编码（默认内录 h264_nvenc 必需）
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility,video
       - RADAR_CAMERA_TENSORRT_ROOT=/opt/radar_camera_trt
       - LD_LIBRARY_PATH=/opt/radar_camera_trt/lib:/opt/ros/jazzy/lib:${LD_LIBRARY_PATH}
     devices:

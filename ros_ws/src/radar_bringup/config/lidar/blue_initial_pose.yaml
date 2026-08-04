@@ -1,11 +1,15 @@
 # 蓝方雷达初始位姿（地图坐标系，中心原点）
-# 雷达站位于蓝方短边中轴线上，距地 4m，指向场地中心，俯仰向下 10°
+# 由红方配准值绕场地中心 180° 对称得到（蓝方短边中轴线上）：
+#   tx=14.95 ty=0.85（对称于红方 -14.95/-0.85）
+#   tz=3.84（地面 -0.02 + 实际安装高 3.86m）
+#   yaw=π+8.99°（对称于红方 8.99°）
+#   pitch=+12.46°（配准收敛值，对称于红方；正 = 低头俯视）
 radar_lidar_node:
   ros__parameters:
     initial_pose_enabled: true
-    initial_pose_tx: 14.0
-    initial_pose_ty: 0.0
-    initial_pose_tz: 4.0
+    initial_pose_tx: 14.95
+    initial_pose_ty: 0.85
+    initial_pose_tz: 3.84
     initial_pose_roll: 0.0
-    initial_pose_pitch: 0.24504423  # +14.04° 低头指向场地中心
-    initial_pose_yaw: 3.14159
+    initial_pose_pitch: 0.21746802  # +12.46° 低头指向场地中心（配准收敛值）
+    initial_pose_yaw: 3.2985036  # 189.0° = π + 8.99°

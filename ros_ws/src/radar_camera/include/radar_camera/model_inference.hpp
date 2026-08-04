@@ -29,7 +29,13 @@ public:
     auto infer_preprocess(const cv::Mat& image, size_t width, size_t height)
         -> std::expected<std::reference_wrapper<const std::vector<float>>, std::string>;
 
+    /// Enqueue the preprocessed input. TensorRT: uploads u8 + GPU normalize on
+    /// a rotating slot (caller may preprocess the next frame before wait()).
+    /// OpenVINO: start_async immediately.
     auto infer_runtime_async() -> std::expected<void, std::string>;
+    /// Wait for the oldest pending enqueue. TensorRT: returns the *previous*
+    /// frame's output (pipeline), so the first call after startup yields
+    /// std::unexpected. OpenVINO: waits for the just-started request.
     auto infer_runtime_wait()
         -> std::expected<std::reference_wrapper<const std::vector<float>>, std::string>;
 
@@ -39,6 +45,7 @@ public:
 
 private:
     std::vector<float> input_buffer_;
+    cv::Mat u8_buffer_; // TensorRT 路径：CPU 只保留 u8，归一化在 GPU
     ov::Tensor input_tensor_;
     std::vector<float> raw_buffer_;
     std::vector<detection::Detection> postprocess_buffer_;

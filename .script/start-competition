@@ -4,8 +4,8 @@
 # 用法 (宿主机执行，在容器内运行 ROS2):
 #   bash .script/start-competition red
 #   bash .script/start-competition blue
-#   bash .script/start-competition red /workspace/model/generated/jinan_field_map_reg.pcd
-#   bash .script/start-competition red /workspace/model/generated/jinan_field_map_reg.pcd mid70
+#   bash .script/start-competition red /workspace/model/generated/jinan_field_map_reg_walls_v2.pcd
+#   bash .script/start-competition red /workspace/model/generated/jinan_field_map_reg_walls_v2.pcd mid70
 #
 # 完整链路:
 #   相机驱动(SHM) → LiDAR GICP 定位 → radar_camera_node(L1/L2/L3)
@@ -14,8 +14,9 @@
 set -euo pipefail
 
 SIDE="${1:-red}"
-MAP_PATH="${2:-/workspace/model/generated/jinan_field_map_reg.pcd}"
+MAP_PATH="${2:-/workspace/model/generated/jinan_field_map_reg_walls_v2.pcd}"
 SENSOR="${3:-odin}"
+ENABLE_RAW_RECORDING="${4:-}"
 CONTAINER="${RADAR_CONTAINER:-devcontainer-radar-develop-1}"
 
 # 参数校验
@@ -29,6 +30,7 @@ echo "  比赛启动"
 echo "  side    : $SIDE  (enemy=$([ "$SIDE" = red ] && echo blue || echo red))"
 echo "  map     : $MAP_PATH"
 echo "  sensor  : $SENSOR"
+echo "  raw recording: $ENABLE_RAW_RECORDING"
 echo "  container: $CONTAINER"
 echo "========================================"
 
@@ -40,13 +42,47 @@ if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER}$"; then
     exit 1
 fi
 
-docker exec -it "$CONTAINER" bash -c '
-set -euo pipefail
+# 启动前清理：残留回放/测试/上一场进程 + SHM 文件。
+# hikcamera 驱动用 O_EXCL 创建 SHM，mp4_replay 等残留占用会导致 shm_init 失败 abort。
+# 必须清掉上一场的全部节点：否则旧 recorder/推理/驱动并存（双录包、SHM 映射错乱）。
+docker exec "$CONTAINER" bash -lc '
+pkill -f "[m]p4_replay" 2>/dev/null || true
+pkill -f "[l]ocation_recorder" 2>/dev/null || true
+pkill -f "[h]ikcamera_ros_driver" 2>/dev/null || true
+pkill -f "[h]ost_sdk_sample" 2>/dev/null || true
+pkill -f "[r]adar_lidar_node" 2>/dev/null || true
+pkill -f "[r]adar_camera_node" 2>/dev/null || true
+pkill -f "[r]adar_camera_recorder_node" 2>/dev/null || true
+pkill -f "[r]adar_fusion_node" 2>/dev/null || true
+pkill -f "[r]adar_bridge_node" 2>/dev/null || true
+pkill -f "[s]tatic_transform_publisher" 2>/dev/null || true
+sleep 1
+rm -f /dev/shm/hikcamera_shm 2>/dev/null || true
+' >/dev/null 2>&1 || true
+
+# -i 而非 -it：egui 等无 TTY 环境（stdin/stdout 管道）调用时不会报
+# "the input device is not a TTY"；交互终端下功能不受影响。
+docker exec -i "$CONTAINER" bash -c '
+set -eo pipefail
+set +u
 source /opt/ros/jazzy/setup.bash
 source /workspace/ros_ws/install/setup.bash
+set -u
 
-exec ros2 launch radar_bringup competition.launch.py \
+# launch 输出落盘：/workspace/model/logs/<ts>_launch.log（终端同时可见，Ctrl-C 退出）
+LOG_DIR=/workspace/model/logs
+mkdir -p "${LOG_DIR}"
+LOG_FILE="${LOG_DIR}/$(date +%Y%m%d_%H%M%S)_launch.log"
+echo "[LOG] launch output -> ${LOG_FILE}" >&2
+
+RAW_ARGS=()
+if [[ -n "${4:-}" ]]; then
+    RAW_ARGS+=("enable_raw_recording:=$4")
+fi
+
+ros2 launch radar_bringup competition.launch.py \
     "side:=$1" \
     "map_path:=$2" \
-    "sensor:=$3"
-' bash "$SIDE" "$MAP_PATH" "$SENSOR"
+    "sensor:=$3" \
+    "${RAW_ARGS[@]}" 2>&1 | tee "${LOG_FILE}"
+' bash "$SIDE" "$MAP_PATH" "$SENSOR" "$ENABLE_RAW_RECORDING"

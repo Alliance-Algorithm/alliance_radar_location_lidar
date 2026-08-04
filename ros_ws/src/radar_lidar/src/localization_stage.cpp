@@ -56,7 +56,8 @@ LocalizationStage::LocalizationStage(
             * Eigen::AngleAxisd(cfg_.initial_pitch, Eigen::Vector3d::UnitY())
             * Eigen::AngleAxisd(cfg_.initial_roll, Eigen::Vector3d::UnitX()))
                                   .toRotationMatrix();
-        locked_             = true;
+        // 初始位姿只作配准起点：不直接锁定——首帧 GICP 收敛且 fitness 达标
+        // 后才锁定（防止错位初始值被 watchdog 反复解锁/重配的循环）。
     }
 }
 

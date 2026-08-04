@@ -22,6 +22,15 @@ namespace {
         node.get_parameter("initial_pose_roll", cfg.initial_roll);
         node.get_parameter("initial_pose_pitch", cfg.initial_pitch);
         node.get_parameter("initial_pose_yaw", cfg.initial_yaw);
+        // 核心 GICP 参数（此前缺失，全走默认 accumulate_frames=20 导致每帧 100 万点配准卡死）
+        node.get_parameter_or("voxel_leaf_size", cfg.voxel_leaf_size, 0.1);
+        node.get_parameter_or("max_corr_distance", cfg.max_corr_distance, 2.0);
+        node.get_parameter_or("max_iterations", cfg.max_iterations, 50);
+        node.get_parameter_or("num_threads", cfg.num_threads, 4);
+        node.get_parameter_or("use_spherical_grid", cfg.use_spherical_grid, true);
+        node.get_parameter_or("spherical_grid_deg", cfg.spherical_grid_deg, 0.1);
+        node.get_parameter_or("accumulate_frames", cfg.accumulate_frames, 0);
+        node.get_parameter_or("lock_fitness", cfg.lock_fitness, 0.2);
         node.get_parameter_or("enable_watchdog", cfg.enable_watchdog, false);
         node.get_parameter_or("watchdog_fitness", cfg.watchdog_fitness, 0.5);
         node.get_parameter_or("watchdog_check_interval", cfg.watchdog_check_interval, 10);
@@ -92,6 +101,31 @@ RadarLidarNode::RadarLidarNode(const rclcpp::NodeOptions& options)
 
     localization_ = localization::LocalizationStage(map_, load_localization_config(*this));
 
+    // GICP 兜底位姿 = 初始安装位姿（红/蓝 initial_pose_yaml）
+    bool has_init = false;
+    get_parameter("initial_pose_enabled", has_init);
+    if (has_init) {
+        double tx = 0, ty = 0, tz = 0, roll = 0, pitch = 0, yaw = 0;
+        get_parameter("initial_pose_tx", tx);
+        get_parameter("initial_pose_ty", ty);
+        get_parameter("initial_pose_tz", tz);
+        get_parameter("initial_pose_roll", roll);
+        get_parameter("initial_pose_pitch", pitch);
+        get_parameter("initial_pose_yaw", yaw);
+        fallback_pose_.t_map_lidar               = Eigen::Isometry3d::Identity();
+        fallback_pose_.t_map_lidar.translation() = Eigen::Vector3d(tx, ty, tz);
+        fallback_pose_.t_map_lidar.linear()      = (Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ())
+            * Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitY())
+            * Eigen::AngleAxisd(roll, Eigen::Vector3d::UnitX()))
+                                                       .toRotationMatrix();
+        fallback_pose_.fitness_score             = kFallbackFitnessMax;
+        fallback_pose_.converged                 = false;
+        fallback_initialized_                    = true;
+        RCLCPP_INFO(get_logger(),
+            "Fallback pose initialized (%.2f,%.2f,%.2f) -- used if GICP fails for %u frames", tx,
+            ty, tz, kFallbackAfterFails);
+    }
+
     dynamic_stage_ = dynamic_cloud::DynamicCloudStage(load_dynamic_config(*this));
     dynamic_stage_.set_map(std::make_shared<pcl::PointCloud<pcl::PointXYZ>>(map_->pcl_cloud()));
 
@@ -151,12 +185,55 @@ void RadarLidarNode::on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg
     }
 
     if (!pose) {
-        RCLCPP_WARN_THROTTLE(
-            get_logger(), *get_clock(), 2000, "Localization failed: %s", pose.error().c_str());
-        const auto t1           = std::chrono::steady_clock::now();
-        const double elapsed_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
-        publish_diagnostics(pose.value_or(types::PoseEstimate { }), elapsed_ms, frame_count_);
-        return;
+        // GICP 失败 → 计数，超阈值后用初始安装位姿兜底继续输出坐标
+        if (fallback_initialized_) {
+            if (++failed_count_ >= kFallbackAfterFails) {
+                if (!fallback_active_) {
+                    fallback_active_ = true;
+                    RCLCPP_WARN(get_logger(),
+                        "GICP failed for %u frames -- fallback to install pose (%.2f,%.2f,%.2f)",
+                        failed_count_, fallback_pose_.t_map_lidar.translation().x(),
+                        fallback_pose_.t_map_lidar.translation().y(),
+                        fallback_pose_.t_map_lidar.translation().z());
+                }
+                pose = fallback_pose_;
+            } else {
+                RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+                    "Localization failed: %s (fallback in %u frames)", pose.error().c_str(),
+                    kFallbackAfterFails - failed_count_);
+                const auto t1 = std::chrono::steady_clock::now();
+                const double elapsed_ms =
+                    std::chrono::duration<double, std::milli>(t1 - t0).count();
+                publish_diagnostics(types::PoseEstimate { }, elapsed_ms, frame_count_);
+                return;
+            }
+        } else {
+            RCLCPP_WARN_THROTTLE(
+                get_logger(), *get_clock(), 2000, "Localization failed: %s", pose.error().c_str());
+            const auto t1           = std::chrono::steady_clock::now();
+            const double elapsed_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+            publish_diagnostics(types::PoseEstimate { }, elapsed_ms, frame_count_);
+            return;
+        }
+    } else {
+        // 配准成功 → 清零失败计数；fitness 超标（长期未收敛）也切兜底
+        if (pose->fitness_score > kFallbackFitnessMax) {
+            if (fallback_initialized_ && ++failed_count_ >= kFallbackAfterFails) {
+                if (!fallback_active_) {
+                    fallback_active_ = true;
+                    RCLCPP_WARN(get_logger(),
+                        "GICP fitness %.3f exceeds %.3f -- fallback to install pose",
+                        pose->fitness_score, kFallbackFitnessMax);
+                }
+                pose = fallback_pose_;
+            }
+        } else {
+            failed_count_ = 0;
+            if (fallback_active_) {
+                fallback_active_ = false;
+                RCLCPP_INFO(get_logger(), "GICP recovered -- back to registration pose");
+            }
+        }
     }
 
     publish_pose(*pose, frame.stamp);

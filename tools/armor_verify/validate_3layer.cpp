@@ -27,8 +27,8 @@ static constexpr float L1_CONF                   = 0.30f;
 static constexpr int L1_SIDE                     = 1280;
 static const std::vector<std::int64_t> DRONE_IDS = { 5, 11 };
 
-static const char* CLASS_NAMES[] = { "hero-B", "eng-B", "inf3-B", "inf4-B", "sentry-B", "drone-B",
-    "hero-R", "eng-R", "inf3-R", "inf4-R", "sentry-R", "drone-R" };
+static const char* CLASS_NAMES[] = { "hero-R", "eng-R", "inf3-R", "inf4-R", "sentry-R", "drone-R",
+    "hero-B", "eng-B", "inf3-B", "inf4-B", "sentry-B", "drone-B" };
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 static cv::Mat letterbox_topleft(const cv::Mat& src, int side, float& scale) {
@@ -140,7 +140,7 @@ int main(int argc, char* argv[]) {
 
     // ── CSV ───────────────────────────────────────────────────────────────────
     std::ofstream csv(std::string(out_dir) + "/results.csv");
-    csv << "frame,det_idx,l1_class,final_class,l1_conf\n";
+    csv << "frame,det_idx,l1_class,final_class,l1_conf,u,v\n";
 
     // ── per-frame loop ────────────────────────────────────────────────────────
     for (size_t fi = 0; fi < files.size(); ++fi) {
@@ -187,7 +187,7 @@ int main(int argc, char* argv[]) {
                 != DRONE_IDS.end();
 
             double rt0 = now_ms();
-            refiner.refine(rgb, det, DRONE_IDS);
+            refiner.refine(rgb, det, DRONE_IDS, 1.0f, 1.0f);
             lat_refine.add(now_ms() - rt0);
 
             if (is_drone) ++drone_dets;
@@ -215,8 +215,10 @@ int main(int argc, char* argv[]) {
             cv::putText(
                 vis, label, { x1, std::max(0, y1 - 6) }, cv::FONT_HERSHEY_SIMPLEX, 0.5, color, 1);
 
+            float cx = (d.x1 + d.x2) / 2.0f;
+            float cy = (d.y1 + d.y2) / 2.0f;
             csv << files[fi].filename().string() << "," << di << "," << l1_name << "," << final_name
-                << "," << d.conf << "\n";
+                << "," << d.conf << "," << cx << "," << cy << "\n";
         }
 
         cv::imwrite(out_dir + "/" + files[fi].filename().string(), vis);

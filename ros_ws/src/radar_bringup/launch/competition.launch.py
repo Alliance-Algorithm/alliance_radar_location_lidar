@@ -15,7 +15,12 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchContext, LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
+from launch.actions import (
+    DeclareLaunchArgument,
+    ExecuteProcess,
+    IncludeLaunchDescription,
+    OpaqueFunction,
+)
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -34,6 +39,7 @@ def _make_camera_node(context: LaunchContext):
     camera_pose_yaml = os.path.join(
         bringup_dir, "config", "camera", f"{side_val}_camera_pose.yaml"
     )
+    recorder_yaml = os.path.join(bringup_dir, "config", "camera", "radar_recorder.yaml")
     recording_parameters = {
         "enable_raw_recording": LaunchConfiguration("enable_raw_recording"),
         "recording_output_dir": LaunchConfiguration("recording_output_dir"),
@@ -61,6 +67,17 @@ def _make_camera_node(context: LaunchContext):
                 camera_pose_yaml,
                 {"pub_topic_name": "/radar_camera/robot_pose"},
                 {"enemy_color": enemy_color},
+            ],
+        ),
+
+        # 3b. 独立录制进程 (推理零开销：采样+编码全在本进程，失败只丢录像)
+        Node(
+            package="radar_camera",
+            executable="radar_camera_recorder_node",
+            name="radar_recorder_node",
+            output="screen",
+            parameters=[
+                recorder_yaml,
                 recording_parameters,
             ],
         ),
@@ -91,20 +108,20 @@ def generate_launch_description():
         DeclareLaunchArgument("side", default_value="red",
             description="场地侧: red | blue"),
         DeclareLaunchArgument("map_path",
-            default_value="/workspace/model/generated/jinan_field_map_reg.pcd",
+            default_value="/workspace/model/generated/jinan_field_map_reg_walls_v2.pcd",
             description="地图 PCD 路径 (默认济南场地配准地图，无墙版实测配准更准)"),
         DeclareLaunchArgument("sensor", default_value="odin",
             description="雷达型号: odin | mid70"),
         DeclareLaunchArgument("enable_raw_recording", default_value="true",
             description="启用原始相机录制（默认开，比赛录像回放复盘用）"),
-        DeclareLaunchArgument("recording_output_dir", default_value="/model/devio"),
+        DeclareLaunchArgument("recording_output_dir", default_value="/workspace/model/video"),
         DeclareLaunchArgument("recording_width", default_value="5472"),
         DeclareLaunchArgument("recording_height", default_value="3648"),
-        DeclareLaunchArgument("recording_fps", default_value="20"),
-        DeclareLaunchArgument("recording_bitrate", default_value="40000000"),
-        DeclareLaunchArgument("recording_gop", default_value="20"),
-        DeclareLaunchArgument("recording_encoder", default_value="h264_nvenc"),
-        DeclareLaunchArgument("recording_segment_duration_sec", default_value="60"),
+        DeclareLaunchArgument("recording_fps", default_value="8"),
+        DeclareLaunchArgument("recording_bitrate", default_value="25000000"),
+        DeclareLaunchArgument("recording_gop", default_value="8"),
+        DeclareLaunchArgument("recording_encoder", default_value="hevc_nvenc"),
+        DeclareLaunchArgument("recording_segment_duration_sec", default_value="0"),
         DeclareLaunchArgument("recording_buffer_pool_frames", default_value="8"),
         DeclareLaunchArgument("recording_max_buffer_bytes", default_value="480000000"),
 
@@ -127,4 +144,11 @@ def generate_launch_description():
         # 5. ZMQ 桥接 (LidarLocation → 裁判系统)
         IncludeLaunchDescription(PythonLaunchDescriptionSource(
             os.path.join(bringup_dir, "launch", "radar_bridge.launch.py"))),
+
+        # 6. 比赛回看日志 (每场一个目录: 坐标序列 + 配准位姿 + 状态)
+        ExecuteProcess(
+            cmd=["python3", "/workspace/tools/video_zmq/location_recorder.py",
+                 "--out", "/workspace/model/logs"],
+            output="log",
+            name="match_recorder"),
     ])

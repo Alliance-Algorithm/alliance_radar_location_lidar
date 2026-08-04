@@ -46,7 +46,8 @@ private:
         const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& tracks,
         const rclcpp::Time& stamp);
     void publish_lidar_location(
-        const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& tracks);
+        const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& tracks,
+        const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& lidar_tracks);
     void fill_default_positions(radar_interfaces::msg::LidarLocation& msg, int64_t now_ns);
     void publish_localization_pose(const geometry_msgs::msg::PoseWithCovarianceStamped& pose);
     void publish_status(const rclcpp::Time& stamp) const;
@@ -61,6 +62,7 @@ private:
     radar_fusion::fusion_config::FusionMode fusion_mode_ =
         radar_fusion::fusion_config::FusionMode::RADAR_ONLY;
     radar_fusion::match_timer::MatchTimer match_timer_;
+    rclcpp::TimerBase::SharedPtr location_timer_; // 10Hz 统一输出
     std::string default_positions_path_;
     std::string enemy_color_  = "blue";
     std::string camera_topic_ = "/radar_camera/robot_pose";

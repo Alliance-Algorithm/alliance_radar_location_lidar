@@ -1,4 +1,5 @@
 #include "radar_fusion/radar_fusion_node.hpp"
+#include "radar_fusion/hungarian.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -103,6 +104,17 @@ RadarFusionNode::RadarFusionNode(const rclcpp::NodeOptions& options)
     pub_pose_ = this->create_publisher<PoseCov>("/localization/pose", 10);
     pub_status_ =
         this->create_publisher<diagnostic_msgs::msg::DiagnosticStatus>("/localization/status", 10);
+    // 输出节奏统一 10Hz（跟随雷达点云频率）：
+    // camera(7Hz)/cluster(10Hz) 回调只更新测量，location/marker 由本定时器统一发布，
+    // 避免 camera 路径把输出拖慢或双路径叠加（此前 ~17Hz）。
+    location_timer_ = this->create_wall_timer(std::chrono::milliseconds(100), [this]() {
+        const auto stamp = this->now();
+        publish_tracks(tracks_, stamp);
+        publish_fused_tracks(tracks_, stamp);
+        publish_lidar_tracks(lidar_tracks_, stamp);
+        publish_lidar_location(tracks_, lidar_tracks_);
+        publish_status(stamp);
+    });
     update_fusion_mode(this->now().nanoseconds());
 
     RCLCPP_INFO(get_logger(),
@@ -156,10 +168,30 @@ void RadarFusionNode::on_camera_detection(
     update_fusion_mode(latest_camera_stamp_ns_);
     process_measurements(measurements, stamp.nanoseconds(), false, classes);
 
-    publish_tracks(tracks_, stamp);
-    publish_fused_tracks(tracks_, stamp);
-    publish_lidar_location(tracks_);
-    publish_status(stamp);
+    // 相机识别给雷达聚类 track 贴类别——雷达 track 无类别（class_id=-1）
+    // 无法进官方坐标；被相机识别一次后继承类别，之后即使相机停发也持续输出坐标。
+    if (!lidar_tracks_.empty()) {
+        const double gate_sq = cfg_.gate_distance * cfg_.gate_distance;
+        for (const auto& obs : latest_camera_observations_) {
+            double best_d = gate_sq;
+            int best_idx  = -1;
+            for (size_t i = 0; i < lidar_tracks_.size(); ++i) {
+                const auto& s = lidar_tracks_[i].state();
+                if (!s.is_confirmed()) continue;
+                const double dx = obs.x - s.x(0);
+                const double dy = obs.y - s.x(1);
+                const double d  = dx * dx + dy * dy;
+                if (d < best_d) {
+                    best_d   = d;
+                    best_idx = static_cast<int>(i);
+                }
+            }
+            if (best_idx >= 0) {
+                lidar_tracks_[static_cast<size_t>(best_idx)].set_class_id(obs.class_id);
+            }
+        }
+    }
+    // 输出统一由 10Hz location_timer_ 发布（见构造函数），回调不再直接发布。
 }
 
 void RadarFusionNode::process_measurements(const std::vector<Eigen::Vector2d>& measurements,
@@ -168,37 +200,32 @@ void RadarFusionNode::process_measurements(const std::vector<Eigen::Vector2d>& m
         track.predict(now_ns);
     }
 
-    std::vector<bool> matched_tracks(tracks_.size(), false);
-    std::vector<bool> matched_meas(measurements.size(), false);
+    // 匈牙利全局最优匹配（替换贪心：目标交叉/靠近时防身份混淆）
     const double gate_distance_sq = cfg_.gate_distance * cfg_.gate_distance;
-    std::vector<AssociationCandidate> candidates;
-    candidates.reserve(tracks_.size() * measurements.size());
-
+    constexpr double kUnreachable = 1e9;
+    std::vector<std::vector<double>> cost(
+        tracks_.size(), std::vector<double>(measurements.size(), kUnreachable));
     for (size_t i = 0; i < tracks_.size(); ++i) {
         for (size_t j = 0; j < measurements.size(); ++j) {
             // 带类别时只匹配同类别（camera 路径防跨类跳变）；无类别（lidar 路径）全匹配。
             if (!classes.empty() && tracks_[i].state().class_id != classes[j]) continue;
             const double d_sq = tracks_[i].distance_squared_to(measurements[j]);
             if (d_sq < gate_distance_sq) {
-                candidates.push_back({ i, j, d_sq });
+                cost[i][j] = d_sq;
             }
         }
     }
+    const auto assignment = association::hungarian_min_cost(cost, kUnreachable);
 
-    std::sort(candidates.begin(), candidates.end(),
-        [](const AssociationCandidate& lhs, const AssociationCandidate& rhs) {
-            return lhs.distance_sq < rhs.distance_sq;
-        });
-
-    for (const auto& candidate : candidates) {
-        if (matched_tracks[candidate.track_idx] || matched_meas[candidate.measurement_idx]) {
-            continue;
-        }
-
-        tracks_[candidate.track_idx].update(
-            measurements[candidate.measurement_idx], now_ns, cfg_.min_hits_to_confirm);
-        matched_tracks[candidate.track_idx]     = true;
-        matched_meas[candidate.measurement_idx] = true;
+    std::vector<bool> matched_tracks(tracks_.size(), false);
+    std::vector<bool> matched_meas(measurements.size(), false);
+    for (size_t i = 0; i < assignment.size(); ++i) {
+        if (assignment[i] < 0) continue;
+        const size_t j = static_cast<size_t>(assignment[i]);
+        if (j >= measurements.size()) continue;
+        tracks_[i].update(measurements[j], now_ns, cfg_.min_hits_to_confirm);
+        matched_tracks[i] = true;
+        matched_meas[j]   = true;
     }
 
     if (mark_unmatched_tracks) {
@@ -246,9 +273,7 @@ void RadarFusionNode::on_cluster(const sensor_msgs::msg::PointCloud2::SharedPtr 
     // lidar 聚类独立 track 池：与 camera 池完全解耦，
     // 脏聚类点不会创建/删除/污染 camera 的 class track。
     process_lidar_clusters(measurements, now_ns);
-    publish_lidar_tracks(lidar_tracks_, stamp);
-    publish_lidar_location(tracks_);
-    publish_status(stamp);
+    // 输出统一由 10Hz location_timer_ 发布（见构造函数），回调不再直接发布。
 }
 
 void RadarFusionNode::process_lidar_clusters(
@@ -257,34 +282,30 @@ void RadarFusionNode::process_lidar_clusters(
         track.predict(now_ns);
     }
 
-    std::vector<bool> matched_tracks(lidar_tracks_.size(), false);
-    std::vector<bool> matched_meas(measurements.size(), false);
+    // 匈牙利全局最优匹配
     const double gate_distance_sq = cfg_.gate_distance * cfg_.gate_distance;
-    std::vector<AssociationCandidate> candidates;
-    candidates.reserve(lidar_tracks_.size() * measurements.size());
-
+    constexpr double kUnreachable = 1e9;
+    std::vector<std::vector<double>> cost(
+        lidar_tracks_.size(), std::vector<double>(measurements.size(), kUnreachable));
     for (size_t i = 0; i < lidar_tracks_.size(); ++i) {
         for (size_t j = 0; j < measurements.size(); ++j) {
             const double d_sq = lidar_tracks_[i].distance_squared_to(measurements[j]);
             if (d_sq < gate_distance_sq) {
-                candidates.push_back({ i, j, d_sq });
+                cost[i][j] = d_sq;
             }
         }
     }
+    const auto assignment = association::hungarian_min_cost(cost, kUnreachable);
 
-    std::sort(candidates.begin(), candidates.end(),
-        [](const AssociationCandidate& lhs, const AssociationCandidate& rhs) {
-            return lhs.distance_sq < rhs.distance_sq;
-        });
-
-    for (const auto& candidate : candidates) {
-        if (matched_tracks[candidate.track_idx] || matched_meas[candidate.measurement_idx]) {
-            continue;
-        }
-        lidar_tracks_[candidate.track_idx].update(
-            measurements[candidate.measurement_idx], now_ns, cfg_.min_hits_to_confirm);
-        matched_tracks[candidate.track_idx]     = true;
-        matched_meas[candidate.measurement_idx] = true;
+    std::vector<bool> matched_tracks(lidar_tracks_.size(), false);
+    std::vector<bool> matched_meas(measurements.size(), false);
+    for (size_t i = 0; i < assignment.size(); ++i) {
+        if (assignment[i] < 0) continue;
+        const size_t j = static_cast<size_t>(assignment[i]);
+        if (j >= measurements.size()) continue;
+        lidar_tracks_[i].update(measurements[j], now_ns, cfg_.min_hits_to_confirm);
+        matched_tracks[i] = true;
+        matched_meas[j]   = true;
     }
 
     for (size_t i = 0; i < lidar_tracks_.size(); ++i) {
@@ -516,7 +537,8 @@ void RadarFusionNode::fill_default_positions(
 }
 
 void RadarFusionNode::publish_lidar_location(
-    const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& tracks) {
+    const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& tracks,
+    const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& lidar_tracks) {
     auto msg = radar_interfaces::msg::LidarLocation { };
 
     uint16_t* const slots_x[] = {
@@ -540,18 +562,23 @@ void RadarFusionNode::publish_lidar_location(
     // 协议槽位顺序: hero(0), engineer(1), inf3(2), inf4(3), aerial无人机(4), sentry(5)。
     // 注意 sentry/drone 槽位与 class_id 交叉: class 4=sentry -> slot 5; class 5=drone -> slot 4。
     static constexpr int kClassToSlot[6] = { 0, 1, 2, 3, 5, 4 };
-    for (const auto& track : tracks) {
-        const auto& s = track.state();
-        if (!s.is_confirmed()) continue;
-        if (s.class_id < 0 || s.class_id >= 6) continue;
-        const int slot_idx = kClassToSlot[s.class_id];
-        // RoboMaster 0x0305 / radar-egui 约定: 厘米 (米 -> cm 乘 100)
-        // 截断负值：track 外推误差可能让 map+offset 为负，uint16_t 转换是 UB
-        *slots_x[slot_idx] =
-            static_cast<uint16_t>(std::max(0.0, s.x(0) + cfg_.map_to_rm_offset_x) * 100.0);
-        *slots_y[slot_idx] =
-            static_cast<uint16_t>(std::max(0.0, s.x(1) + cfg_.map_to_rm_offset_y) * 100.0);
-    }
+    // 相机池先填；雷达池（继承相机类别）后填覆盖——雷达聚类位置更持续准确。
+    const auto fill_slots = [&](const auto& pool) {
+        for (const auto& track : pool) {
+            const auto& s = track.state();
+            if (!s.is_confirmed()) continue;
+            if (s.class_id < 0 || s.class_id >= 6) continue;
+            const int slot_idx = kClassToSlot[s.class_id];
+            // RoboMaster 0x0305 / radar-egui 约定: 厘米 (米 -> cm 乘 100)
+            // 截断负值：track 外推误差可能让 map+offset 为负，uint16_t 转换是 UB
+            *slots_x[slot_idx] =
+                static_cast<uint16_t>(std::max(0.0, s.x(0) + cfg_.map_to_rm_offset_x) * 100.0);
+            *slots_y[slot_idx] =
+                static_cast<uint16_t>(std::max(0.0, s.x(1) + cfg_.map_to_rm_offset_y) * 100.0);
+        }
+    };
+    fill_slots(tracks);
+    fill_slots(lidar_tracks);
 
     fill_default_positions(msg, steady_now_ns());
 

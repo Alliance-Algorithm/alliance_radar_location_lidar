@@ -64,13 +64,17 @@ namespace {
         return canvas;
     }
 
-    // Builds a CHW float32 blob normalized to [0,1] from an HWC 8-bit RGB image.
-    auto to_blob(const cv::Mat& image, std::vector<float>& buffer) -> void {
-        cv::Mat blob =
-            cv::dnn::blobFromImage(image, 1.0 / 255.0, cv::Size(), cv::Scalar(), false, false);
-        const auto elements = blob.total();
-        buffer.resize(elements);
-        std::memcpy(buffer.data(), blob.ptr<float>(), elements * sizeof(float));
+    // Enqueues an RGB u8 canvas on the given engine: GPU 归一化 + 4x 更少 PCIe。
+    // 返回后需立即 wait()（refine 串行语义）。
+    auto run_trt_u8(radar_camera::model_inference::TensorRtInference& engine, const cv::Mat& canvas)
+        -> std::expected<std::reference_wrapper<const std::vector<float>>, std::string> {
+        if (canvas.empty() || canvas.type() != CV_8UC3) {
+            return std::unexpected("refine canvas is not RGB u8");
+        }
+        if (auto r = engine.start_u8(canvas.ptr<std::uint8_t>(), canvas.cols, canvas.rows); !r) {
+            return std::unexpected(r.error());
+        }
+        return engine.wait();
     }
 
     auto iou(const cv::Rect2f& a, const cv::Rect2f& b) -> float {
@@ -148,11 +152,7 @@ auto ArmorRefiner::run_l2(const cv::Mat& frame, const cv::Rect2f& roi)
     const int side = armor_config_.model_input;
     cv::Mat input  = letterbox(crop, side, LetterboxAnchor::TOP_LEFT, scale, pad_x, pad_y);
 
-    std::vector<float> blob;
-    to_blob(input, blob);
-
-    if (auto r = l2_trt_.start(blob.data(), blob.size()); !r) return std::nullopt;
-    auto wait_result = l2_trt_.wait();
+    auto wait_result = run_trt_u8(l2_trt_, input);
     if (!wait_result) return std::nullopt;
     const std::vector<float>& flat = wait_result->get();
 
@@ -244,11 +244,7 @@ auto ArmorRefiner::run_l3(const cv::Mat& frame, const cv::Rect2f& plate)
     const int side = number_config_.model_input;
     cv::Mat input  = letterbox(crop, side, LetterboxAnchor::CENTER, scale, pad_x, pad_y);
 
-    std::vector<float> blob;
-    to_blob(input, blob);
-
-    if (auto r = l3_trt_.start(blob.data(), blob.size()); !r) return std::nullopt;
-    auto wait_result = l3_trt_.wait();
+    auto wait_result = run_trt_u8(l3_trt_, input);
     if (!wait_result) return std::nullopt;
     const std::vector<float>& flat = wait_result->get();
     if (flat.size() < static_cast<size_t>(kL3Classes)) return std::nullopt;

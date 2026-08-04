@@ -163,12 +163,12 @@ protected:
         opts.append_parameter_override("use_odin_relocalization_tf", false);
         opts.append_parameter_override("hardware_id", std::string(kHardwareId));
         opts.append_parameter_override("initial_pose_enabled", true);
-        opts.append_parameter_override("initial_pose_tx", 2.0);
-        opts.append_parameter_override("initial_pose_ty", -1.0);
-        opts.append_parameter_override("initial_pose_tz", 0.5);
+        opts.append_parameter_override("initial_pose_tx", 0.3);
+        opts.append_parameter_override("initial_pose_ty", 0.0);
+        opts.append_parameter_override("initial_pose_tz", 1.0);
         opts.append_parameter_override("initial_pose_roll", 0.0);
         opts.append_parameter_override("initial_pose_pitch", 0.0);
-        opts.append_parameter_override("initial_pose_yaw", 0.3);
+        opts.append_parameter_override("initial_pose_yaw", 0.0);
 
         pipeline_ = std::make_shared<radar_lidar::node::RadarLidarNode>(opts);
         pub_node_ = std::make_shared<rclcpp::Node>(pub_node_name_);
@@ -368,9 +368,20 @@ protected:
     static auto make_scan_msg(int32_t sec, uint32_t nanosec, const std::string& frame_id)
         -> sensor_msgs::msg::PointCloud2 {
         pcl::PointCloud<pcl::PointXYZ> cloud;
-        for (double x = 6.0; x < 25.0; x += 0.5) {
-            for (double y = -8.0; y < 6.0; y += 0.5) {
-                cloud.emplace_back(static_cast<float>(x), static_cast<float>(y), 0.5f);
+        // map（平面+墙）的真实扫描：带 0.3m 小平移，配准能收敛后锁定
+        for (double x = 0.3; x < 20.3; x += 0.5) {
+            for (double y = -7.0; y < 7.0; y += 0.5) {
+                cloud.emplace_back(static_cast<float>(x), static_cast<float>(y), 1.0f);
+            }
+        }
+        for (double z = 1.0; z <= 2.5; z += 0.25) {
+            for (double y = -7.0; y <= 7.0; y += 0.5) {
+                cloud.emplace_back(0.3f, static_cast<float>(y), static_cast<float>(z));
+                cloud.emplace_back(20.3f, static_cast<float>(y), static_cast<float>(z));
+            }
+            for (double x = 0.3; x <= 20.3; x += 0.5) {
+                cloud.emplace_back(static_cast<float>(x), -7.0f, static_cast<float>(z));
+                cloud.emplace_back(static_cast<float>(x), 7.0f, static_cast<float>(z));
             }
         }
         cloud.width    = cloud.size();
@@ -389,9 +400,20 @@ protected:
 
     void create_test_map_pcd() {
         pcl::PointCloud<pcl::PointXYZ> cloud;
+        // 地面平面 + 4 面边界墙（纯平面退化，墙给 GICP 强 xy/z 约束）
         for (double x = 0.0; x < 20.0; x += 0.5) {
             for (double y = -7.0; y < 7.0; y += 0.5) {
                 cloud.emplace_back(static_cast<float>(x), static_cast<float>(y), 1.0f);
+            }
+        }
+        for (double z = 1.0; z <= 2.5; z += 0.25) {
+            for (double y = -7.0; y <= 7.0; y += 0.5) {
+                cloud.emplace_back(0.0f, static_cast<float>(y), static_cast<float>(z));
+                cloud.emplace_back(20.0f, static_cast<float>(y), static_cast<float>(z));
+            }
+            for (double x = 0.0; x <= 20.0; x += 0.5) {
+                cloud.emplace_back(static_cast<float>(x), -7.0f, static_cast<float>(z));
+                cloud.emplace_back(static_cast<float>(x), 7.0f, static_cast<float>(z));
             }
         }
         cloud.width    = cloud.size();
@@ -598,6 +620,8 @@ TEST_F(RadarLidarSurfaceTest, PoseOutputFrameAndTimestamp) {
 TEST_F(RadarLidarSurfaceTest, PoseCovarianceExactLockedPoseValue) {
     ASSERT_TRUE(publish_and_await_pose(100, 0u, "scan")) << "Pose not delivered after single scan "
                                                             "publish";
+    // 开局验证：首帧是真实配准（不锁定）——第二帧收敛后进入锁定态
+    ASSERT_TRUE(publish_and_await_pose(100, 1u, "scan")) << "Second scan did not deliver pose";
 
     std::lock_guard<std::mutex> lock(mutex_);
     // Locked pose (initial_pose_enabled=true) → covariance = Identity * 1e-6
@@ -628,6 +652,8 @@ TEST_F(RadarLidarSurfaceTest, PoseCovarianceExactLockedPoseValue) {
 TEST_F(RadarLidarSurfaceTest, DiagnosticPublishedWithExactSemantics) {
     ASSERT_TRUE(publish_and_await_diag(200, 500000000u, "scan", 1)) << "No diagnostic after "
                                                                        "publishing scan";
+    // 开局验证：第二帧收敛锁定后 diagnostic 才是锁定语义（fitness=0）
+    ASSERT_TRUE(publish_and_await_diag(200, 500000001u, "scan", 2)) << "No diag after 2nd scan";
 
     std::lock_guard<std::mutex> lock(mutex_);
     EXPECT_EQ(last_diag_.name, kDiagnosticName);

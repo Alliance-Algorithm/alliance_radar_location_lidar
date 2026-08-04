@@ -149,6 +149,7 @@ if [[ -n "$COLORED" && -f "$MAP_OPT" ]]; then
     python3 "${RADAR_WS}/tools/loop_closure/color_transfer.py" \
         "$COLORED" "$MAP_OPT" --output "${OPT_DIR}/map_optimized_rgb.pcd" \
         --keep-uncolored --warp-before "${OPT_DIR}/keyframe_before.csv" --warp-after "${OPT_DIR}/keyframe_optimized.csv" --sanitize-trajectory "${OPT_DIR}/trajectory_before.csv" \
+        --sanitize-radius 10.0 \
         >> "$PIPE_LOG" 2>&1 && TRANSFER_OK=1
 elif [[ -z "$COLORED" ]]; then
     log "WARNING: 未找到彩色地图 cloud_rgb_shutdown_*.pcd，跳过颜色迁移"

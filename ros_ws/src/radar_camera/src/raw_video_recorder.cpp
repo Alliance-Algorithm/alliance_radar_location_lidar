@@ -8,6 +8,7 @@
 #include <limits>
 #include <memory>
 #include <sstream>
+#include <sys/resource.h>
 #include <thread>
 
 extern "C" {
@@ -41,6 +42,8 @@ namespace {
         AVCodecContext* codec   = nullptr;
         AVStream* stream        = nullptr;
         SwsContext* scaler      = nullptr;
+        int scaler_in_w         = 0; // scaler 输入尺寸（=帧尺寸，惰性创建）
+        int scaler_in_h         = 0;
         AVFrame* frame          = nullptr;
         std::ofstream sidecar;
         bool finalized = false;
@@ -179,7 +182,8 @@ namespace {
         if (segment->stream == nullptr || segment->codec == nullptr) {
             return std::unexpected("could not allocate FFmpeg video stream");
         }
-        segment->codec->codec_id     = AV_CODEC_ID_H264;
+        segment->codec->codec_id =
+            config.encoder == "hevc_nvenc" ? AV_CODEC_ID_HEVC : AV_CODEC_ID_H264;
         segment->codec->codec_type   = AVMEDIA_TYPE_VIDEO;
         segment->codec->width        = config.width;
         segment->codec->height       = config.height;
@@ -189,12 +193,20 @@ namespace {
         segment->codec->gop_size     = config.gop;
         segment->codec->bit_rate     = config.bitrate;
         segment->codec->max_b_frames = 0;
-        av_opt_set(segment->codec->priv_data, "preset", "p1", 0);
-        av_opt_set(segment->codec->priv_data, "tune", "ll", 0);
-        av_opt_set(segment->codec->priv_data, "bf", "0", 0);
+        if (config.encoder != "libx264") { // nvenc (h264/hevc) 通用私参
+            av_opt_set(segment->codec->priv_data, "preset", "p1", 0);
+            av_opt_set(segment->codec->priv_data, "tune", "ll", 0);
+            av_opt_set(segment->codec->priv_data, "bf", "0", 0);
+        } else if (config.encoder == "libx264") {
+            // 软编码（无 NVENC 的开发/测试环境）：libx264 不支持 nvenc 的
+            // preset p1/tune ll 私参，改用 ultrafast + zerolatency 低延迟配置。
+            av_opt_set(segment->codec->priv_data, "preset", "ultrafast", 0);
+            av_opt_set(segment->codec->priv_data, "tune", "zerolatency", 0);
+        }
         result = avcodec_open2(segment->codec, encoder, nullptr);
         if (result < 0) {
-            return std::unexpected("could not open h264_nvenc: " + ffmpeg_error(result));
+            return std::unexpected(
+                "could not open " + config.encoder + ": " + ffmpeg_error(result));
         }
         result = avcodec_parameters_from_context(segment->stream->codecpar, segment->codec);
         if (result < 0) {
@@ -214,11 +226,10 @@ namespace {
         if (result < 0) {
             return std::unexpected("could not write MPEG-TS header: " + ffmpeg_error(result));
         }
-        segment->scaler =
-            sws_getContext(config.width, config.height, AV_PIX_FMT_RGB24, config.width,
-                config.height, AV_PIX_FMT_YUV420P, SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
+        // scaler 惰性创建：输入尺寸=实际帧尺寸（相机 5472x3648），输出=config 编码尺寸。
+        // 5472x3648 超出 NVENC H.264 上限 (4096x4096)，录制按 config 缩放后编码。
         segment->frame = av_frame_alloc();
-        if (segment->scaler == nullptr || segment->frame == nullptr) {
+        if (segment->frame == nullptr) {
             return std::unexpected("could not allocate RGB-to-YUV conversion resources");
         }
         segment->frame->format = AV_PIX_FMT_YUV420P;
@@ -244,7 +255,7 @@ namespace {
         if (codec == nullptr) {
             return std::unexpected("could not allocate h264_nvenc probe context");
         }
-        codec->codec_id     = AV_CODEC_ID_H264;
+        codec->codec_id     = config.encoder == "hevc_nvenc" ? AV_CODEC_ID_HEVC : AV_CODEC_ID_H264;
         codec->codec_type   = AVMEDIA_TYPE_VIDEO;
         codec->width        = config.width;
         codec->height       = config.height;
@@ -254,13 +265,19 @@ namespace {
         codec->gop_size     = config.gop;
         codec->bit_rate     = config.bitrate;
         codec->max_b_frames = 0;
-        av_opt_set(codec->priv_data, "preset", "p1", 0);
-        av_opt_set(codec->priv_data, "tune", "ll", 0);
-        av_opt_set(codec->priv_data, "bf", "0", 0);
+        if (config.encoder != "libx264") { // nvenc (h264/hevc) 通用私参
+            av_opt_set(codec->priv_data, "preset", "p1", 0);
+            av_opt_set(codec->priv_data, "tune", "ll", 0);
+            av_opt_set(codec->priv_data, "bf", "0", 0);
+        } else if (config.encoder == "libx264") {
+            av_opt_set(codec->priv_data, "preset", "ultrafast", 0);
+            av_opt_set(codec->priv_data, "tune", "zerolatency", 0);
+        }
         const auto result = avcodec_open2(codec, encoder, nullptr);
         avcodec_free_context(&codec);
         if (result < 0) {
-            return std::unexpected("could not open h264_nvenc: " + ffmpeg_error(result));
+            return std::unexpected(
+                "could not open " + config.encoder + ": " + ffmpeg_error(result));
         }
         return { };
     }
@@ -317,6 +334,10 @@ auto RawVideoRecorder::start() -> std::expected<void, std::string> {
             failure_reason_.clear();
         }
         thread_ = std::thread(&RawVideoRecorder::loop, this);
+        // 录制线程低优先级：CPU 紧张时优先保障推理线程（nice +10）。
+        if (thread_.joinable()) {
+            setpriority(PRIO_PROCESS, static_cast<id_t>(thread_.native_handle()), 10);
+        }
     } catch (const std::exception& error) {
         running_.store(false, std::memory_order_release);
         fifo_.request_overrun(std::string("could not start recorder: ") + error.what());
@@ -406,14 +427,39 @@ void RawVideoRecorder::loop() {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
             continue;
         }
+        // 主动丢帧：相机 20fps 输入，按 config.fps 节流编码（如 5472 HEVC 只能 ~13fps，
+        // 录 10fps）。不丢帧则 fifo 填满 OVERRUN 停掉整条推理链路。
+        const auto now = std::chrono::steady_clock::now();
+        const auto frame_interval =
+            std::chrono::duration<double>(1.0 / static_cast<double>(config_.fps));
+        if (now - last_encoded_ < frame_interval) {
+            {
+                std::lock_guard lock(mutex_);
+                ++stats_.dropped;
+            }
+            continue;
+        }
+        last_encoded_ = now;
         {
             std::lock_guard lock(mutex_);
             ++stats_.queued;
         }
-        if (frame->rgb.cols != config_.width || frame->rgb.rows != config_.height
-            || frame->rgb.type() != CV_8UC3) {
-            fail("raw frame dimensions or format do not match recorder", true);
+        if (frame->rgb.type() != CV_8UC3) {
+            fail("raw frame format does not match recorder", true);
             break;
+        }
+        if ((*segment)->scaler == nullptr || (*segment)->scaler_in_w != frame->rgb.cols
+            || (*segment)->scaler_in_h != frame->rgb.rows) {
+            sws_freeContext((*segment)->scaler);
+            (*segment)->scaler = sws_getContext(frame->rgb.cols, frame->rgb.rows, AV_PIX_FMT_RGB24,
+                config_.width, config_.height, AV_PIX_FMT_YUV420P, SWS_FAST_BILINEAR, nullptr,
+                nullptr, nullptr);
+            if ((*segment)->scaler == nullptr) {
+                fail("could not allocate RGB-to-YUV scaler", false);
+                break;
+            }
+            (*segment)->scaler_in_w = frame->rgb.cols;
+            (*segment)->scaler_in_h = frame->rgb.rows;
         }
         auto result = av_frame_make_writable((*segment)->frame);
         if (result < 0) {
@@ -422,7 +468,7 @@ void RawVideoRecorder::loop() {
         }
         const std::uint8_t* source[] = { frame->rgb.ptr<std::uint8_t>() };
         const int source_stride[]    = { static_cast<int>(frame->rgb.step) };
-        if (sws_scale((*segment)->scaler, source, source_stride, 0, config_.height,
+        if (sws_scale((*segment)->scaler, source, source_stride, 0, frame->rgb.rows,
                 (*segment)->frame->data, (*segment)->frame->linesize)
             <= 0) {
             fail("RGB-to-YUV conversion failed", false);
@@ -491,7 +537,7 @@ void RawVideoRecorder::loop() {
             std::lock_guard lock(mutex_);
             ++stats_.encoded;
         }
-        if (frame_index % segment_frames == 0) {
+        if (segment_frames > 0 && frame_index % segment_frames == 0) {
             if (const auto finalized = finalize_segment(**segment); !finalized) {
                 fail(finalized.error(), false);
                 break;

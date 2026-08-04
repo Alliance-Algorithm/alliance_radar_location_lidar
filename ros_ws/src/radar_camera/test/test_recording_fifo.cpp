@@ -43,11 +43,11 @@ TEST(RecordingFifo, PreservesOrderAndMoveOwnership) {
     ASSERT_EQ(fifo.pop()->sequence, 11);
 }
 
-TEST(RecordingFifo, CapacityFailureTransitionsToOverrun) {
+TEST(RecordingFifo, CapacityFullDropsNewFramesWithoutOverrun) {
     radar_camera::recording::RecordingFifo fifo(1);
     ASSERT_TRUE(fifo.try_push(radar_camera::recording::RawFrame { make_image(1), 1, 1 }));
     EXPECT_FALSE(fifo.try_push(radar_camera::recording::RawFrame { make_image(2), 2, 2 }));
-    EXPECT_TRUE(fifo.overrun());
+    EXPECT_FALSE(fifo.overrun());
     EXPECT_EQ(fifo.size(), 1U);
     EXPECT_EQ(fifo.pop()->sequence, 1U);
     EXPECT_FALSE(fifo.pop().has_value());
@@ -74,6 +74,12 @@ TEST(RecordingFifo, ClosePreventsFurtherPushesAndAllowsDrain) {
 
 TEST(RecordingConfig, AcceptsValidConfiguration) {
     EXPECT_TRUE(radar_camera::recording::validate_config(valid_config()).has_value());
+    auto libx264    = valid_config();
+    libx264.encoder = "libx264";
+    EXPECT_TRUE(radar_camera::recording::validate_config(libx264).has_value());
+    auto whole_session                 = valid_config();
+    whole_session.segment_duration_sec = 0; // 0 = 整段录制（不按 60s 切段）
+    EXPECT_TRUE(radar_camera::recording::validate_config(whole_session).has_value());
 }
 
 TEST(RecordingConfig, RejectsInvalidScalarValues) {
@@ -82,9 +88,6 @@ TEST(RecordingConfig, RejectsInvalidScalarValues) {
     EXPECT_FALSE(radar_camera::recording::validate_config(cfg));
     cfg     = valid_config();
     cfg.fps = 0;
-    EXPECT_FALSE(radar_camera::recording::validate_config(cfg));
-    cfg         = valid_config();
-    cfg.encoder = "libx264";
     EXPECT_FALSE(radar_camera::recording::validate_config(cfg));
 }
 

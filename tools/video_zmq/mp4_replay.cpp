@@ -23,6 +23,7 @@ struct Args {
     double speed { 1.0 };
     int max_frames { 0 };  // 0 = unlimited
     double fps { 30.0 };   // 仅 --frames-dir 模式
+    bool loop { false };   // video 模式循环播放
 };
 
 auto parse_args(int argc, char** argv) -> std::expected<Args, std::string> {
@@ -38,6 +39,7 @@ auto parse_args(int argc, char** argv) -> std::expected<Args, std::string> {
             else if (arg == "--frames-dir") a.frames_dir = next();
             else if (arg == "--shm") a.shm = next();
             else if (arg == "--speed") a.speed = std::stod(next());
+            else if (arg == "--loop") a.loop = true;
             else if (arg == "--fps") a.fps = std::stod(next());
             else if (arg == "--max-frames") a.max_frames = std::stoi(next());
             else return std::unexpected("unknown arg: " + arg);
@@ -137,7 +139,14 @@ auto main(int argc, char** argv) -> int {
         if (!dir_frames.empty()) {
             frame = dir_frames[static_cast<size_t>(seq) % dir_frames.size()];
         } else {
-            if (!cap.read(frame)) break;
+            if (!cap.read(frame)) {
+                if (args->loop) {
+                    cap.set(cv::CAP_PROP_POS_FRAMES, 0);
+                    if (!cap.read(frame)) break;
+                } else {
+                    break;
+                }
+            }
         }
         if (frame.empty()) break;
         if (frame.channels() != 3) {

@@ -7,8 +7,8 @@ hikcamera_ros_driver_node:
     auto_white_balance: 1
 
     # 曝光与增益
-    exposure_us: 10000.0
-    gain: 23.0
+    exposure_us: 7500.0
+    gain: 18.0
 
     # 帧率（CS200-10UC USB3 稳定 20fps）
     framerate: 20.0

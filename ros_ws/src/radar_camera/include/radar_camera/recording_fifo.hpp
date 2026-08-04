@@ -21,9 +21,8 @@ public:
     auto try_push(RawFrame&& frame) -> bool {
         std::lock_guard lock(mutex_);
         if (closed_ || overrun_ || queue_.size() >= capacity_) {
-            if (queue_.size() >= capacity_) {
-                request_overrun_locked("recording FIFO capacity exhausted");
-            }
+            // 满时直接返回 false：由 RawShmReader 丢帧（计入 dropped），
+            // 不置 overrun（否则一次瞬时满就永久 fail 停掉整条推理链路）。
             return false;
         }
         queue_.push_back(std::move(frame));
