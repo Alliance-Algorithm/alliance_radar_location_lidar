@@ -43,17 +43,24 @@ Lidar GICP 定位使用的地图是 `model/generated/jinan_field_map_reg_walls_v
 - 输入:
   - 检测结果 CSV(步骤 2 产物)
   - 两个 mesh:`field_zup.obj`(现有)与 `jinan_field_map_reg_walls_v2.obj`(步骤 1 产物)
-  - 相机位姿:`ros_ws/src/radar_bringup/config/camera/blue_camera_pose.yaml`(蓝方初始位姿,rotation `[0.0, -0.17453, 3.14159]`,translation `[13.9965, 0.0800, 3.9803]`),`--pose` 参数可覆盖
-- 投影公式与 `Projector::proj_pixel_to_ray`(projector.cpp:106-130)严格一致:
-  1. `cv::undistortPoints(pixel, K=I, dist=0, noArray, noArray)` → 归一化坐标(单位阵下即 `(u, v)`)
+  - 相机位姿:蓝方初始位姿,rotation `[0.0, 1.8159, 3.14159]`、translation `[13.9965, 0.0800, 3.9803]`;`--pose` 参数可覆盖
+- 投影公式与 `Projector::proj_init_camera`/`proj_pixel_to_ray`(projector.cpp:37-50, 106-130)严格一致:
+  1. `x_norm = (u - cx)/fx`,`y_norm = (v - cy)/fy`(等价于 cv::undistortPoints,畸变系数为 0)
   2. `dir_cam = normalize(x_norm, y_norm, 1.0)`
-  3. `dir_world = R_map_camera * dir_cam`,`origin = t_map_camera`(注意:此步与 C++ 一致,不额外取负)
-  4. 与 mesh 求交(trimesh `ray.intersects_location`,取最近命中),`map_x, map_y = hit.x, hit.y`
+  3. `R = Rz(yaw)·Ry(pitch)·Rx(roll)`,`dir_world = R * dir_cam`,`origin = t_map_camera`
+  4. 与 mesh 求交(Möller–Trumbore 自实现,与 projector.cpp:132-165 一致,取最近命中),`map_x, map_y = hit.x, hit.y`
+- 相机内参使用部署版标定值(见下节"关键发现 #2")
 - 求交失败的检测记为 `hit_ok=0`
 - 输出:
   - `ray_compare.csv`:每个检测一行 —— `frame,class_name,conf,u,v,map_x_old,map_y_old,map_x_new,map_y_new,hit_ok_old,hit_ok_new,delta_m`
   - 每帧可视化图到 `ray_vis/`:两个 mesh 的投影点分别以蓝/绿圆点画在帧上(原点 = 旧 mesh,绿点 = 新 mesh),差值 > 阈值(默认 0.5m)时标红并连线
 - 汇总指标打印:hit_ok 命中率(新旧)、投影点差异分布(均值/p95/最大)
+
+## 关键发现(2026-08-04 验证)
+
+1. **`blue_camera_pose.yaml` 的 pitch 符号与 `Projector` 公式不匹配**:rotation `[0.0, -0.17453, 3.14159]` 经 `Rz(yaw)·Ry(pitch)·Rx(roll)`(projector.cpp:41-44)构造后,相机光轴世界 z 分量为正(朝上),射线 100% 无法命中 mesh(实测 0/5)。正确初始位姿应与 `red_camera_pose.yaml` 对称:`pitch=1.8159`(=π/2+14.04°,光轴从水平低头指向场地中心,与 bringup 的 `radar_camera.yaml` 注释一致)。评测使用修正值;原值导致的 0 命中问题在报告中说明。
+2. **相机内参取部署版标定值**(`ros_ws/src/radar_bringup/config/camera/radar_camera.yaml`):`fx=6753.698616, fy=6737.450110, cx=2620.748274, cy=1924.062270`(5472×3648),畸变系数为 0。仓库根目录 `radar_camera/config/radar_camera.yaml` 的单位阵是开发占位,不能用于投影。
+3. **历史 CSV(`camera_ray_per_frame_blue.csv` 等)无法数值对齐**:尝试 8 种符号组合 + 2 套内参 + 3 套外参,均无法复现其 map_x/map_y(历史文件由当时实际位姿生成)。仅作为参考:u/v 分辨率、map 坐标范围(±14×±7.5)、rm 坐标换算((map+14)*100)的量级依据,不做数值断言。
 
 ## 评估方式
 
@@ -75,7 +82,7 @@ Lidar GICP 定位使用的地图是 `model/generated/jinan_field_map_reg_walls_v
 
 - `pcd_to_obj.py`:先用 `jinan_field_map_reg.pcd`(无墙)快速冒烟,确认输出 OBJ 面数 > 0、包围盒合理;再跑 walls_v2
 - `validate_3layer.cpp`:复用现有 tools/armor_verify 的构建与测试方式;改动仅 CSV 列,不影响推理路径
-- `eval_ray_projection.py`:用旧 mesh 跑一遍,与既有 `model/generated/camera_ray_per_frame_blue.csv`(同一 mesh 的历史投影结果)抽查对比数值量级一致(u,v 分辨率、map 坐标范围),确认投影公式正确后再跑新 mesh
+- `eval_ray_projection.py`:已用 3 个历史 CSV 检测点 + 真实内参 + 修正位姿实测命中(z=0 地面,命中点量级合理),并发现关键发现 #1/#2;脚本输出结果与 projector.cpp 公式一致性由单元测试(投影公式)保障
 
 ## 不做的事(YAGNI)
 
