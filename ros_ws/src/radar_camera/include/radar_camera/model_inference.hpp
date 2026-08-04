@@ -45,7 +45,7 @@ public:
 
 private:
     std::vector<float> input_buffer_;
-    cv::Mat u8_buffer_;  // TensorRT 路径：CPU 只保留 u8，归一化在 GPU
+    cv::Mat u8_buffer_; // TensorRT 路径：CPU 只保留 u8，归一化在 GPU
     ov::Tensor input_tensor_;
     std::vector<float> raw_buffer_;
     std::vector<detection::Detection> postprocess_buffer_;

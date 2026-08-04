@@ -23,7 +23,6 @@
 #include "radar_fusion/radar_fusion_node.hpp"
 #include "radar_interfaces/msg/camera_detection_pose.hpp"
 #include "radar_interfaces/msg/lidar_location.hpp"
-#include "radar_interfaces/msg/lidar_location.hpp"
 
 namespace {
 
@@ -96,14 +95,15 @@ protected:
                     ++status_gen_;
                     cv_.notify_all();
                 });
-        location_sub_ = subscriber_node_->create_subscription<radar_interfaces::msg::LidarLocation>(
-            "/lidar/location", 10,
-            [this](const radar_interfaces::msg::LidarLocation::SharedPtr msg) {
-                std::lock_guard<std::mutex> lock(mutex_);
-                last_location_ = *msg;
-                ++location_gen_;
-                cv_.notify_all();
-            });
+        location_sub_ =
+            subscriber_node_->create_subscription<radar_interfaces::msg::LidarLocation>("/lidar/"
+                                                                                        "location",
+                10, [this](const radar_interfaces::msg::LidarLocation::SharedPtr msg) {
+                    std::lock_guard<std::mutex> lock(mutex_);
+                    last_location_ = *msg;
+                    ++location_gen_;
+                    cv_.notify_all();
+                });
 
         executor_.add_node(fusion_node_);
         executor_.add_node(publisher_node_);
@@ -276,18 +276,30 @@ auto make_camera_slot(double x, double y, int class_id, int32_t sec, uint32_t na
     msg.header.frame_id      = "map";
     msg.header.stamp.sec     = sec;
     msg.header.stamp.nanosec = nanosec;
-    auto set = [&](geometry_msgs::msg::Point& pos, double& conf) {
+    auto set                 = [&](geometry_msgs::msg::Point& pos, double& conf) {
         pos.x = x;
         pos.y = y;
         conf  = 0.9f;
     };
     switch (class_id) {
-    case 0: set(msg.hero_position, msg.hero_confidence); break;
-    case 1: set(msg.engine_position, msg.engine_confidence); break;
-    case 2: set(msg.infantry_3_position, msg.infantry_3_confidence); break;
-    case 3: set(msg.infantry_4_position, msg.infantry_4_confidence); break;
-    case 4: set(msg.sentry_position, msg.sentry_confidence); break;
-    case 5: set(msg.drone_position, msg.drone_confidence); break;
+    case 0:
+        set(msg.hero_position, msg.hero_confidence);
+        break;
+    case 1:
+        set(msg.engine_position, msg.engine_confidence);
+        break;
+    case 2:
+        set(msg.infantry_3_position, msg.infantry_3_confidence);
+        break;
+    case 3:
+        set(msg.infantry_4_position, msg.infantry_4_confidence);
+        break;
+    case 4:
+        set(msg.sentry_position, msg.sentry_confidence);
+        break;
+    case 5:
+        set(msg.drone_position, msg.drone_confidence);
+        break;
     }
     return msg;
 }
@@ -859,7 +871,7 @@ TEST_F(FusionNodeTest, LidarClusterInheritsCameraClassAndOutputsLocation) {
     // 等待 LidarLocation 输出 inf3 槽位（官方坐标 = map + offset）
     const auto loc_bl = location_gen_;
     radar_interfaces::msg::LidarLocation got;
-    bool found = false;
+    bool found          = false;
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
     while (std::chrono::steady_clock::now() < deadline) {
         {
@@ -894,7 +906,7 @@ TEST_F(FusionNodeTest, LidarClusterClassPersistsAfterCameraStops) {
 
     // 雷达聚类继续（track 保持 class）→ LidarLocation 持续输出
     cluster_pub_->publish(make_cluster_msg(2.0, 0.0, 0.0, 5, 0u));
-    bool found = false;
+    bool found          = false;
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
     while (std::chrono::steady_clock::now() < deadline) {
         {

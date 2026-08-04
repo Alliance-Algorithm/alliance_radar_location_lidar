@@ -86,8 +86,8 @@ auto RadarRecorderNode::monitor_start() -> void {
                 || reader_state == recording::ReaderState::overrun) {
                 const auto recorder_failed = recorder_state == recording::RecorderState::failed
                     || recorder_state == recording::RecorderState::overrun;
-                const auto reason = recorder_failed ? recorder_->failure_reason()
-                                                    : reader_->failure_reason();
+                const auto reason =
+                    recorder_failed ? recorder_->failure_reason() : reader_->failure_reason();
                 RCLCPP_ERROR(get_logger(),
                     "Raw recording failed (state=%s): %s; recorder process exiting (inference "
                     "unaffected)",

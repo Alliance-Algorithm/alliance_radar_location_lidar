@@ -112,19 +112,18 @@ RadarLidarNode::RadarLidarNode(const rclcpp::NodeOptions& options)
         get_parameter("initial_pose_roll", roll);
         get_parameter("initial_pose_pitch", pitch);
         get_parameter("initial_pose_yaw", yaw);
-        fallback_pose_.t_map_lidar = Eigen::Isometry3d::Identity();
+        fallback_pose_.t_map_lidar               = Eigen::Isometry3d::Identity();
         fallback_pose_.t_map_lidar.translation() = Eigen::Vector3d(tx, ty, tz);
-        fallback_pose_.t_map_lidar.linear() =
-            (Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ())
-                * Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitY())
-                * Eigen::AngleAxisd(roll, Eigen::Vector3d::UnitX()))
-                .toRotationMatrix();
-        fallback_pose_.fitness_score = kFallbackFitnessMax;
-        fallback_pose_.converged     = false;
-        fallback_initialized_        = true;
+        fallback_pose_.t_map_lidar.linear()      = (Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ())
+            * Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitY())
+            * Eigen::AngleAxisd(roll, Eigen::Vector3d::UnitX()))
+                                                       .toRotationMatrix();
+        fallback_pose_.fitness_score             = kFallbackFitnessMax;
+        fallback_pose_.converged                 = false;
+        fallback_initialized_                    = true;
         RCLCPP_INFO(get_logger(),
-            "Fallback pose initialized (%.2f,%.2f,%.2f) -- used if GICP fails for %u frames",
-            tx, ty, tz, kFallbackAfterFails);
+            "Fallback pose initialized (%.2f,%.2f,%.2f) -- used if GICP fails for %u frames", tx,
+            ty, tz, kFallbackAfterFails);
     }
 
     dynamic_stage_ = dynamic_cloud::DynamicCloudStage(load_dynamic_config(*this));

@@ -38,7 +38,7 @@ struct ReaderStats {
     std::uint64_t observed = 0;
     std::uint64_t accepted = 0;
     std::uint64_t unstable = 0;
-    std::uint64_t dropped  = 0;  // fifo 满丢帧（录制编码跟不上输入帧率）
+    std::uint64_t dropped  = 0; // fifo 满丢帧（录制编码跟不上输入帧率）
 };
 
 [[nodiscard]] auto valid_frame_counter(std::uint64_t counter) -> bool;
@@ -51,8 +51,8 @@ struct ReaderStats {
 
 class RawShmReader final {
 public:
-    RawShmReader(std::string shm_name, int width, int height, RecordingFifo& fifo,
-        double target_fps = 0.0);
+    RawShmReader(
+        std::string shm_name, int width, int height, RecordingFifo& fifo, double target_fps = 0.0);
     ~RawShmReader();
 
     RawShmReader(const RawShmReader&)                    = delete;
@@ -72,7 +72,7 @@ private:
     const int width_;
     const int height_;
     RecordingFifo& fifo_;
-    const double target_fps_ = 0.0;  // 0 = 不过滤；>0 时按该帧率采样推帧（省 60MB clone）
+    const double target_fps_ = 0.0; // 0 = 不过滤；>0 时按该帧率采样推帧（省 60MB clone）
     std::chrono::steady_clock::time_point last_push_ { };
     std::atomic<bool> running_ { false };
     mutable std::mutex lifecycle_mutex_;

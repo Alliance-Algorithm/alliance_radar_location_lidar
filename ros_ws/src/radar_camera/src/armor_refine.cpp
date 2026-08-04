@@ -66,8 +66,7 @@ namespace {
 
     // Enqueues an RGB u8 canvas on the given engine: GPU 归一化 + 4x 更少 PCIe。
     // 返回后需立即 wait()（refine 串行语义）。
-    auto run_trt_u8(radar_camera::model_inference::TensorRtInference& engine,
-        const cv::Mat& canvas)
+    auto run_trt_u8(radar_camera::model_inference::TensorRtInference& engine, const cv::Mat& canvas)
         -> std::expected<std::reference_wrapper<const std::vector<float>>, std::string> {
         if (canvas.empty() || canvas.type() != CV_8UC3) {
             return std::unexpected("refine canvas is not RGB u8");

@@ -62,7 +62,7 @@ private:
     radar_fusion::fusion_config::FusionMode fusion_mode_ =
         radar_fusion::fusion_config::FusionMode::RADAR_ONLY;
     radar_fusion::match_timer::MatchTimer match_timer_;
-    rclcpp::TimerBase::SharedPtr location_timer_;  // 10Hz 统一输出
+    rclcpp::TimerBase::SharedPtr location_timer_; // 10Hz 统一输出
     std::string default_positions_path_;
     std::string enemy_color_  = "blue";
     std::string camera_topic_ = "/radar_camera/robot_pose";

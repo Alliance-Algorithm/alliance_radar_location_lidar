@@ -100,11 +100,11 @@ RadarBridgeNode::RadarBridgeNode()
             "video_init failed, will retry every 2s (coordinate forwarding unaffected): %s",
             init_ret.error().c_str());
         video_retry_timer_ = this->create_wall_timer(std::chrono::seconds(2), [this]() {
-            auto retry = video_bridge_.video_init(
-                config_.shm_name, config_.video_pub_address, nullptr);
+            auto retry =
+                video_bridge_.video_init(config_.shm_name, config_.video_pub_address, nullptr);
             if (!retry.has_value()) {
-                RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
-                    "video retry pending: %s", retry.error().c_str());
+                RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "video retry pending: %s",
+                    retry.error().c_str());
                 return;
             }
             RCLCPP_INFO(this->get_logger(), "video_init succeeded (retry)");

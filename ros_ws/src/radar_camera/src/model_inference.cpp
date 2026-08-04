@@ -84,11 +84,11 @@ auto ModelInference::infer_preprocess(const cv::Mat& image, size_t width, size_t
         if (config_.backend == "tensorrt") {
             // 归一化挪到 GPU：CPU 只保留 u8（PCIe 流量降 4 倍：u8 4.9MB vs f32 19.6MB）。
             if (image.cols != static_cast<int>(width) || image.rows != static_cast<int>(height)) {
-                return std::unexpected(
-                    "infer_preprocess failed: tensorrt requires model-size input");
+                return std::unexpected("infer_preprocess failed: tensorrt requires model-size "
+                                       "input");
             }
             u8_buffer_ = image.clone();
-            return std::ref(input_buffer_);  // TensorRT 路径不消费 float buffer
+            return std::ref(input_buffer_); // TensorRT 路径不消费 float buffer
         }
         // OpenVINO：保持 float blob 预处理。
         cv::Mat input = image;
@@ -165,7 +165,7 @@ auto ModelInference::infer_runtime_wait()
     try {
         if (config_.backend == "tensorrt") {
 #ifdef RADAR_CAMERA_HAS_TENSORRT
-            return tensorrt_inference_->wait();  // 双缓冲：返回上一帧结果
+            return tensorrt_inference_->wait(); // 双缓冲：返回上一帧结果
 #else
             return std::unexpected("TensorRT backend is not compiled in");
 #endif

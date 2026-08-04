@@ -56,8 +56,8 @@ TEST(ImageNormalize, MatchesBlobFromImageOnGpu) {
     ASSERT_EQ(cudaStreamSynchronize(reinterpret_cast<cudaStream_t>(stream)), cudaSuccess);
 
     std::vector<float> actual(elements);
-    ASSERT_EQ(cudaMemcpy(actual.data(), device_dst, elements * sizeof(float),
-                  cudaMemcpyDeviceToHost),
+    ASSERT_EQ(
+        cudaMemcpy(actual.data(), device_dst, elements * sizeof(float), cudaMemcpyDeviceToHost),
         cudaSuccess);
 
     cudaStreamDestroy(reinterpret_cast<cudaStream_t>(stream));

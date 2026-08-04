@@ -33,8 +33,8 @@ enum class LifecycleComponent { shm, inference };
 
 auto ConfigsLoader(rclcpp::Node& node, camera_config::CameraConfig& camera,
     inference_config::InferenceConfig& inference, projection_config::ProjectionConfig& projection,
-    armor_refine::ArmorRefineConfig& armor,
-    armor_refine::NumberRefineConfig& number) -> std::expected<void, std::string>;
+    armor_refine::ArmorRefineConfig& armor, armor_refine::NumberRefineConfig& number)
+    -> std::expected<void, std::string>;
 
 class RadarCameraNode final : public rclcpp::Node {
 public:
@@ -62,10 +62,10 @@ private:
     // 3 槽预分配池：避免每帧新分配 60MB（触零页 22ms），clone 降为纯 memcpy。
     cv::Mat orig_pool_[3];
     cv::Mat prev_orig_frame_;
-    float prev_lb_scale_       = 1.0f;
-    int prev_pad_x_            = 0;
-    int prev_pad_y_            = 0;
-    bool have_prev_            = false;
+    float prev_lb_scale_ = 1.0f;
+    int prev_pad_x_      = 0;
+    int prev_pad_y_      = 0;
+    bool have_prev_      = false;
     std::chrono::steady_clock::time_point prev_capture_timestamp_;
 
     hikcamera::SharedFrameReader shm_reader_;

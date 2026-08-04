@@ -27,8 +27,8 @@ TEST_F(CameraRecordingContract, DoesNotDeclareRecordingParameters) {
     radar_camera::armor_refine::ArmorRefineConfig armor;
     radar_camera::armor_refine::NumberRefineConfig number;
 
-    ASSERT_TRUE(radar_camera::node::ConfigsLoader(
-        *node, camera, inference, projection, armor, number));
+    ASSERT_TRUE(
+        radar_camera::node::ConfigsLoader(*node, camera, inference, projection, armor, number));
     EXPECT_FALSE(node->has_parameter("enable_raw_recording"));
     EXPECT_FALSE(node->has_parameter("recording_output_dir"));
     EXPECT_FALSE(node->has_parameter("recording_fps"));
@@ -45,8 +45,8 @@ TEST_F(CameraRecordingContract, StartsInferenceBeforeShmOpen) {
 }
 
 TEST_F(CameraRecordingContract, ConstructorCleanupStopsEveryStartedComponent) {
-    const auto cleanup = radar_camera::node::constructor_cleanup_order(
-        { radar_camera::node::LifecycleComponent::shm,
+    const auto cleanup =
+        radar_camera::node::constructor_cleanup_order({ radar_camera::node::LifecycleComponent::shm,
             radar_camera::node::LifecycleComponent::inference });
 
     EXPECT_EQ(cleanup,

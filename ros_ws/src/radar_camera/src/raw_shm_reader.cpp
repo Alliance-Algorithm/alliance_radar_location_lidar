@@ -61,8 +61,8 @@ auto raw_frame_byte_count(int width, int height) -> std::optional<std::size_t> {
     return pixels * channels;
 }
 
-RawShmReader::RawShmReader(std::string shm_name, int width, int height, RecordingFifo& fifo,
-    double target_fps)
+RawShmReader::RawShmReader(
+    std::string shm_name, int width, int height, RecordingFifo& fifo, double target_fps)
     : shm_name_(std::move(shm_name))
     , width_(width)
     , height_(height)
@@ -189,9 +189,8 @@ void RawShmReader::loop() {
         // 60MB clone 是 CPU/内存带宽大头，录制只需 target_fps，
         // 不采样则 20fps 输入全部 clone，拖慢推理线程。
         if (target_fps_ > 0.0) {
-            const auto now = std::chrono::steady_clock::now();
-            const auto interval =
-                std::chrono::duration<double>(1.0 / target_fps_);
+            const auto now      = std::chrono::steady_clock::now();
+            const auto interval = std::chrono::duration<double>(1.0 / target_fps_);
             if (now - last_push_ < interval) {
                 continue;
             }

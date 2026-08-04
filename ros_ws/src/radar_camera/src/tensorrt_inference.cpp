@@ -163,14 +163,13 @@ auto TensorRtInference::init(const std::string& engine_path) -> std::expected<vo
 
     // CHW float input: dims are {1, C, H, W}. The u8 staging buffer holds the
     // same pixel count as RGB u8, so its byte size equals input_count.
-    const std::size_t channels = input_dims.nbDims >= 3
-        ? static_cast<std::size_t>(input_dims.d[1])
-        : 3;
-    impl_->input_count  = input_count;
-    impl_->output_count = output_count;
-    impl_->input_width  = input_dims.nbDims >= 4 ? static_cast<int>(input_dims.d[3]) : 0;
-    impl_->input_height = input_dims.nbDims >= 3 ? static_cast<int>(input_dims.d[2]) : 0;
-    const auto pixel_bytes = input_count;  // pixels * 3 bytes (RGB u8)
+    const std::size_t channels =
+        input_dims.nbDims >= 3 ? static_cast<std::size_t>(input_dims.d[1]) : 3;
+    impl_->input_count     = input_count;
+    impl_->output_count    = output_count;
+    impl_->input_width     = input_dims.nbDims >= 4 ? static_cast<int>(input_dims.d[3]) : 0;
+    impl_->input_height    = input_dims.nbDims >= 3 ? static_cast<int>(input_dims.d[2]) : 0;
+    const auto pixel_bytes = input_count; // pixels * 3 bytes (RGB u8)
 
     for (auto& slot : impl_->slots) {
         slot.output.resize(impl_->output_count);
@@ -181,8 +180,7 @@ auto TensorRtInference::init(const std::string& engine_path) -> std::expected<vo
             code != cudaSuccess) {
             return std::unexpected(trt_error(code, "cudaMalloc input"));
         }
-        if (auto code = cudaMalloc(&slot.device_input_u8, pixel_bytes);
-            code != cudaSuccess) {
+        if (auto code = cudaMalloc(&slot.device_input_u8, pixel_bytes); code != cudaSuccess) {
             return std::unexpected(trt_error(code, "cudaMalloc u8 input"));
         }
         if (auto code = cudaMalloc(&slot.device_output, impl_->output_count * sizeof(float));
@@ -228,8 +226,8 @@ auto TensorRtInference::start_u8(const std::uint8_t* rgb, int width, int height)
     auto& slot = impl_->slots[impl_->next_write];
     if (slot.pending) return std::unexpected("TensorRT pipeline overrun (no free slot)");
     const auto pixel_bytes = static_cast<std::size_t>(width) * height * 3;
-    if (auto code = cudaMemcpyAsync(slot.device_input_u8, rgb, pixel_bytes,
-            cudaMemcpyHostToDevice, slot.stream);
+    if (auto code = cudaMemcpyAsync(
+            slot.device_input_u8, rgb, pixel_bytes, cudaMemcpyHostToDevice, slot.stream);
         code != cudaSuccess) {
         return std::unexpected(trt_error(code, "cudaMemcpyAsync u8 input"));
     }

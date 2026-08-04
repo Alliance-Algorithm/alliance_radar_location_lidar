@@ -273,9 +273,9 @@ private:
         if (camera_input_mode_ == "shm") {
             // Hik SHM 模式已废弃（新 hikcamera_sdk 移除 imageSHM/SHMGetPtr）。
             // 比赛统一用 Odin1 内置相机（ros_image 模式）。
-            throw std::runtime_error(
-                "camera_input_mode 'shm' is no longer supported; use 'ros_image' "
-                "(Odin1 built-in camera /odin1/image/undistorted)");
+            throw std::runtime_error("camera_input_mode 'shm' is no longer supported; use "
+                                     "'ros_image' "
+                                     "(Odin1 built-in camera /odin1/image/undistorted)");
         }
         // ros_image mode: subscribe to BGR8 topic
         image_sub_ = create_subscription<sensor_msgs::msg::Image>(camera_image_topic_,
