@@ -60,6 +60,9 @@ def main() -> int:
     p.add_argument("--pose-format", default="rad", choices=["rad", "deg"])
     p.add_argument("--out", default=f"{REPO}/model/generated/ray_compare")
     p.add_argument("--threshold", type=float, default=DELTA_THRESH)
+    p.add_argument("--mode", choices=["all", "top1", "main"], default="main",
+                   help="all: 全部检测逐个投影; top1: 每帧每class最高conf唯一; "
+                        "main: 主链路语义(按CSV顺序, 每class最后命中覆盖, 默认)")
     a = p.parse_args()
 
     if a.pose:
@@ -110,6 +113,26 @@ def main() -> int:
                          1 if ho is not None else 0,
                          hn[0] if hn is not None else "", hn[1] if hn is not None else "",
                          1 if hn is not None else 0, delta))
+
+    # 主链路语义: 每帧按检测顺序遍历, 每个 class 只保留最后一次命中(顺序覆盖, 与
+    # Projector::proj_postprocess 一致); miss 的检测不覆盖也不输出。
+    if a.mode == "main":
+        best = {}
+        for r in rows:
+            if r[7] == 1:  # hit_ok_old
+                best[(r[0], r[1])] = r
+        rows = [best[k] for k in sorted(best)]
+        stats = {"old": [sum(r[7] == 1 for r in rows), len(rows)],
+                 "new": [sum(r[10] == 1 for r in rows), len(rows)]}
+    elif a.mode == "top1":
+        best = {}
+        for r in rows:
+            key = (r[0], r[1])
+            if key not in best or r[2] > best[key][2]:
+                best[key] = r
+        rows = [best[k] for k in sorted(best)]
+        stats = {"old": [sum(r[7] == 1 for r in rows), len(rows)],
+                 "new": [sum(r[10] == 1 for r in rows), len(rows)]}
 
     os.makedirs(a.out, exist_ok=True)
     csv_path = os.path.join(a.out, "ray_compare.csv")
