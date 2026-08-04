@@ -86,11 +86,17 @@ def main() -> int:
     with open(a.detections_csv) as f:
         header = f.readline().strip().split(",")
         for line in f:
+            if not line.strip():
+                continue
             parts = line.strip().split(",")
             rec = dict(zip(header, parts))
             frame = rec["frame"]
             cls_raw = rec["final_class"]
-            cls_id = int(cls_raw) if cls_raw.isdigit() else -1
+            if cls_raw.isdigit():
+                cls_id = int(cls_raw)
+                name = CLASS_IDS[cls_id] if 0 <= cls_id < 12 else str(cls_id)
+            else:
+                name = cls_raw.lower().replace("-", "_")
             u, v = float(rec["u"]), float(rec["v"])
             conf = float(rec["l1_conf"])
             d = pixel_to_ray(u, v, R)
@@ -99,7 +105,6 @@ def main() -> int:
             stats["old"][0] += ho is not None; stats["old"][1] += 1
             stats["new"][0] += hn is not None; stats["new"][1] += 1
             delta = np.hypot(ho[0]-hn[0], ho[1]-hn[1]) if (ho is not None and hn is not None) else np.nan
-            name = CLASS_IDS[cls_id] if 0 <= cls_id < 12 else str(cls_id)
             rows.append((frame, name, conf, u, v,
                          ho[0] if ho is not None else "", ho[1] if ho is not None else "",
                          1 if ho is not None else 0,
