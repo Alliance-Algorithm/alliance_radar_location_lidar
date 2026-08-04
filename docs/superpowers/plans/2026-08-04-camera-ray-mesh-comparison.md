@@ -15,11 +15,12 @@
 - 旋转构造:`R = Rz(yaw) * Ry(pitch) * Rx(roll)`(projector.cpp:41-44)
 - 投影方向:`dir_cam = normalize((u-cx)/fx, (v-cy)/fy, 1)`,`dir_world = R * dir_cam`,`origin = translation`
 - 求交:Möller–Trumbore 取最近命中 t > 1e-8,与 projector.cpp:132-165 一致
-- 100 帧图:`/home/yukikaze/Downloads/抽帧_100张_2/frame_00X.jpg`(5472×3648)
+- 100 帧图:`/home/yukikaze/Downloads/抽帧_100张_2/frame_00X.jpg`(5472×3648,仅 Task 2 推理需要)
 - 现有 mesh:`/home/yukikaze/Documents/workspace/alliance_radar_location_lidar/model/generated/field_zup.obj`(205700 面)
 - 源 PCD:`/home/yukikaze/Documents/workspace/alliance_radar_location_lidar/model/generated/jinan_field_map_reg_walls_v2.pcd`(678504 点,±14.1m × ±7.6m,z -0.2..3.48)
 - 新 mesh 输出:`model/generated/jinan_field_map_reg_walls_v2.obj`,目标面数 ≤ 300k
 - 所有脚本用 `REPO_ROOT=/home/yukikaze/Documents/workspace/alliance_radar_location_lidar` 下的相对路径
+- 对比仅输出坐标 CSV 与 stdout 汇总,不做图像可视化
 
 ---
 
@@ -205,7 +206,7 @@ git commit -m "feat(tools): validate_3layer outputs detection center u,v"
 
 **Interfaces:**
 - Consumes: `results.csv`(Task 2 产物,列 `frame,det_idx,l1_class,final_class,l1_conf,u,v`)、两个 mesh 路径(CLI 参数)、`--pose`(可选,默认蓝方修正初始位姿)
-- Produces: `ray_compare.csv`(列 `frame,class_name,conf,u,v,map_x_old,map_y_old,hit_ok_old,map_x_new,map_y_new,hit_ok_new,delta_m`)、`ray_vis/frame_XXX.jpg`(蓝点=旧 mesh,绿点=新 mesh,差>0.5m 红连线)、stdout 汇总(命中率/差异统计)
+- Produces: `ray_compare.csv`(列 `frame,class_name,conf,u,v,map_x_old,map_y_old,hit_ok_old,map_x_new,map_y_new,hit_ok_new,delta_m`)、stdout 汇总(命中率/差异统计)。不生成可视化图。
 
 - [ ] **Step 1: 写失败测试**
 
@@ -251,11 +252,10 @@ Expected: FAIL(ModuleNotFoundError: eval_ray_projection)
   x_norm=(u-cx)/fx, y_norm=(v-cy)/fy, dir_cam=normalize(x_norm,y_norm,1)
   R = Rz(yaw)*Ry(pitch)*Rx(roll); dir_world = R*dir_cam; origin = translation
 Möller–Trumbore 最近命中(projector.cpp:132-165)。
+仅输出坐标对比 CSV 与 stdout 汇总,不做图像可视化。
 """
 import argparse, os, sys
 import numpy as np
-import cv2
-import trimesh
 
 REPO = "/home/yukikaze/Documents/workspace/alliance_radar_location_lidar"
 FX, FY, CX, CY = 6753.698616, 6737.450110, 2620.748274, 1924.062270
@@ -301,10 +301,9 @@ def mt_intersect(origin, direction, tris, eps=1e-8):
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("detections_csv")
-    p.add_argument("frames_dir")
     p.add_argument("--mesh-old", default=f"{REPO}/model/generated/field_zup.obj")
     p.add_argument("--mesh-new", default=f"{REPO}/model/generated/jinan_field_map_reg_walls_v2.obj")
-    p.add_argument("--pose", default=None, help="rpy_deg? 见 --pose-format")
+    p.add_argument("--pose", default=None, help="roll,pitch,yaw,tx,ty,tz; --pose-format 控制角度单位")
     p.add_argument("--pose-format", default="rad", choices=["rad", "deg"])
     p.add_argument("--out", default=f"{REPO}/model/generated/ray_compare")
     p.add_argument("--threshold", type=float, default=DELTA_THRESH)
@@ -319,6 +318,7 @@ def main() -> int:
         rot, trans = ROT_DEFAULT, TRANS_DEFAULT
     print(f"pose: rotation={rot} translation={trans}", flush=True)
 
+    import trimesh
     m_old = trimesh.load(a.mesh_old, process=False)
     m_new = trimesh.load(a.mesh_new, process=False)
     tris_old = np.asarray(m_old.triangles).reshape(-1, 3, 3)
@@ -335,7 +335,9 @@ def main() -> int:
         for line in f:
             parts = line.strip().split(",")
             rec = dict(zip(header, parts))
-            frame, cls_id = rec["frame"], int(rec["final_class"]) if rec["final_class"].isdigit() else -1
+            frame = rec["frame"]
+            cls_raw = rec["final_class"]
+            cls_id = int(cls_raw) if cls_raw.isdigit() else -1
             u, v = float(rec["u"]), float(rec["v"])
             conf = float(rec["l1_conf"])
             d = pixel_to_ray(u, v, R)
@@ -358,32 +360,6 @@ def main() -> int:
         for r in rows:
             f.write(",".join(str(x) for x in r) + "\n")
 
-    # 可视化
-    vis_dir = os.path.join(a.out, "ray_vis")
-    os.makedirs(vis_dir, exist_ok=True)
-    frame_dets = {}
-    for r in rows:
-        frame_dets.setdefault(r[0], []).append(r)
-    for fi, (frame, dets) in enumerate(sorted(frame_dets.items())):
-        img_path = os.path.join(a.frames_dir, frame)
-        img = cv2.imread(img_path)
-        if img is None:
-            print(f"skip missing frame: {img_path}", file=sys.stderr)
-            continue
-        for (fr, name, conf, u, v, mxo, myo, hok, mxn, myn, hnk, delta) in dets:
-            if hok:
-                cv2.circle(img, (int(u), int(v)), 8, (255, 0, 0), -1)
-            if hnk:
-                cv2.circle(img, (int(u), int(v)), 4, (0, 255, 0), -1)
-            if hok and hnk and not np.isnan(delta) and delta > a.threshold:
-                cv2.putText(img, f"{delta:.1f}m", (int(u)+10, int(v)),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-            cv2.putText(img, name, (int(u)+10, int(v)+20),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
-        cv2.imwrite(os.path.join(vis_dir, frame.replace(".jpg", ".jpg")), img)
-        if (fi + 1) % 20 == 0:
-            print(f"  vis {fi+1}/{len(frame_dets)}", flush=True)
-
     deltas = [r[11] for r in rows if not np.isnan(r[11])]
     print(f"\n=== summary ===")
     for k in ("old", "new"):
@@ -394,7 +370,6 @@ def main() -> int:
               f"p95={np.percentile(deltas,95):.2f}m max={np.max(deltas):.2f}m")
         print(f"delta > {a.threshold}m: {sum(d > a.threshold for d in deltas)}/{len(deltas)}")
     print(f"CSV -> {csv_path}")
-    print(f"vis -> {vis_dir}")
     return 0
 
 
@@ -412,10 +387,10 @@ Expected: PASS(2 passed;已知点命中地面 z≈0,坐标在场地范围内)
 Run:
 ```bash
 .venv/bin/python tools/pcd_to_mesh/eval_ray_projection.py \
-  /tmp/opencode/l123_out/results.csv "/home/yukikaze/Downloads/抽帧_100张_2" \
+  /tmp/opencode/l123_out/results.csv \
   --out model/generated/ray_compare
 ```
-Expected: stdout 打印两个 mesh 的命中率与 delta 统计;`model/generated/ray_compare/ray_compare.csv` 与 `ray_vis/` 生成成功
+Expected: stdout 打印两个 mesh 的命中率与 delta 统计;`model/generated/ray_compare/ray_compare.csv` 生成成功(无可视化产物)
 
 - [ ] **Step 6: 提交**
 
@@ -454,9 +429,9 @@ print("new_only frames:", [(r["frame"], r["class_name"]) for r in new_only][:20]
 EOF
 ```
 
-- [ ] **Step 2: 目视抽查**
+- [ ] **Step 2: 坐标合理性分析**
 
-打开 `model/generated/ray_compare/ray_vis/` 中 old_only / new_only / delta 大的帧,判断投影点(蓝点/绿点)是否落在真实机器人位置上;把观察写进报告
+在 `ray_compare.csv` 中抽查 delta 大、old_only、new_only 的检测:对比 map 坐标是否在场地范围(±14 × ±7.5)内、是否落在墙体位置(带墙 mesh 的命中点若在墙附近,检查是否合理);输出新旧 mesh 坐标不一致的具体案例列表,写进报告
 
 - [ ] **Step 3: 写报告**
 
