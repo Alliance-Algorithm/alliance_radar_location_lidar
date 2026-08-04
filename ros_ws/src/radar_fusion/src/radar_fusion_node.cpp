@@ -107,15 +107,14 @@ RadarFusionNode::RadarFusionNode(const rclcpp::NodeOptions& options)
     // 输出节奏统一 10Hz（跟随雷达点云频率）：
     // camera(7Hz)/cluster(10Hz) 回调只更新测量，location/marker 由本定时器统一发布，
     // 避免 camera 路径把输出拖慢或双路径叠加（此前 ~17Hz）。
-    location_timer_ = this->create_wall_timer(std::chrono::milliseconds(100),
-        [this]() {
-            const auto stamp = this->now();
-            publish_tracks(tracks_, stamp);
-            publish_fused_tracks(tracks_, stamp);
-            publish_lidar_tracks(lidar_tracks_, stamp);
-            publish_lidar_location(tracks_, lidar_tracks_);
-            publish_status(stamp);
-        });
+    location_timer_ = this->create_wall_timer(std::chrono::milliseconds(100), [this]() {
+        const auto stamp = this->now();
+        publish_tracks(tracks_, stamp);
+        publish_fused_tracks(tracks_, stamp);
+        publish_lidar_tracks(lidar_tracks_, stamp);
+        publish_lidar_location(tracks_, lidar_tracks_);
+        publish_status(stamp);
+    });
     update_fusion_mode(this->now().nanoseconds());
 
     RCLCPP_INFO(get_logger(),
@@ -183,7 +182,7 @@ void RadarFusionNode::on_camera_detection(
                 const double dy = obs.y - s.x(1);
                 const double d  = dx * dx + dy * dy;
                 if (d < best_d) {
-                    best_d  = d;
+                    best_d   = d;
                     best_idx = static_cast<int>(i);
                 }
             }

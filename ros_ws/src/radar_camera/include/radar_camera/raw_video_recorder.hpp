@@ -92,7 +92,7 @@ struct RecorderStats {
     std::uint64_t segments = 0;
     std::uint64_t overruns = 0;
     std::uint64_t errors   = 0;
-    std::uint64_t dropped  = 0;  // 主动丢帧（编码跟不上输入帧率）
+    std::uint64_t dropped  = 0; // 主动丢帧（编码跟不上输入帧率）
 };
 
 [[nodiscard]] auto segment_path(const std::filesystem::path& output_dir,

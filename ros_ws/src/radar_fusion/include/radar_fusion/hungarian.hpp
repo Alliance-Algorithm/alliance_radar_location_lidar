@@ -15,8 +15,8 @@
 namespace radar_fusion::association {
 
 /// Returns assignments[i] = matched column for row i, or -1 if unmatched.
-inline auto hungarian_min_cost(const std::vector<std::vector<double>>& cost,
-    double unreachable = 1e9) -> std::vector<int> {
+inline auto hungarian_min_cost(
+    const std::vector<std::vector<double>>& cost, double unreachable = 1e9) -> std::vector<int> {
     const std::size_t n = cost.size();
     if (n == 0) return { };
     std::size_t m = cost[0].size();
@@ -37,21 +37,21 @@ inline auto hungarian_min_cost(const std::vector<std::vector<double>>& cost,
     std::vector<double> u(size + 1, 0.0), v(size + 1, 0.0);
     std::vector<int> p(size + 1, 0), way(size + 1, 0);
     for (std::size_t i = 1; i <= size; ++i) {
-        p[0] = static_cast<int>(i);
+        p[0]           = static_cast<int>(i);
         std::size_t j0 = 0;
         std::vector<double> minv(size + 1, unreachable);
         std::vector<bool> used(size + 1, false);
         do {
-            used[j0] = true;
+            used[j0]             = true;
             const std::size_t i0 = static_cast<std::size_t>(p[j0]);
-            double delta = unreachable;
-            std::size_t j1 = 0;
+            double delta         = unreachable;
+            std::size_t j1       = 0;
             for (std::size_t j = 1; j <= size; ++j) {
                 if (!used[j]) {
                     const double cur = c[i0 - 1][j - 1] - u[i0] - v[j];
                     if (cur < minv[j]) {
                         minv[j] = cur;
-                        way[j]   = static_cast<int>(j0);
+                        way[j]  = static_cast<int>(j0);
                     }
                     if (minv[j] < delta) {
                         delta = minv[j];
@@ -72,8 +72,8 @@ inline auto hungarian_min_cost(const std::vector<std::vector<double>>& cost,
 
         do {
             const std::size_t j1 = static_cast<std::size_t>(way[j0]);
-            p[j0] = p[j1];
-            j0    = j1;
+            p[j0]                = p[j1];
+            j0                   = j1;
         } while (j0 != 0);
     }
 

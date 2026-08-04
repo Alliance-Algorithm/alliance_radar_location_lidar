@@ -169,8 +169,8 @@ auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
             ++frame_count_;
             cv::Mat orig_frame;
             const auto t_frame = std::chrono::steady_clock::now();
-            auto shm_frame = shm_reader_.wait_next(std::chrono::milliseconds { 100 });
-            const auto t_wait = std::chrono::steady_clock::now();
+            auto shm_frame     = shm_reader_.wait_next(std::chrono::milliseconds { 100 });
+            const auto t_wait  = std::chrono::steady_clock::now();
             if (!shm_frame) {
                 if (shm_frame.error().code != hikcamera::FrameReadErrorCode::Timeout) {
                     RCLCPP_WARN(get_logger(), "SHM read error (code=%d): %s",
@@ -195,23 +195,23 @@ auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
             // 必须保留原图副本：流水线下 refine 在下一轮才消费，SHM 视图会被写者
             // 覆盖。复用预分配池（round-robin 3 槽），clone 退化为纯 memcpy。
             shm_frame->mat().copyTo(orig_pool_[frame_count_ % 3]);
-            orig_frame = orig_pool_[frame_count_ % 3];
+            orig_frame         = orig_pool_[frame_count_ % 3];
             const auto t_clone = std::chrono::steady_clock::now();
 
             // Letterbox 到 L1 模型输入（与 annotate/训练预处理一致，保持宽高比+黑边填充）。
             // 此前用拉伸 resize：小目标（远距离机器人/无人机）变形后模型检出率显著下降
             // （同一帧 annotate letterbox conf 0.94 vs camera resize dets=0）。
-            const float lb_scale = std::min(
-                static_cast<float>(inference_config_.model_input_width) / orig_frame.cols,
-                static_cast<float>(inference_config_.model_input_height) / orig_frame.rows);
-            const int resized_w = std::max(
-                1, static_cast<int>(std::lround(orig_frame.cols * lb_scale)));
-            const int resized_h = std::max(
-                1, static_cast<int>(std::lround(orig_frame.rows * lb_scale)));
+            const float lb_scale =
+                std::min(static_cast<float>(inference_config_.model_input_width) / orig_frame.cols,
+                    static_cast<float>(inference_config_.model_input_height) / orig_frame.rows);
+            const int resized_w =
+                std::max(1, static_cast<int>(std::lround(orig_frame.cols * lb_scale)));
+            const int resized_h =
+                std::max(1, static_cast<int>(std::lround(orig_frame.rows * lb_scale)));
             const int pad_x = (inference_config_.model_input_width - resized_w) / 2;
             const int pad_y = (inference_config_.model_input_height - resized_h) / 2;
-            cv::Mat frame(inference_config_.model_input_height,
-                inference_config_.model_input_width, CV_8UC3, cv::Scalar::all(0));
+            cv::Mat frame(inference_config_.model_input_height, inference_config_.model_input_width,
+                CV_8UC3, cv::Scalar::all(0));
             cv::Mat resized;
             cv::resize(orig_frame, resized, cv::Size(resized_w, resized_h));
             resized.copyTo(frame(cv::Rect(pad_x, pad_y, resized_w, resized_h)));
@@ -236,22 +236,20 @@ auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
             const auto t_async = std::chrono::steady_clock::now();
 
             if (have_prev_) {
-                auto raw = model_inference_->infer_runtime_wait();
+                auto raw             = model_inference_->infer_runtime_wait();
                 const auto t_waitgpu = std::chrono::steady_clock::now();
                 if (!raw) {
-                    RCLCPP_WARN(
-                        get_logger(), "Inference wait failed: %s", raw.error().c_str());
+                    RCLCPP_WARN(get_logger(), "Inference wait failed: %s", raw.error().c_str());
                     have_prev_ = false;
                     prev_orig_frame_.release();
                     continue;
                 }
 
-                auto dets = model_inference_->infer_postprocess(
-                    raw->get(), inference_config_.model_input_width,
-                    inference_config_.model_input_height);
+                auto dets = model_inference_->infer_postprocess(raw->get(),
+                    inference_config_.model_input_width, inference_config_.model_input_height);
                 if (!dets) {
-                    RCLCPP_WARN(get_logger(), "Inference postprocess failed: %s",
-                        dets.error().c_str());
+                    RCLCPP_WARN(
+                        get_logger(), "Inference postprocess failed: %s", dets.error().c_str());
                     have_prev_ = false;
                     prev_orig_frame_.release();
                     continue;
@@ -260,32 +258,37 @@ auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
                 if (armor_refine_enabled_) {
                     // refine 用上一帧全分辨率原图（已 clone，跨帧安全）。
                     for (auto& det : refined) {
-                        armor_refiner_.refine(prev_orig_frame_, det,
-                            inference_config_.drone_class_ids, 1.0f, 1.0f);
+                        armor_refiner_.refine(
+                            prev_orig_frame_, det, inference_config_.drone_class_ids, 1.0f, 1.0f);
                     }
                 }
 
                 // L1 检测在 letterbox 模型空间 (1280x1280)；映射回全分辨率原图：
                 // (x - pad) / scale 逆变换（用上一帧的 pad/scale）。
                 for (auto& det : refined) {
-                    det.bbox.x      = (det.bbox.x - static_cast<float>(prev_pad_x_))
-                        / prev_lb_scale_;
-                    det.bbox.y      = (det.bbox.y - static_cast<float>(prev_pad_y_))
-                        / prev_lb_scale_;
+                    det.bbox.x = (det.bbox.x - static_cast<float>(prev_pad_x_)) / prev_lb_scale_;
+                    det.bbox.y = (det.bbox.y - static_cast<float>(prev_pad_y_)) / prev_lb_scale_;
                     det.bbox.width /= prev_lb_scale_;
                     det.bbox.height /= prev_lb_scale_;
-                    det.center.x = (det.center.x - static_cast<float>(prev_pad_x_))
-                        / prev_lb_scale_;
-                    det.center.y = (det.center.y - static_cast<float>(prev_pad_y_))
-                        / prev_lb_scale_;
+                    det.center.x =
+                        (det.center.x - static_cast<float>(prev_pad_x_)) / prev_lb_scale_;
+                    det.center.y =
+                        (det.center.y - static_cast<float>(prev_pad_y_)) / prev_lb_scale_;
                 }
 
                 auto projected = projector_.proj_preprocess(refined);
-                auto pose = std::expected<robot_pose::RobotPose, std::string>(
-                    std::unexpected("projection preprocess failed"));
+                auto pose = std::expected<robot_pose::RobotPose, std::string>(std::unexpected("proj"
+                                                                                              "ecti"
+                                                                                              "on "
+                                                                                              "prep"
+                                                                                              "roce"
+                                                                                              "ss "
+                                                                                              "fail"
+                                                                                              "e"
+                                                                                              "d"));
                 if (!projected) {
-                    RCLCPP_WARN(
-                        get_logger(), "Projection preprocess failed: %s", projected.error().c_str());
+                    RCLCPP_WARN(get_logger(), "Projection preprocess failed: %s",
+                        projected.error().c_str());
                 } else {
                     pose = projector_.proj_postprocess(*projected, refined);
                     if (!pose) {
@@ -311,12 +314,12 @@ auto RadarCameraNode::infer_thread_start() -> std::expected<void, std::string> {
             }
 
             // 帧 N 成为下一轮的"上一帧"
-            prev_orig_frame_         = orig_frame;
-            prev_lb_scale_           = lb_scale;
-            prev_pad_x_              = pad_x;
-            prev_pad_y_              = pad_y;
-            prev_capture_timestamp_  = capture_timestamp_;
-            have_prev_               = true;
+            prev_orig_frame_        = orig_frame;
+            prev_lb_scale_          = lb_scale;
+            prev_pad_x_             = pad_x;
+            prev_pad_y_             = pad_y;
+            prev_capture_timestamp_ = capture_timestamp_;
+            have_prev_              = true;
         }
     });
     return { };
@@ -353,8 +356,8 @@ void RadarCameraNode::update_camera_extrinsic_from_tf() {
     }
 }
 
-auto RadarCameraNode::PublishCallback(const robot_pose::RobotPose& robot_poses,
-    std::chrono::steady_clock::time_point stamp) -> void {
+auto RadarCameraNode::PublishCallback(
+    const robot_pose::RobotPose& robot_poses, std::chrono::steady_clock::time_point stamp) -> void {
     auto pose_msg                  = radar_interfaces::msg::CameraDetectionPose();
     pose_msg.header.stamp          = rclcpp::Time(stamp.time_since_epoch().count());
     pose_msg.header.frame_id       = "map";
@@ -381,8 +384,8 @@ auto RadarCameraNode::PublishCallback(const robot_pose::RobotPose& robot_poses,
 
 auto ConfigsLoader(rclcpp::Node& node, camera_config::CameraConfig& camera,
     inference_config::InferenceConfig& inference, projection_config::ProjectionConfig& projection,
-    armor_refine::ArmorRefineConfig& armor,
-    armor_refine::NumberRefineConfig& number) -> std::expected<void, std::string> {
+    armor_refine::ArmorRefineConfig& armor, armor_refine::NumberRefineConfig& number)
+    -> std::expected<void, std::string> {
     try {
         node.declare_parameter("enemy_color", std::string("blue"));
         node.declare_parameter("hero_blue", 6);

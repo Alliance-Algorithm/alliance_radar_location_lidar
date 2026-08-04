@@ -7,8 +7,8 @@
 #include <iomanip>
 #include <limits>
 #include <memory>
-#include <sys/resource.h>
 #include <sstream>
+#include <sys/resource.h>
 #include <thread>
 
 extern "C" {
@@ -42,7 +42,7 @@ namespace {
         AVCodecContext* codec   = nullptr;
         AVStream* stream        = nullptr;
         SwsContext* scaler      = nullptr;
-        int scaler_in_w         = 0;  // scaler 输入尺寸（=帧尺寸，惰性创建）
+        int scaler_in_w         = 0; // scaler 输入尺寸（=帧尺寸，惰性创建）
         int scaler_in_h         = 0;
         AVFrame* frame          = nullptr;
         std::ofstream sidecar;
@@ -182,7 +182,8 @@ namespace {
         if (segment->stream == nullptr || segment->codec == nullptr) {
             return std::unexpected("could not allocate FFmpeg video stream");
         }
-        segment->codec->codec_id     = config.encoder == "hevc_nvenc" ? AV_CODEC_ID_HEVC : AV_CODEC_ID_H264;
+        segment->codec->codec_id =
+            config.encoder == "hevc_nvenc" ? AV_CODEC_ID_HEVC : AV_CODEC_ID_H264;
         segment->codec->codec_type   = AVMEDIA_TYPE_VIDEO;
         segment->codec->width        = config.width;
         segment->codec->height       = config.height;
@@ -192,7 +193,7 @@ namespace {
         segment->codec->gop_size     = config.gop;
         segment->codec->bit_rate     = config.bitrate;
         segment->codec->max_b_frames = 0;
-        if (config.encoder != "libx264") {  // nvenc (h264/hevc) 通用私参
+        if (config.encoder != "libx264") { // nvenc (h264/hevc) 通用私参
             av_opt_set(segment->codec->priv_data, "preset", "p1", 0);
             av_opt_set(segment->codec->priv_data, "tune", "ll", 0);
             av_opt_set(segment->codec->priv_data, "bf", "0", 0);
@@ -204,8 +205,8 @@ namespace {
         }
         result = avcodec_open2(segment->codec, encoder, nullptr);
         if (result < 0) {
-            return std::unexpected("could not open " + config.encoder + ": "
-                + ffmpeg_error(result));
+            return std::unexpected(
+                "could not open " + config.encoder + ": " + ffmpeg_error(result));
         }
         result = avcodec_parameters_from_context(segment->stream->codecpar, segment->codec);
         if (result < 0) {
@@ -264,7 +265,7 @@ namespace {
         codec->gop_size     = config.gop;
         codec->bit_rate     = config.bitrate;
         codec->max_b_frames = 0;
-        if (config.encoder != "libx264") {  // nvenc (h264/hevc) 通用私参
+        if (config.encoder != "libx264") { // nvenc (h264/hevc) 通用私参
             av_opt_set(codec->priv_data, "preset", "p1", 0);
             av_opt_set(codec->priv_data, "tune", "ll", 0);
             av_opt_set(codec->priv_data, "bf", "0", 0);
@@ -275,8 +276,8 @@ namespace {
         const auto result = avcodec_open2(codec, encoder, nullptr);
         avcodec_free_context(&codec);
         if (result < 0) {
-            return std::unexpected("could not open " + config.encoder + ": "
-                + ffmpeg_error(result));
+            return std::unexpected(
+                "could not open " + config.encoder + ": " + ffmpeg_error(result));
         }
         return { };
     }
@@ -450,9 +451,9 @@ void RawVideoRecorder::loop() {
         if ((*segment)->scaler == nullptr || (*segment)->scaler_in_w != frame->rgb.cols
             || (*segment)->scaler_in_h != frame->rgb.rows) {
             sws_freeContext((*segment)->scaler);
-            (*segment)->scaler = sws_getContext(frame->rgb.cols, frame->rgb.rows,
-                AV_PIX_FMT_RGB24, config_.width, config_.height, AV_PIX_FMT_YUV420P,
-                SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
+            (*segment)->scaler = sws_getContext(frame->rgb.cols, frame->rgb.rows, AV_PIX_FMT_RGB24,
+                config_.width, config_.height, AV_PIX_FMT_YUV420P, SWS_FAST_BILINEAR, nullptr,
+                nullptr, nullptr);
             if ((*segment)->scaler == nullptr) {
                 fail("could not allocate RGB-to-YUV scaler", false);
                 break;

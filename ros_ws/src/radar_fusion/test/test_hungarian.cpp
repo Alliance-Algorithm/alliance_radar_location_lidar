@@ -32,7 +32,7 @@ TEST(Hungarian, GreedyFailsButHungarianSucceeds) {
     // 贪心：行 0 取 (0,0)=1 → 行 1 取 (1,1)=100 → 总 101
     // 匈牙利：行 0 取 (0,1)=2 → 行 1 取 (1,0)=2 → 总 4
     const auto assignment = hungarian_min_cost(cost);
-    double total = 0.0;
+    double total          = 0.0;
     for (size_t i = 0; i < assignment.size(); ++i) {
         ASSERT_GE(assignment[i], 0);
         total += cost[i][static_cast<size_t>(assignment[i])];
@@ -61,7 +61,10 @@ TEST(Hungarian, RectangularUnmatchedRowReturnsMinusOne) {
 
 // 模拟贪心匹配：按距离排序依次匹配（与旧实现一致）
 auto greedy_match(const std::vector<std::vector<double>>& cost, double gate) {
-    struct Cand { int i, j; double d; };
+    struct Cand {
+        int i, j;
+        double d;
+    };
     std::vector<Cand> cands;
     for (size_t i = 0; i < cost.size(); ++i)
         for (size_t j = 0; j < cost[i].size(); ++j)
@@ -82,9 +85,14 @@ TEST(Hungarian, CrossingTargetsGreedySwapsIdentity) {
     // 每帧测量 = 真实位置；两目标在第 10 帧相遇（x=5）
     // 贪心按距离最近匹配——相遇前后测量都离两个 track 近，可能换身份
     // 匈牙利全局最优——身份保持
-    struct State { double x[2]; };  // track 位置
+    struct State {
+        double x[2];
+    }; // track 位置
     auto greedy_match_fn = [](const std::vector<std::vector<double>>& cost, double gate) {
-        struct Cand { int i, j; double d; };
+        struct Cand {
+            int i, j;
+            double d;
+        };
         std::vector<Cand> cands;
         for (size_t i = 0; i < cost.size(); ++i)
             for (size_t j = 0; j < cost[i].size(); ++j)
@@ -107,15 +115,15 @@ TEST(Hungarian, CrossingTargetsGreedySwapsIdentity) {
     int greedy_wrong = 0, hungarian_wrong = 0;
     int greedy_wrong_when_ambiguous = 0, hungarian_wrong_when_ambiguous = 0;
     for (int f = 0; f < 200; ++f) {
-        const double a_pos = 0.0 + 0.25 * (f % 40);   // A 往返 0→9.75
-        const double b_pos = 10.0 - 0.25 * (f % 40);  // B 往返 10→0.25
-        const std::vector<double> meas = { a_pos + noise(rng), b_pos + noise(rng) };
+        const double a_pos                    = 0.0 + 0.25 * (f % 40);  // A 往返 0→9.75
+        const double b_pos                    = 10.0 - 0.25 * (f % 40); // B 往返 10→0.25
+        const std::vector<double> meas        = { a_pos + noise(rng), b_pos + noise(rng) };
         std::vector<std::vector<double>> cost = {
             { std::abs(a_pos - meas[0]), std::abs(a_pos - meas[1]) },
             { std::abs(b_pos - meas[0]), std::abs(b_pos - meas[1]) },
         };
-        auto g = greedy_match_fn(cost, 10.0);
-        auto h = radar_fusion::association::hungarian_min_cost(cost, 10.0);
+        auto g               = greedy_match_fn(cost, 10.0);
+        auto h               = radar_fusion::association::hungarian_min_cost(cost, 10.0);
         const bool g_swapped = g[0] == 1 && g[1] == 0;
         const bool h_swapped = h[0] == 1 && h[1] == 0;
         if (g_swapped) ++greedy_wrong;
@@ -130,6 +138,5 @@ TEST(Hungarian, CrossingTargetsGreedySwapsIdentity) {
     EXPECT_LE(hungarian_wrong_when_ambiguous, greedy_wrong_when_ambiguous);
     std::printf("[hungarian vs greedy] wrong assoc: greedy=%d hungarian=%d | ambiguous: "
                 "greedy=%d hungarian=%d\n",
-        greedy_wrong, hungarian_wrong, greedy_wrong_when_ambiguous,
-        hungarian_wrong_when_ambiguous);
+        greedy_wrong, hungarian_wrong, greedy_wrong_when_ambiguous, hungarian_wrong_when_ambiguous);
 }

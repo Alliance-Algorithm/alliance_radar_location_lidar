@@ -74,11 +74,11 @@ TEST(RecordingFifo, ClosePreventsFurtherPushesAndAllowsDrain) {
 
 TEST(RecordingConfig, AcceptsValidConfiguration) {
     EXPECT_TRUE(radar_camera::recording::validate_config(valid_config()).has_value());
-    auto libx264 = valid_config();
+    auto libx264    = valid_config();
     libx264.encoder = "libx264";
     EXPECT_TRUE(radar_camera::recording::validate_config(libx264).has_value());
-    auto whole_session = valid_config();
-    whole_session.segment_duration_sec = 0;  // 0 = 整段录制（不按 60s 切段）
+    auto whole_session                 = valid_config();
+    whole_session.segment_duration_sec = 0; // 0 = 整段录制（不按 60s 切段）
     EXPECT_TRUE(radar_camera::recording::validate_config(whole_session).has_value());
 }
 

@@ -26,8 +26,8 @@ auto cleanup_order(const std::vector<LifecycleComponent>& started)
     return cleanup;
 }
 
-auto make_components(
-    const recording::RecordingConfig& config, const std::string& shm_name) -> RecorderComponents {
+auto make_components(const recording::RecordingConfig& config, const std::string& shm_name)
+    -> RecorderComponents {
     if (!config.enabled) return { };
     auto fifo     = std::make_unique<recording::RecordingFifo>(config.buffer_pool_frames);
     auto recorder = std::make_unique<recording::RawVideoRecorder>(config, *fifo);
@@ -50,7 +50,7 @@ auto RecordingConfigsLoader(rclcpp::Node& node, recording::RecordingConfig& reco
         node.declare_parameter("recording_bitrate", 25000000);
         node.declare_parameter("recording_gop", 20);
         node.declare_parameter("recording_encoder", std::string("hevc_nvenc"));
-        node.declare_parameter("recording_segment_duration_sec", 0);  // 0 = 整段
+        node.declare_parameter("recording_segment_duration_sec", 0); // 0 = 整段
         node.declare_parameter("recording_buffer_pool_frames", 8);
         node.declare_parameter("recording_max_buffer_bytes", 480000000);
 
@@ -78,8 +78,7 @@ auto RecordingConfigsLoader(rclcpp::Node& node, recording::RecordingConfig& reco
         if (recording.enabled) {
             const auto recording_ret = recording::validate_config(recording);
             if (!recording_ret) {
-                return std::unexpected(
-                    "recording configuration invalid: " + recording_ret.error());
+                return std::unexpected("recording configuration invalid: " + recording_ret.error());
             }
         }
     } catch (const std::exception& e) {

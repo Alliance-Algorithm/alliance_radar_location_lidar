@@ -36,7 +36,7 @@ TEST_F(RadarRecorderContract, LoadsRecordingDefaults) {
     EXPECT_EQ(recording.bitrate, 25000000);
     EXPECT_EQ(recording.gop, 20);
     EXPECT_EQ(recording.encoder, "hevc_nvenc");
-    EXPECT_EQ(recording.segment_duration_sec, 0);  // 0 = 整段录制
+    EXPECT_EQ(recording.segment_duration_sec, 0); // 0 = 整段录制
     EXPECT_EQ(recording.buffer_pool_frames, 8U);
     EXPECT_EQ(recording.max_buffer_bytes, 480000000U);
     EXPECT_EQ(shm_name, "/hikcamera_shm");
@@ -97,13 +97,13 @@ TEST_F(RadarRecorderContract, DisabledRecordingHasNoComponents) {
 
 TEST_F(RadarRecorderContract, EnabledRecordingBuildsAllComponents) {
     radar_camera::recording::RecordingConfig config { };
-    config.enabled  = true;
-    config.fps      = 8;
-    config.encoder  = "libx264";
-    config.width    = 1920;
-    config.height   = 1080;
-    config.bitrate  = 8000000;
-    config.gop      = 30;
+    config.enabled = true;
+    config.fps     = 8;
+    config.encoder = "libx264";
+    config.width   = 1920;
+    config.height  = 1080;
+    config.bitrate = 8000000;
+    config.gop     = 30;
 
     const auto components = radar_camera::recording_node::make_components(config, "/hikcamera_shm");
 
