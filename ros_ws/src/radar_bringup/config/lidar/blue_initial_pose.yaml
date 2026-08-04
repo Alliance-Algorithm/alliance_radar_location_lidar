@@ -3,6 +3,7 @@
 #   tx=14.95 ty=0.85（对称于红方 -14.95/-0.85）
 #   tz=3.84（地面 -0.02 + 实际安装高 3.86m）
 #   yaw=π+8.99°（对称于红方 8.99°）
+#   pitch=+12.46°（配准收敛值，对称于红方；正 = 低头俯视）
 radar_lidar_node:
   ros__parameters:
     initial_pose_enabled: true
@@ -10,5 +11,5 @@ radar_lidar_node:
     initial_pose_ty: 0.85
     initial_pose_tz: 3.84
     initial_pose_roll: 0.0
-    initial_pose_pitch: 0.24504423  # +14.04° 低头指向场地中心
+    initial_pose_pitch: 0.21746802  # +12.46° 低头指向场地中心（配准收敛值）
     initial_pose_yaw: 3.2985036  # 189.0° = π + 8.99°

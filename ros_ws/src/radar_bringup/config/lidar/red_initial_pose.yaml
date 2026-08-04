@@ -3,6 +3,7 @@
 #   tx=-14.95 ty=-0.85（配准收敛值，地面层 99.8% 对齐）
 #   tz=3.84（jinan 地面 -0.02 + 实际安装高 3.86m；LIO 图 z 基准有漂移，不采用配准 z）
 #   yaw=8.99°（配准收敛值）
+#   pitch=+12.46°（配准收敛值；正 = 低头俯视，与场地系 +z 上一致）
 radar_lidar_node:
   ros__parameters:
     initial_pose_enabled: true
@@ -10,5 +11,5 @@ radar_lidar_node:
     initial_pose_ty: -0.85
     initial_pose_tz: 3.84
     initial_pose_roll: 0.0
-    initial_pose_pitch: 0.24504423  # +14.04° 低头指向场地中心
+    initial_pose_pitch: 0.21746802  # +12.46° 低头指向场地中心（配准收敛值）
     initial_pose_yaw: 0.156912  # 8.99°
