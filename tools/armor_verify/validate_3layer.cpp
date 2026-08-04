@@ -27,8 +27,8 @@ static constexpr float L1_CONF                   = 0.30f;
 static constexpr int L1_SIDE                     = 1280;
 static const std::vector<std::int64_t> DRONE_IDS = { 5, 11 };
 
-static const char* CLASS_NAMES[] = { "hero-B", "eng-B", "inf3-B", "inf4-B", "sentry-B", "drone-B",
-    "hero-R", "eng-R", "inf3-R", "inf4-R", "sentry-R", "drone-R" };
+static const char* CLASS_NAMES[] = { "hero-R", "eng-R", "inf3-R", "inf4-R", "sentry-R", "drone-R",
+    "hero-B", "eng-B", "inf3-B", "inf4-B", "sentry-B", "drone-B" };
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 static cv::Mat letterbox_topleft(const cv::Mat& src, int side, float& scale) {
