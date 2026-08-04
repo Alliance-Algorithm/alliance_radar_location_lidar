@@ -14,7 +14,7 @@
 |---|---|---|
 | 来源 | RM 场地 CAD 模型 | lidar 建图 PCD(67.8 万点)→ 体素 0.1m + Ball Pivoting |
 | 面数 | 205700 | 84140(目标 ≤300k) |
-| 范围 | ±14 × ±7.5 m,z -0.2..3.18 | ±14.1 × ±7.6 m,z -0.2..3.484 |
+| 范围 | ±14 × ±7.5 m,z -0.2..3.17 | ±14.1 × ±7.6 m,z -0.2..3.484 |
 | 结构 | 含场地边界(0.2~0.6m)、角落结构(≤1.5m)、中心结构;**无外墙** | 地面/墙为重建表面,**含外墙**(PCD 墙点 z≤1.79m),中心结构为连续表面 |
 | 水密性 | — | **非水密**(Ball Pivoting 间隙,见分析) |
 
@@ -29,6 +29,34 @@
    - Möller–Trumbore 向量化求交,取最近命中 t>1e-8(projector.cpp:132-165 一致);命中点 (x,y) 即 map 坐标
    - 公式一致性由单元测试保障(`test_eval_ray_projection.py`:`R_from_rpy` 光轴方向、已知像素点命中 field_zup.obj 地面 z≈0 且坐标在场内)
 3. **对比**:仅输出 CSV 与 stdout 汇总(`model/generated/ray_compare/ray_compare.csv`,列 `frame,class_name,conf,u,v,map_x_old,map_y_old,hit_ok_old,map_x_new,map_y_new,hit_ok_new,delta_m`),不生成可视化图。rm 坐标换算:`rm = ((map_x+14)*100, (map_y+7.5)*100)` cm。
+
+### 复现命令(一次性分析,未入库)
+
+命中点 z 复算(表 6-10 行)与垂直下投空洞检查(§2)均为一次性脚本,关键命令如下:
+
+```python
+# 需 .venv(trimesh);公式与 eval_ray_projection.py 一致
+import sys; sys.path.insert(0, "tools/pcd_to_mesh")
+import numpy as np, trimesh
+from eval_ray_projection import R_from_rpy, pixel_to_ray, mt_intersect, ROT_DEFAULT, TRANS_DEFAULT
+m_old = trimesh.load("model/generated/field_zup.obj", process=False)
+m_new = trimesh.load("model/generated/jinan_field_map_reg_walls_v2.obj", process=False)
+tris_old = np.asarray(m_old.triangles).reshape(-1, 3, 3)
+tris_new = np.asarray(m_new.triangles).reshape(-1, 3, 3)
+R = R_from_rpy(*ROT_DEFAULT); origin = np.array(TRANS_DEFAULT, dtype=float)
+
+# (a) 像素射线 z 复算:u,v 取 model/generated/ray_compare/ray_compare.csv 对应行
+for u, v in [(2552.18, 2142.84), (1427.32, 1905.05), (2586.38, 2111.32),
+             (2779.82, 1762.37), (2793.71, 1752.75)]:
+    d = pixel_to_ray(u, v, R)
+    print([None if p is None else round(p[2], 2) for p in
+           (mt_intersect(origin, d, tris_old), mt_intersect(origin, d, tris_new))])
+
+# (b) 垂直下投空洞检查(§2):old_only 命中位置 (x,y)
+for x, y in [(4.43, -1.70), (6.79, -0.76), (-10.73, -0.12), (8.61, -0.45), (3.48, -2.61)]:
+    hit = mt_intersect(np.array([x, y, 3.0]), np.array([0, 0, -1.0]), tris_new)
+    print((x, y), "穿过(无命中)" if hit is None else f"z={hit[2]:.2f}")
+```
 
 ## 结果
 
@@ -88,13 +116,13 @@
 | 3 | frame_059 | inf3_b | (-6.23,0.65,0.00) | (0.67,0.45,1.36) | 6.90 m |
 | 4 | frame_059 | eng_b | (-6.23,0.65,0.00) | (0.67,0.45,1.36) | 6.90 m(同像素重复检测) |
 | 5 | frame_071 | inf4_r | (-2.70,-0.50,0.30) | (0.22,-0.40,0.95) | 2.93 m |
-| 6 | frame_051 | inf4_r | (-0.13,-0.39,0.00) | (0.36,-0.38,0.72) | 0.49 m |
-| 7 | frame_085 | eng_b | (0.21,0.12,0.00) | (-0.21,0.12,2.98) | 0.42 m |
-| 8 | frame_069 | hero_r | (0.18,-0.32,0.00) | (0.44,-0.31,0.66) | 0.25 m |
-| 9 | frame_093 | inf3_r | (1.07,0.40,0.00) | (1.24,0.40,0.00) | 0.17 m |
-| 10 | frame_059 | inf3_b | (1.10,0.42,0.00) | (1.26,0.42,0.00) | 0.16 m |
+| 6 | frame_051 | inf4_r | (-0.13,-0.39,0.60) | (0.36,-0.38,0.72) | 0.49 m |
+| 7 | frame_085 | eng_b | (0.21,0.12,3.01) | (-0.21,0.12,2.98) | 0.42 m |
+| 8 | frame_069 | hero_r | (0.18,-0.32,0.60) | (0.44,-0.31,0.66) | 0.25 m |
+| 9 | frame_093 | inf3_r | (1.07,0.40,0.42) | (1.24,0.40,0.47) | 0.17 m |
+| 10 | frame_059 | inf3_b | (1.10,0.42,0.40) | (1.26,0.42,0.45) | 0.16 m |
 
-前 5 名(>0.5m)全部是"旧 mesh 穿过中心结构命中地面、新 mesh 命中中心结构表面"的遮挡差异。
+前 5 名(>0.5m)全部是"旧 mesh 穿过中心结构命中地面、新 mesh 命中中心结构表面"的遮挡差异。第 6-10 名(delta 0.16~0.49m)不是遮挡差异:两 mesh 都命中了结构/地面表面,差异只是命中点高度差(z 差 0.03~0.12m,重建噪声量级)——如第 7 行两 mesh 都命中中心结构顶板(z 3.01 vs 2.98,顶板高度差),第 6/8/9/10 行命中低矮结构表面(z 0.40~0.72,两 mesh 高度差 ≤0.12m)。
 
 ## 分析
 
@@ -102,7 +130,7 @@
 
 - 两 mesh 都在场地中心 (0,0) 附近有一结构(~1.8×1.8m,高 ~3.2m,即裁判/中心立柱)。**旧 mesh 该结构是开放结构**:四角斜墙 + 顶板 + 中心细柱(z 2.83~3.08 顶板区,斜墙只覆盖对角),射线从 4m 高相机以 z 1.3~2.8m 穿过结构间隙命中后方地面。
 - **新 mesh 该结构为连续表面**:PCD 在 |x|<2、|y|<2 内 z 1.0~3.0 每层都有点,各 x 切片(x=-0.8,-0.4,0,0.4,0.8)在 z 1.3~3.0 均有连续墙面——lidar 实测该结构是实心八棱柱,旧 CAD 模型的开孔画法是简化/失真的。
-- 后果:新 mesh 把"穿过中心结构的射线"正确挡在结构表面(z 0.66~3.26),旧 mesh 让射线穿过去命中 3~9.6m 外的地面。**两面性**:
+- 后果:新 mesh 把"穿过中心结构的射线"正确挡在结构表面(z 0.66~3.26),旧 mesh 让射线穿过去命中 3~9.6m 外的地面——该差异只发生在 delta >0.5m 的 5 行(旧命中地面 z≈0)与 2 个 new_only 顶板命中;delta ≤0.5m 的行(如第 7 行 frame_085,旧 z 3.01 与新 z 2.98 均为顶板)两 mesh 都命中结构表面,仅是高度差,不属遮挡差异。**两面性**:
   - 若中心结构真是实心,新 mesh 的遮挡是对的;但旧 mesh 结果说明这些像素上神经网络"看到了"结构后方的机器人(如 hero_b 位于 (-9.38,0.96))——要么这些是误检,要么新 mesh 重建把结构外扩了 ~0.1-0.3m(Ball Pivoting 膨胀)导致边缘像素被误挡,真实相机可从结构边缘看到机器人。
   - 结论:该区域两 mesh 都存在风险:旧 mesh 可能把真实被遮挡的检测投影到结构后方地面,新 mesh 可能把边缘可见的目标错误投影到结构表面。新 mesh 偏差方向更极端(最多 9.6m)。
 
