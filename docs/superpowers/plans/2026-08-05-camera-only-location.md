@@ -171,6 +171,16 @@ if (lidar_pose_pub_->get_subscription_count() > 0
 
 ```cpp
 TEST_F(FusionNodeTest, CameraTaggedClusterNoLongerFillsLocation) {
+    // 相机订阅需开启（贴类别循环只处理相机消息）
+    auto enabled_node = std::make_shared<radar_fusion::node::RadarFusionNode>(
+        rclcpp::NodeOptions().append_parameter_override("enable_camera_fusion", true));
+    executor_.remove_node(fusion_node_);
+    fusion_node_.reset();
+    fusion_node_ = enabled_node;
+    executor_.add_node(fusion_node_);
+    ASSERT_TRUE(wait_for_discovery(true)) << "ROS entities failed to rediscover after enabling "
+                                             "camera fusion";
+
     // 雷达聚类确认 track（无类别本就不填坐标）
     cluster_pub_->publish(make_cluster_msg(0.5, 0.0, 0.0, 0, 0u));
     cluster_pub_->publish(make_cluster_msg(1.0, 0.0, 0.0, 1, 0u));
