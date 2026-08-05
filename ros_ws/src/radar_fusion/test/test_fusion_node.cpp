@@ -151,8 +151,7 @@ protected:
     auto wait_for_discovery(bool expect_camera = false) -> bool {
         const auto deadline = std::chrono::steady_clock::now() + 2s;
         while (std::chrono::steady_clock::now() < deadline) {
-            if (cluster_pub_->get_subscription_count() > 0
-                && lidar_pose_pub_->get_subscription_count() > 0
+            if (lidar_pose_pub_->get_subscription_count() > 0
                 && pose_sub_->get_publisher_count() > 0 && tracks_sub_->get_publisher_count() > 0
                 && fused_tracks_sub_->get_publisher_count() > 0
                 && status_sub_->get_publisher_count() > 0
@@ -186,6 +185,24 @@ protected:
     auto wait_for_status_gen(std::uint64_t expected, std::chrono::milliseconds timeout) -> bool {
         std::unique_lock<std::mutex> lock(mutex_);
         return cv_.wait_for(lock, timeout, [&]() { return status_gen_ >= expected; });
+    }
+
+    // 轮询 /localization/status 的 track_count（/fusion/tracks 每 tick 被发布两次，
+    // publish_lidar_tracks 的空消息会覆盖 marker 计数，不能用于验证 track 生命周期）
+    auto poll_track_count(int expected, std::chrono::milliseconds timeout) -> bool {
+        const auto deadline = std::chrono::steady_clock::now() + timeout;
+        while (std::chrono::steady_clock::now() < deadline) {
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                for (const auto& kv : last_status_.values) {
+                    if (kv.key == "track_count" && kv.value == std::to_string(expected)) {
+                        return true;
+                    }
+                }
+            }
+            std::this_thread::sleep_for(20ms);
+        }
+        return false;
     }
 
     auto make_cluster_msg(double x, double y, double z, int32_t sec, uint32_t nanosec)
@@ -306,117 +323,94 @@ auto make_camera_slot(double x, double y, int class_id, int32_t sec, uint32_t na
 
 }
 
-TEST_F(FusionNodeTest, ClusterOnlyInputPublishesStatusWithoutLocalizationPose) {
-    auto pose_bl   = pose_gen_;
-    auto status_bl = status_gen_;
+TEST_F(FusionNodeTest, CameraTentativeTrackIsDroppedAfterTimeout) {
+    auto enabled_node = std::make_shared<radar_fusion::node::RadarFusionNode>(
+        rclcpp::NodeOptions().append_parameter_override("enable_camera_fusion", true));
+    executor_.remove_node(fusion_node_);
+    fusion_node_.reset();
+    fusion_node_ = enabled_node;
+    executor_.add_node(fusion_node_);
+    ASSERT_TRUE(wait_for_discovery(true)) << "ROS entities failed to rediscover after enabling "
+                                             "camera fusion";
 
-    cluster_pub_->publish(make_cluster_msg(1.0, 2.0, 0.0, 0, 123456789u));
-
-    EXPECT_FALSE(wait_for_pose_gen(pose_bl + 1, 300ms));
-    EXPECT_TRUE(wait_for_status_gen(status_bl + 1, 300ms));
-}
-
-TEST_F(FusionNodeTest, ClusterTrackingUsesMessageTimeInsteadOfWallTime) {
     auto bl = track_pub_gen_;
 
-    cluster_pub_->publish(make_cluster_msg(0.0, 0.0, 0.0, 0, 0u));
+    camera_detection_pub_->publish(make_camera_detection(0.0, 0.0, 0, 0u));
     ASSERT_TRUE(wait_for_track_pub_gen(bl + 1, 500ms));
+    ASSERT_TRUE(poll_track_count(1, 2s)) << "camera detection did not create a track";
 
-    cluster_pub_->publish(make_cluster_msg(0.8, 0.0, 0.0, 1, 0u));
-    ASSERT_TRUE(wait_for_track_pub_gen(bl + 2, 500ms));
-
-    cluster_pub_->publish(make_cluster_msg(1.6, 0.0, 0.0, 2, 0u));
-    ASSERT_TRUE(wait_for_track_pub_gen(bl + 3, 500ms));
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        EXPECT_GE(last_track_marker_count_, 3u);
-    }
-
-    auto bl2 = track_pub_gen_;
-
-    // Wall-clock sleep IS needed here: the test verifies that tracking uses message time
-    // (not wall time). 1.7 s of wall time elapses while the message timestamp advances
-    // only 0.1 s, which is well within the 1.5 s track timeout.
-    std::this_thread::sleep_for(1700ms);
-    cluster_pub_->publish(make_cluster_msg(1.68, 0.0, 0.0, 2, 100000000u));
-
-    ASSERT_TRUE(wait_for_track_pub_gen(bl2 + 1, 500ms));
-
-    std::lock_guard<std::mutex> lock(mutex_);
-    EXPECT_EQ(last_track_marker_count_, 3u);
+    // tentative（1 hit）随后续空帧（stamp 推进 > timeout）触发 stale 删除
+    camera_detection_pub_->publish(make_empty_camera_detection(2, 0u));
+    EXPECT_TRUE(poll_track_count(0, 2s)) << "tentative camera track not dropped after timeout";
 }
 
-TEST_F(FusionNodeTest, TentativeTrackIsDroppedAfterSingleMiss) {
+TEST_F(FusionNodeTest, CameraConfirmedTrackSurvivesGapButDropsAfterTimeout) {
+    auto enabled_node = std::make_shared<radar_fusion::node::RadarFusionNode>(
+        rclcpp::NodeOptions().append_parameter_override("enable_camera_fusion", true));
+    executor_.remove_node(fusion_node_);
+    fusion_node_.reset();
+    fusion_node_ = enabled_node;
+    executor_.add_node(fusion_node_);
+    ASSERT_TRUE(wait_for_discovery(true)) << "ROS entities failed to rediscover after enabling "
+                                             "camera fusion";
+
     auto bl = track_pub_gen_;
 
-    cluster_pub_->publish(make_cluster_msg(0.0, 0.0, 0.0, 0, 0u));
-    ASSERT_TRUE(wait_for_track_pub_gen(bl + 1, 500ms));
+    camera_detection_pub_->publish(make_camera_detection(0.0, 0.0, 0, 0u));
+    camera_detection_pub_->publish(make_camera_detection(0.4, 0.0, 1, 0u));
+    camera_detection_pub_->publish(make_camera_detection(0.8, 0.0, 2, 0u));
 
-    cluster_pub_->publish(make_empty_cluster_msg(0, 100000000u));
-    ASSERT_TRUE(wait_for_track_pub_gen(bl + 2, 500ms));
-
-    ASSERT_FALSE(wait_for_track_pub_gen(bl + 3, 200ms));
+    // 3 hits → confirmed → track 存在且进入 fused 输出
+    ASSERT_TRUE(poll_track_count(1, 2s)) << "camera track not created after 3 hits";
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        EXPECT_LT(last_track_marker_count_, 3u);
+        EXPECT_GT(last_fused_track_marker_count_, 0u);
     }
+
+    // 空帧（相机路径不 mark_missed；stamp 间隔 < timeout）→ 确认 track 保留
+    camera_detection_pub_->publish(make_empty_camera_detection(3, 0u));
+    camera_detection_pub_->publish(make_empty_camera_detection(3, 100000000u));
+    std::this_thread::sleep_for(500ms);
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        EXPECT_GT(last_fused_track_marker_count_, 0u);
+    }
+
+    // 超时后删除（stamp 5s 距上次更新 3s > 1.5s timeout）
+    camera_detection_pub_->publish(make_empty_camera_detection(5, 0u));
+    EXPECT_TRUE(poll_track_count(0, 2s)) << "confirmed camera track not dropped after timeout";
 }
 
-TEST_F(FusionNodeTest, ConfirmedTrackSurvivesSingleMissButDropsAfterSecondMiss) {
+TEST_F(FusionNodeTest, CameraGlobalAssociationKeepsTwoConfirmedTracks) {
+    auto enabled_node = std::make_shared<radar_fusion::node::RadarFusionNode>(
+        rclcpp::NodeOptions().append_parameter_override("enable_camera_fusion", true));
+    executor_.remove_node(fusion_node_);
+    fusion_node_.reset();
+    fusion_node_ = enabled_node;
+    executor_.add_node(fusion_node_);
+    ASSERT_TRUE(wait_for_discovery(true)) << "ROS entities failed to rediscover after enabling "
+                                             "camera fusion";
+
     auto bl = track_pub_gen_;
 
-    cluster_pub_->publish(make_cluster_msg(0.0, 0.0, 0.0, 0, 0u));
-    ASSERT_TRUE(wait_for_track_pub_gen(bl + 1, 500ms));
+    // 每帧 hero(class 0) + inf3(class 2) 两个槽位
+    camera_detection_pub_->publish(make_camera_slot(0.0, 0.0, 0, 0, 0u));
+    camera_detection_pub_->publish(make_camera_slot(1.5, 0.0, 2, 0, 0u));
+    camera_detection_pub_->publish(make_camera_slot(0.4, 0.0, 0, 1, 0u));
+    camera_detection_pub_->publish(make_camera_slot(1.9, 0.0, 2, 1, 0u));
+    camera_detection_pub_->publish(make_camera_slot(0.8, 0.0, 0, 2, 0u));
+    camera_detection_pub_->publish(make_camera_slot(2.3, 0.0, 2, 2, 0u));
 
-    cluster_pub_->publish(make_cluster_msg(0.8, 0.0, 0.0, 1, 0u));
-    ASSERT_TRUE(wait_for_track_pub_gen(bl + 2, 500ms));
+    // 两个 class 各 3 hits → 两个确认 track
+    ASSERT_TRUE(poll_track_count(2, 2s)) << "two camera tracks not created after 3 frames";
 
-    cluster_pub_->publish(make_cluster_msg(1.6, 0.0, 0.0, 2, 0u));
-    ASSERT_TRUE(wait_for_track_pub_gen(bl + 3, 500ms));
+    // 位置交叉 → 同 class 匹配保持各自 track
+    camera_detection_pub_->publish(make_camera_slot(1.2, 0.0, 0, 3, 0u));
+    camera_detection_pub_->publish(make_camera_slot(1.1, 0.0, 2, 3, 0u));
+    std::this_thread::sleep_for(500ms);
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        EXPECT_GE(last_track_marker_count_, 3u);
-    }
-
-    auto bl2 = track_pub_gen_;
-    cluster_pub_->publish(make_empty_cluster_msg(2, 100000000u));
-    ASSERT_TRUE(wait_for_track_pub_gen(bl2 + 1, 500ms));
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        EXPECT_EQ(last_track_marker_count_, 3u);
-    }
-
-    auto bl3 = track_pub_gen_;
-    cluster_pub_->publish(make_empty_cluster_msg(2, 200000000u));
-    ASSERT_TRUE(wait_for_track_pub_gen(bl3 + 1, 500ms));
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        EXPECT_EQ(last_track_marker_count_, 0u);
-    }
-}
-
-TEST_F(FusionNodeTest, GlobalGreedyAssociationKeepsTwoConfirmedTracks) {
-    auto bl = track_pub_gen_;
-
-    cluster_pub_->publish(make_cluster_array_msg({ { 0.0, 0.0, 0.0 }, { 1.5, 0.0, 0.0 } }, 0, 0u));
-    ASSERT_TRUE(wait_for_track_pub_gen(bl + 1, 500ms));
-
-    cluster_pub_->publish(make_cluster_array_msg({ { 0.4, 0.0, 0.0 }, { 1.9, 0.0, 0.0 } }, 1, 0u));
-    ASSERT_TRUE(wait_for_track_pub_gen(bl + 2, 500ms));
-
-    cluster_pub_->publish(make_cluster_array_msg({ { 0.8, 0.0, 0.0 }, { 2.3, 0.0, 0.0 } }, 2, 0u));
-    ASSERT_TRUE(wait_for_track_pub_gen(bl + 3, 500ms));
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        EXPECT_GE(last_track_marker_count_, 6u);
-    }
-
-    auto bl2 = track_pub_gen_;
-    cluster_pub_->publish(make_cluster_array_msg({ { 1.1, 0.0, 0.0 }, { 1.2, 0.0, 0.0 } }, 3, 0u));
-    ASSERT_TRUE(wait_for_track_pub_gen(bl2 + 1, 500ms));
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        EXPECT_EQ(last_track_marker_count_, 6u);
+        EXPECT_EQ(last_fused_track_marker_count_, 2u);
     }
 }
 
@@ -452,22 +446,31 @@ TEST_F(FusionNodeTest, LidarPoseIsForwardedToLocalizationPose) {
     EXPECT_DOUBLE_EQ(last_pose_.pose.covariance[0], lidar_pose.pose.covariance[0]);
 }
 
-TEST_F(FusionNodeTest, ConfirmedTracksArePublishedToFusedTracks) {
+TEST_F(FusionNodeTest, CameraConfirmedTracksArePublishedToFusedTracks) {
+    auto enabled_node = std::make_shared<radar_fusion::node::RadarFusionNode>(
+        rclcpp::NodeOptions().append_parameter_override("enable_camera_fusion", true));
+    executor_.remove_node(fusion_node_);
+    fusion_node_.reset();
+    fusion_node_ = enabled_node;
+    executor_.add_node(fusion_node_);
+    ASSERT_TRUE(wait_for_discovery(true)) << "ROS entities failed to rediscover after enabling "
+                                             "camera fusion";
+
     auto bl_track = track_pub_gen_;
     auto bl_fused = fused_track_pub_gen_;
 
-    cluster_pub_->publish(make_cluster_msg(0.0, 0.0, 0.0, 0, 0u));
+    camera_detection_pub_->publish(make_camera_detection(0.0, 0.0, 0, 0u));
     ASSERT_TRUE(wait_for_track_pub_gen(bl_track + 1, 500ms));
 
-    cluster_pub_->publish(make_cluster_msg(0.8, 0.0, 0.0, 1, 0u));
+    camera_detection_pub_->publish(make_camera_detection(0.4, 0.0, 1, 0u));
     ASSERT_TRUE(wait_for_track_pub_gen(bl_track + 2, 500ms));
 
-    cluster_pub_->publish(make_cluster_msg(1.6, 0.0, 0.0, 2, 0u));
+    camera_detection_pub_->publish(make_camera_detection(0.8, 0.0, 2, 0u));
     ASSERT_TRUE(wait_for_track_pub_gen(bl_track + 3, 500ms));
     ASSERT_TRUE(wait_for_fused_track_pub_gen(bl_fused + 3, 500ms));
+    ASSERT_TRUE(poll_track_count(1, 2s)) << "camera track not confirmed after 3 hits";
 
     std::lock_guard<std::mutex> lock(mutex_);
-    EXPECT_GE(last_track_marker_count_, 3u);
     EXPECT_EQ(last_fused_track_marker_count_, 1u);
 }
 
@@ -523,68 +526,6 @@ TEST_F(FusionNodeTest, CameraDetectionsCreateConfirmedTracksWhenFusionEnabled) {
 
     camera_detection_pub_->publish(make_camera_detection(1.8, 2.0, 2, 0u));
     ASSERT_TRUE(wait_for_fused_track_pub_gen(bl + 3, 500ms));
-
-    std::lock_guard<std::mutex> lock(mutex_);
-    EXPECT_GT(last_fused_track_marker_count_, 0u);
-}
-
-TEST_F(FusionNodeTest, CameraDetectionNearLidarTrackKeepsFusedOutputActive) {
-    auto enabled_node = std::make_shared<radar_fusion::node::RadarFusionNode>(
-        rclcpp::NodeOptions().append_parameter_override("enable_camera_fusion", true));
-    executor_.remove_node(fusion_node_);
-    fusion_node_.reset();
-    fusion_node_ = enabled_node;
-    executor_.add_node(fusion_node_);
-    ASSERT_TRUE(wait_for_discovery(true)) << "ROS entities failed to rediscover after enabling "
-                                             "camera fusion";
-
-    auto bl = track_pub_gen_;
-
-    cluster_pub_->publish(make_cluster_msg(0.0, 0.0, 0.0, 0, 0u));
-    ASSERT_TRUE(wait_for_track_pub_gen(bl + 1, 500ms));
-
-    cluster_pub_->publish(make_cluster_msg(0.8, 0.0, 0.0, 1, 0u));
-    ASSERT_TRUE(wait_for_track_pub_gen(bl + 2, 500ms));
-
-    cluster_pub_->publish(make_cluster_msg(1.6, 0.0, 0.0, 2, 0u));
-    ASSERT_TRUE(wait_for_track_pub_gen(bl + 3, 500ms));
-
-    auto bl2 = fused_track_pub_gen_;
-    camera_detection_pub_->publish(make_camera_detection(1.8, 0.0, 3, 0u));
-
-    ASSERT_TRUE(wait_for_fused_track_pub_gen(bl2 + 1, 500ms));
-    std::lock_guard<std::mutex> lock(mutex_);
-    EXPECT_GT(last_fused_track_marker_count_, 0u);
-}
-
-TEST_F(FusionNodeTest, EmptyCameraFramesDoNotDeleteLidarTrack) {
-    auto enabled_node = std::make_shared<radar_fusion::node::RadarFusionNode>(
-        rclcpp::NodeOptions().append_parameter_override("enable_camera_fusion", true));
-    executor_.remove_node(fusion_node_);
-    fusion_node_.reset();
-    fusion_node_ = enabled_node;
-    executor_.add_node(fusion_node_);
-    ASSERT_TRUE(wait_for_discovery(true)) << "ROS entities failed to rediscover after enabling "
-                                             "camera fusion";
-
-    auto bl = track_pub_gen_;
-
-    cluster_pub_->publish(make_cluster_msg(0.0, 0.0, 0.0, 0, 0u));
-    ASSERT_TRUE(wait_for_track_pub_gen(bl + 1, 500ms));
-
-    cluster_pub_->publish(make_cluster_msg(0.8, 0.0, 0.0, 1, 0u));
-    ASSERT_TRUE(wait_for_track_pub_gen(bl + 2, 500ms));
-
-    cluster_pub_->publish(make_cluster_msg(1.6, 0.0, 0.0, 2, 0u));
-    ASSERT_TRUE(wait_for_track_pub_gen(bl + 3, 500ms));
-
-    auto bl2 = fused_track_pub_gen_;
-    camera_detection_pub_->publish(make_empty_camera_detection(2, 100000000u));
-    ASSERT_TRUE(wait_for_fused_track_pub_gen(bl2 + 1, 500ms));
-
-    auto bl3 = fused_track_pub_gen_;
-    camera_detection_pub_->publish(make_empty_camera_detection(2, 200000000u));
-    ASSERT_TRUE(wait_for_fused_track_pub_gen(bl3 + 1, 500ms));
 
     std::lock_guard<std::mutex> lock(mutex_);
     EXPECT_GT(last_fused_track_marker_count_, 0u);
@@ -855,68 +796,30 @@ TEST(FusionNode, AllySlotsFilledWithCampInjectedQuery) {
     EXPECT_EQ(msg.opponent_hero_x, 0);
 }
 
-TEST_F(FusionNodeTest, LidarClusterInheritsCameraClassAndOutputsLocation) {
-    // 雷达聚类确认 track：位置 (1.0, 0.0) 附近连续 3 帧
-    cluster_pub_->publish(make_cluster_msg(0.5, 0.0, 0.0, 0, 0u));
-    cluster_pub_->publish(make_cluster_msg(1.0, 0.0, 0.0, 1, 0u));
-    cluster_pub_->publish(make_cluster_msg(1.5, 0.0, 0.0, 2, 0u));
+TEST_F(FusionNodeTest, CameraTaggedClusterNoLongerFillsLocation) {
+    // 相机订阅需开启（贴类别循环只处理相机消息）
+    auto enabled_node = std::make_shared<radar_fusion::node::RadarFusionNode>(
+        rclcpp::NodeOptions().append_parameter_override("enable_camera_fusion", true));
+    executor_.remove_node(fusion_node_);
+    fusion_node_.reset();
+    fusion_node_ = enabled_node;
+    executor_.add_node(fusion_node_);
+    ASSERT_TRUE(wait_for_discovery(true)) << "ROS entities failed to rediscover after enabling "
+                                             "camera fusion";
 
-    // 等待 lidar track 确认（/fusion/tracks 出现 lidar_clusters marker）
-    const auto track_bl = track_pub_gen_;
-    ASSERT_TRUE(wait_for_track_pub_gen(track_bl + 1, 1s)) << "lidar track not confirmed";
-
-    // 相机检测：同一位置 + class 2（inf3）→ 给 lidar track 贴类别
-    camera_detection_pub_->publish(make_camera_slot(1.0, 0.0, 2, 3, 0u));
-
-    // 等待 LidarLocation 输出 inf3 槽位（官方坐标 = map + offset）
-    const auto loc_bl = location_gen_;
-    radar_interfaces::msg::LidarLocation got;
-    bool found          = false;
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-    while (std::chrono::steady_clock::now() < deadline) {
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            if (last_location_.opponent_infantry_3_x > 0) {
-                got   = last_location_;
-                found = true;
-                break;
-            }
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    }
-    ASSERT_TRUE(found) << "lidar track with camera class did not reach LidarLocation";
-
-    // 官方坐标 = map + offset(14, 7.5)，×100 cm；雷达 track 位置 ≈ (1.0, 0.0)
-    EXPECT_NEAR(got.opponent_infantry_3_x, (1.0 + 14.0) * 100.0, 50.0);
-    EXPECT_NEAR(got.opponent_infantry_3_y, (0.0 + 7.5) * 100.0, 50.0);
-}
-
-TEST_F(FusionNodeTest, LidarClusterClassPersistsAfterCameraStops) {
-    // 雷达聚类确认 track
+    // 雷达聚类确认 track（无类别本就不填坐标）
     cluster_pub_->publish(make_cluster_msg(0.5, 0.0, 0.0, 0, 0u));
     cluster_pub_->publish(make_cluster_msg(1.0, 0.0, 0.0, 1, 0u));
     cluster_pub_->publish(make_cluster_msg(1.5, 0.0, 0.0, 2, 0u));
     const auto track_bl = track_pub_gen_;
     ASSERT_TRUE(wait_for_track_pub_gen(track_bl + 1, 1s)) << "lidar track not confirmed";
 
-    // 相机贴类别后停止相机
+    // 相机单帧贴类别（class 2=inf3）：相机 track 仅 1 hit（tentative，不进坐标）。
+    // 旧行为会给 lidar track 贴类别并填 inf3 槽位 —— 删除贴类别后不应再填。
     camera_detection_pub_->publish(make_camera_slot(1.0, 0.0, 2, 3, 0u));
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    camera_detection_pub_->publish(make_empty_camera_detection(4, 0u));
+    std::this_thread::sleep_for(600ms); // 覆盖 10Hz 输出周期 + 处理时延
 
-    // 雷达聚类继续（track 保持 class）→ LidarLocation 持续输出
-    cluster_pub_->publish(make_cluster_msg(2.0, 0.0, 0.0, 5, 0u));
-    bool found          = false;
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-    while (std::chrono::steady_clock::now() < deadline) {
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            if (last_location_.opponent_infantry_3_x > 0) {
-                found = true;
-                break;
-            }
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    }
-    EXPECT_TRUE(found) << "class-tagged lidar track should keep outputting after camera stops";
+    std::lock_guard<std::mutex> lock(mutex_);
+    EXPECT_EQ(last_location_.opponent_infantry_3_x, 0);
+    EXPECT_EQ(last_location_.opponent_infantry_3_y, 0);
 }
