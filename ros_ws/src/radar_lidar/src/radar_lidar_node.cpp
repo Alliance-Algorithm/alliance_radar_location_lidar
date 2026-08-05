@@ -140,7 +140,7 @@ RadarLidarNode::RadarLidarNode(const rclcpp::NodeOptions& options)
     pub_pose_ =
         this->create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("/lidar/pose", 10);
     pub_diag_ = this->create_publisher<diagnostic_msgs::msg::DiagnosticStatus>("/diagnostics", 10);
-    pub_dynamic_  = this->create_publisher<sensor_msgs::msg::PointCloud2>("/lidar/dynamic", 10);
+    pub_dynamic_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/lidar/dynamic", 10);
     if (enable_cluster_) {
         pub_clusters_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/lidar/cluster", 10);
         pub_cluster_viz_ =

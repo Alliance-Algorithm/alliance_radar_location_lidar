@@ -523,9 +523,9 @@ TEST_F(RadarLidarSurfaceTest, OutputTopicsPreservedWithExactQoS) {
         EXPECT_EQ(entry->second.size(), 1u) << "Output topic " << topic << " has multiple types";
     }
 
-    // ── Production publisher QoS via graph endpoint info ──────────    // Assert reliability, durability, history, depth from the publisher
-    // endpoint owned by the pipeline node. Local subscriber QoS matched
-    // against this endpoint serves as supplemental verification.
+    // ── Production publisher QoS via graph endpoint info ──────────    // Assert reliability,
+    // durability, history, depth from the publisher endpoint owned by the pipeline node. Local
+    // subscriber QoS matched against this endpoint serves as supplemental verification.
     {
         auto pub_info = pipeline_->get_publishers_info_by_topic(kPoseTopic);
         ASSERT_GE(pub_info.size(), 1u) << "No publisher endpoint found for topic: " << kPoseTopic;
@@ -615,8 +615,8 @@ TEST_F(RadarLidarSurfaceTest, ClusterTopicsAbsentWhenDisabled) {
     auto node = std::make_shared<radar_lidar::node::RadarLidarNode>(opts);
 
     // 轮询等 DDS 传播（pipeline 移除 + 新节点注册）
-    bool absent           = false;
-    const auto deadline   = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    bool absent         = false;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
     while (std::chrono::steady_clock::now() < deadline) {
         const auto topics = node->get_topic_names_and_types();
         std::map<std::string, std::string> actual;
