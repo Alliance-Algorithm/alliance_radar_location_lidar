@@ -6,8 +6,6 @@
 #include <string_view>
 #include <tuple>
 
-#include <sensor_msgs/point_cloud2_iterator.hpp>
-
 namespace radar_fusion::node {
 
 using PoseCov = geometry_msgs::msg::PoseWithCovarianceStamped;
@@ -67,9 +65,6 @@ RadarFusionNode::RadarFusionNode(const rclcpp::NodeOptions& options)
     sub_lidar_pose_ = this->create_subscription<PoseCov>(
         "/lidar/pose", 10, [this](const PoseCov::SharedPtr msg) { on_lidar_pose(msg); });
 
-    sub_cluster_ = this->create_subscription<sensor_msgs::msg::PointCloud2>("/lidar/cluster", 10,
-        [this](const sensor_msgs::msg::PointCloud2::SharedPtr msg) { on_cluster(msg); });
-
     if (cfg_.enable_camera_fusion) {
         sub_camera_detection_ =
             this->create_subscription<radar_interfaces::msg::CameraDetectionPose>(camera_topic_, 10,
@@ -111,8 +106,7 @@ RadarFusionNode::RadarFusionNode(const rclcpp::NodeOptions& options)
         const auto stamp = this->now();
         publish_tracks(tracks_, stamp);
         publish_fused_tracks(tracks_, stamp);
-        publish_lidar_tracks(lidar_tracks_, stamp);
-        publish_lidar_location(tracks_, lidar_tracks_);
+        publish_lidar_location(tracks_);
         publish_status(stamp);
     });
     update_fusion_mode(this->now().nanoseconds());
@@ -168,29 +162,6 @@ void RadarFusionNode::on_camera_detection(
     update_fusion_mode(latest_camera_stamp_ns_);
     process_measurements(measurements, stamp.nanoseconds(), false, classes);
 
-    // 相机识别给雷达聚类 track 贴类别——雷达 track 无类别（class_id=-1）
-    // 无法进官方坐标；被相机识别一次后继承类别，之后即使相机停发也持续输出坐标。
-    if (!lidar_tracks_.empty()) {
-        const double gate_sq = cfg_.gate_distance * cfg_.gate_distance;
-        for (const auto& obs : latest_camera_observations_) {
-            double best_d = gate_sq;
-            int best_idx  = -1;
-            for (size_t i = 0; i < lidar_tracks_.size(); ++i) {
-                const auto& s = lidar_tracks_[i].state();
-                if (!s.is_confirmed()) continue;
-                const double dx = obs.x - s.x(0);
-                const double dy = obs.y - s.x(1);
-                const double d  = dx * dx + dy * dy;
-                if (d < best_d) {
-                    best_d   = d;
-                    best_idx = static_cast<int>(i);
-                }
-            }
-            if (best_idx >= 0) {
-                lidar_tracks_[static_cast<size_t>(best_idx)].set_class_id(obs.class_id);
-            }
-        }
-    }
     // 输出统一由 10Hz location_timer_ 发布（见构造函数），回调不再直接发布。
 }
 
@@ -252,83 +223,6 @@ void RadarFusionNode::process_measurements(const std::vector<Eigen::Vector2d>& m
                               || t.state().is_stale(now_ns, cfg_.track_timeout_sec);
                       }),
         tracks_.end());
-}
-
-void RadarFusionNode::on_cluster(const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
-    auto stamp  = rclcpp::Time(msg->header.stamp);
-    auto now_ns = stamp.nanoseconds();
-    update_fusion_mode(now_ns);
-
-    std::vector<Eigen::Vector2d> measurements;
-    measurements.reserve(msg->width * msg->height);
-
-    sensor_msgs::PointCloud2ConstIterator<float> iter_x(*msg, "x");
-    sensor_msgs::PointCloud2ConstIterator<float> iter_y(*msg, "y");
-    for (; iter_x != iter_x.end(); ++iter_x, ++iter_y) {
-        if (std::isfinite(*iter_x) && std::isfinite(*iter_y)) {
-            measurements.emplace_back(*iter_x, *iter_y);
-        }
-    }
-
-    // lidar 聚类独立 track 池：与 camera 池完全解耦，
-    // 脏聚类点不会创建/删除/污染 camera 的 class track。
-    process_lidar_clusters(measurements, now_ns);
-    // 输出统一由 10Hz location_timer_ 发布（见构造函数），回调不再直接发布。
-}
-
-void RadarFusionNode::process_lidar_clusters(
-    const std::vector<Eigen::Vector2d>& measurements, int64_t now_ns) {
-    for (auto& track : lidar_tracks_) {
-        track.predict(now_ns);
-    }
-
-    // 匈牙利全局最优匹配
-    const double gate_distance_sq = cfg_.gate_distance * cfg_.gate_distance;
-    constexpr double kUnreachable = 1e9;
-    std::vector<std::vector<double>> cost(
-        lidar_tracks_.size(), std::vector<double>(measurements.size(), kUnreachable));
-    for (size_t i = 0; i < lidar_tracks_.size(); ++i) {
-        for (size_t j = 0; j < measurements.size(); ++j) {
-            const double d_sq = lidar_tracks_[i].distance_squared_to(measurements[j]);
-            if (d_sq < gate_distance_sq) {
-                cost[i][j] = d_sq;
-            }
-        }
-    }
-    const auto assignment = association::hungarian_min_cost(cost, kUnreachable);
-
-    std::vector<bool> matched_tracks(lidar_tracks_.size(), false);
-    std::vector<bool> matched_meas(measurements.size(), false);
-    for (size_t i = 0; i < assignment.size(); ++i) {
-        if (assignment[i] < 0) continue;
-        const size_t j = static_cast<size_t>(assignment[i]);
-        if (j >= measurements.size()) continue;
-        lidar_tracks_[i].update(measurements[j], now_ns, cfg_.min_hits_to_confirm);
-        matched_tracks[i] = true;
-        matched_meas[j]   = true;
-    }
-
-    for (size_t i = 0; i < lidar_tracks_.size(); ++i) {
-        if (!matched_tracks[i]) {
-            lidar_tracks_[i].mark_missed(cfg_.max_misses_before_delete);
-        }
-    }
-
-    for (size_t j = 0; j < measurements.size(); ++j) {
-        if (matched_meas[j]) continue;
-        if (lidar_tracks_.size() >= static_cast<size_t>(cfg_.max_tracks)) break;
-        radar_fusion::kalman_tracker::KalmanTracker new_track(next_lidar_track_id_++);
-        new_track.set_class_id(-1);
-        new_track.update(measurements[j], now_ns, cfg_.min_hits_to_confirm);
-        lidar_tracks_.push_back(new_track);
-    }
-
-    lidar_tracks_.erase(std::remove_if(lidar_tracks_.begin(), lidar_tracks_.end(),
-                            [&](const radar_fusion::kalman_tracker::KalmanTracker& t) {
-                                return t.state().is_deleted()
-                                    || t.state().is_stale(now_ns, cfg_.track_timeout_sec);
-                            }),
-        lidar_tracks_.end());
 }
 
 void RadarFusionNode::publish_tracks(
@@ -427,37 +321,6 @@ void RadarFusionNode::publish_tracks(
     pub_tracks_->publish(markers);
 }
 
-void RadarFusionNode::publish_lidar_tracks(
-    const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& tracks,
-    const rclcpp::Time& stamp) {
-    visualization_msgs::msg::MarkerArray markers;
-    for (size_t i = 0; i < tracks.size(); ++i) {
-        const auto& s = tracks[i].state();
-        if (!s.is_confirmed()) continue;
-
-        visualization_msgs::msg::Marker m;
-        m.header.stamp       = stamp;
-        m.header.frame_id    = "map";
-        m.ns                 = "lidar_clusters";
-        m.id                 = s.track_id;
-        m.type               = visualization_msgs::msg::Marker::SPHERE;
-        m.action             = visualization_msgs::msg::Marker::ADD;
-        m.pose.position.x    = s.x(0);
-        m.pose.position.y    = s.x(1);
-        m.pose.position.z    = 0.5;
-        m.pose.orientation.w = 1.0;
-        m.scale.x            = 0.4;
-        m.scale.y            = 0.4;
-        m.scale.z            = 0.4;
-        m.color.g            = 1.0f; // 黄色系: R+G
-        m.color.r            = 1.0f;
-        m.color.a            = 0.6f;
-        m.lifetime           = rclcpp::Duration::from_seconds(0.5);
-        markers.markers.push_back(m);
-    }
-    pub_tracks_->publish(markers);
-}
-
 void RadarFusionNode::publish_fused_tracks(
     const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& tracks,
     const rclcpp::Time& stamp) {
@@ -537,8 +400,7 @@ void RadarFusionNode::fill_default_positions(
 }
 
 void RadarFusionNode::publish_lidar_location(
-    const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& tracks,
-    const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& lidar_tracks) {
+    const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& tracks) {
     auto msg = radar_interfaces::msg::LidarLocation { };
 
     uint16_t* const slots_x[] = {
@@ -561,24 +423,20 @@ void RadarFusionNode::publish_lidar_location(
     // 按 class_id 填对应槽位（class_id: 0=hero 1=eng 2=inf3 3=inf4 4=sentry 5=drone）。
     // 协议槽位顺序: hero(0), engineer(1), inf3(2), inf4(3), aerial无人机(4), sentry(5)。
     // 注意 sentry/drone 槽位与 class_id 交叉: class 4=sentry -> slot 5; class 5=drone -> slot 4。
+    // 坐标 100% 来自相机确认 track（点云仅用于配准定位）。
     static constexpr int kClassToSlot[6] = { 0, 1, 2, 3, 5, 4 };
-    // 相机池先填；雷达池（继承相机类别）后填覆盖——雷达聚类位置更持续准确。
-    const auto fill_slots = [&](const auto& pool) {
-        for (const auto& track : pool) {
-            const auto& s = track.state();
-            if (!s.is_confirmed()) continue;
-            if (s.class_id < 0 || s.class_id >= 6) continue;
-            const int slot_idx = kClassToSlot[s.class_id];
-            // RoboMaster 0x0305 / radar-egui 约定: 厘米 (米 -> cm 乘 100)
-            // 截断负值：track 外推误差可能让 map+offset 为负，uint16_t 转换是 UB
-            *slots_x[slot_idx] =
-                static_cast<uint16_t>(std::max(0.0, s.x(0) + cfg_.map_to_rm_offset_x) * 100.0);
-            *slots_y[slot_idx] =
-                static_cast<uint16_t>(std::max(0.0, s.x(1) + cfg_.map_to_rm_offset_y) * 100.0);
-        }
-    };
-    fill_slots(tracks);
-    fill_slots(lidar_tracks);
+    for (const auto& track : tracks) {
+        const auto& s = track.state();
+        if (!s.is_confirmed()) continue;
+        if (s.class_id < 0 || s.class_id >= 6) continue;
+        const int slot_idx = kClassToSlot[s.class_id];
+        // RoboMaster 0x0305 / radar-egui 约定: 厘米 (米 -> cm 乘 100)
+        // 截断负值：track 外推误差可能让 map+offset 为负，uint16_t 转换是 UB
+        *slots_x[slot_idx] =
+            static_cast<uint16_t>(std::max(0.0, s.x(0) + cfg_.map_to_rm_offset_x) * 100.0);
+        *slots_y[slot_idx] =
+            static_cast<uint16_t>(std::max(0.0, s.x(1) + cfg_.map_to_rm_offset_y) * 100.0);
+    }
 
     fill_default_positions(msg, steady_now_ns());
 

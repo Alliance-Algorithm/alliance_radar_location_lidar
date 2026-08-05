@@ -188,7 +188,7 @@ protected:
     }
 
     // 轮询 /localization/status 的 track_count（/fusion/tracks 每 tick 被发布两次，
-    // publish_lidar_tracks 的空消息会覆盖 marker 计数，不能用于验证 track 生命周期）
+    // 雷达池的空消息会覆盖 marker 计数，不能用于验证 track 生命周期）
     auto poll_track_count(int expected, std::chrono::milliseconds timeout) -> bool {
         const auto deadline = std::chrono::steady_clock::now() + timeout;
         while (std::chrono::steady_clock::now() < deadline) {

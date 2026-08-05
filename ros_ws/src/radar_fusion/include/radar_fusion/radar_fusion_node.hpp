@@ -9,7 +9,6 @@
 #include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
 #include <memory>
 #include <rclcpp/rclcpp.hpp>
-#include <sensor_msgs/msg/point_cloud2.hpp>
 #include <string>
 #include <vector>
 #include <visualization_msgs/msg/marker_array.hpp>
@@ -32,22 +31,13 @@ private:
     void on_camera_detection(radar_interfaces::msg::CameraDetectionPose::SharedPtr msg);
     void on_game_state(radar_interfaces::msg::GameState::SharedPtr msg);
 
-    void on_cluster(sensor_msgs::msg::PointCloud2::SharedPtr msg);
-
-    // 独立 lidar 聚类 track 池（与 camera 池解耦，脏数据互不干扰）
-    void process_lidar_clusters(const std::vector<Eigen::Vector2d>& measurements, int64_t now_ns);
-
     void publish_tracks(const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& tracks,
         const rclcpp::Time& stamp);
     void publish_fused_tracks(
         const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& tracks,
         const rclcpp::Time& stamp);
-    void publish_lidar_tracks(
-        const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& tracks,
-        const rclcpp::Time& stamp);
     void publish_lidar_location(
-        const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& tracks,
-        const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& lidar_tracks);
+        const std::vector<radar_fusion::kalman_tracker::KalmanTracker>& tracks);
     void fill_default_positions(radar_interfaces::msg::LidarLocation& msg, int64_t now_ns);
     void publish_localization_pose(const geometry_msgs::msg::PoseWithCovarianceStamped& pose);
     void publish_status(const rclcpp::Time& stamp) const;
@@ -67,14 +57,11 @@ private:
     std::string enemy_color_  = "blue";
     std::string camera_topic_ = "/radar_camera/robot_pose";
     std::vector<radar_fusion::kalman_tracker::KalmanTracker> tracks_;
-    std::vector<radar_fusion::kalman_tracker::KalmanTracker> lidar_tracks_;
     std::vector<radar_fusion::camera_observation::CameraObservation> latest_camera_observations_;
     int64_t latest_camera_stamp_ns_ = 0;
     int next_track_id_              = 0;
-    int next_lidar_track_id_        = 0;
 
     rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr sub_lidar_pose_;
-    rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr sub_cluster_;
     rclcpp::Subscription<radar_interfaces::msg::CameraDetectionPose>::SharedPtr
         sub_camera_detection_;
     rclcpp::Subscription<radar_interfaces::msg::GameState>::SharedPtr sub_game_state_;
