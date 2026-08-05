@@ -76,6 +76,7 @@ RadarLidarNode::RadarLidarNode(const rclcpp::NodeOptions& options)
     get_parameter("scan_topic", scan_topic_);
     get_parameter("hardware_id", hardware_id_);
     get_parameter_or("use_odin_relocalization_tf", use_odin_relocalization_tf_, false);
+    get_parameter_or("enable_cluster", enable_cluster_, false);
 
     if (use_odin_relocalization_tf_) {
         tf_buffer_   = std::make_unique<tf2_ros::Buffer>(get_clock());
@@ -140,9 +141,11 @@ RadarLidarNode::RadarLidarNode(const rclcpp::NodeOptions& options)
         this->create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("/lidar/pose", 10);
     pub_diag_ = this->create_publisher<diagnostic_msgs::msg::DiagnosticStatus>("/diagnostics", 10);
     pub_dynamic_  = this->create_publisher<sensor_msgs::msg::PointCloud2>("/lidar/dynamic", 10);
-    pub_clusters_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/lidar/cluster", 10);
-    pub_cluster_viz_ =
-        this->create_publisher<visualization_msgs::msg::MarkerArray>("/lidar/cluster_viz", 10);
+    if (enable_cluster_) {
+        pub_clusters_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/lidar/cluster", 10);
+        pub_cluster_viz_ =
+            this->create_publisher<visualization_msgs::msg::MarkerArray>("/lidar/cluster_viz", 10);
+    }
     tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
 
     RCLCPP_INFO(get_logger(), "radar_lidar ready. Listening on %s (detection=%s)",
@@ -254,9 +257,12 @@ void RadarLidarNode::on_scan(const sensor_msgs::msg::PointCloud2::SharedPtr& msg
         if (dynamic_result && !dynamic_result->empty()) {
             publish_dynamic(*dynamic_result, frame.stamp);
 
-            auto cluster_result = cluster_stage_.process(*dynamic_result);
-            if (cluster_result && !cluster_result->empty()) {
-                publish_clusters(*cluster_result, frame.stamp);
+            // 坐标只信相机（点云仅配准）：聚类停用，节省每帧聚类计算
+            if (enable_cluster_) {
+                auto cluster_result = cluster_stage_.process(*dynamic_result);
+                if (cluster_result && !cluster_result->empty()) {
+                    publish_clusters(*cluster_result, frame.stamp);
+                }
             }
         }
     }

@@ -169,6 +169,7 @@ protected:
         opts.append_parameter_override("initial_pose_roll", 0.0);
         opts.append_parameter_override("initial_pose_pitch", 0.0);
         opts.append_parameter_override("initial_pose_yaw", 0.0);
+        opts.append_parameter_override("enable_cluster", true);
 
         pipeline_ = std::make_shared<radar_lidar::node::RadarLidarNode>(opts);
         pub_node_ = std::make_shared<rclcpp::Node>(pub_node_name_);
@@ -274,7 +275,9 @@ protected:
 
         s_executor_->remove_node(sub_node_);
         s_executor_->remove_node(pub_node_);
-        s_executor_->remove_node(pipeline_);
+        if (pipeline_) {
+            s_executor_->remove_node(pipeline_);
+        }
 
         sub_node_.reset();
         pub_node_.reset();
@@ -520,8 +523,7 @@ TEST_F(RadarLidarSurfaceTest, OutputTopicsPreservedWithExactQoS) {
         EXPECT_EQ(entry->second.size(), 1u) << "Output topic " << topic << " has multiple types";
     }
 
-    // ── Production publisher QoS via graph endpoint info ──────────
-    // Assert reliability, durability, history, depth from the publisher
+    // ── Production publisher QoS via graph endpoint info ──────────    // Assert reliability, durability, history, depth from the publisher
     // endpoint owned by the pipeline node. Local subscriber QoS matched
     // against this endpoint serves as supplemental verification.
     {
@@ -584,6 +586,50 @@ TEST_F(RadarLidarSurfaceTest, OutputTopicsPreservedWithExactQoS) {
         EXPECT_EQ(diag_qos.depth(), 10u);
         EXPECT_GT(diag_sub_->get_publisher_count(), 0u);
     }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Cluster topics — conditional on enable_cluster
+// ═══════════════════════════════════════════════════════════════════
+
+TEST_F(RadarLidarSurfaceTest, ClusterTopicsAbsentWhenDisabled) {
+    // fixture 的 pipeline_ 以 enable_cluster=true 运行（SetUp 固定），其 cluster
+    // 发布端会出现在图查询里；先移除并销毁，再验证独立节点的默认行为。
+    s_executor_->remove_node(pipeline_);
+    pipeline_.reset();
+
+    rclcpp::NodeOptions opts;
+    opts.automatically_declare_parameters_from_overrides(true);
+    opts.append_parameter_override("map_path", map_path_);
+    opts.append_parameter_override("scan_topic", scan_topic_);
+    opts.append_parameter_override("use_odin_relocalization_tf", false);
+    opts.append_parameter_override("hardware_id", std::string(kHardwareId));
+    opts.append_parameter_override("initial_pose_enabled", true);
+    opts.append_parameter_override("initial_pose_tx", 0.3);
+    opts.append_parameter_override("initial_pose_ty", 0.0);
+    opts.append_parameter_override("initial_pose_tz", 1.0);
+    opts.append_parameter_override("initial_pose_roll", 0.0);
+    opts.append_parameter_override("initial_pose_pitch", 0.0);
+    opts.append_parameter_override("initial_pose_yaw", 0.0);
+    opts.append_parameter_override("enable_cluster", false);
+    auto node = std::make_shared<radar_lidar::node::RadarLidarNode>(opts);
+
+    // 轮询等 DDS 传播（pipeline 移除 + 新节点注册）
+    bool absent           = false;
+    const auto deadline   = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (std::chrono::steady_clock::now() < deadline) {
+        const auto topics = node->get_topic_names_and_types();
+        std::map<std::string, std::string> actual;
+        for (const auto& [name, types] : topics) {
+            if (!types.empty()) actual[name] = types[0];
+        }
+        if (actual.count(kClusterTopic) == 0 && actual.count(kClusterVizTopic) == 0) {
+            absent = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    EXPECT_TRUE(absent) << "cluster topics should not exist when enable_cluster=false";
 }
 
 // ═══════════════════════════════════════════════════════════════════

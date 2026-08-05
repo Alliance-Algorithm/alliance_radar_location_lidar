@@ -57,6 +57,8 @@ private:
     std::string hardware_id_  = "livox_mid70";
     std::string output_frame_ = "map";
     bool detection_enabled_   = true;
+    // 坐标只信相机（点云仅配准）：聚类处理默认关闭，不发布 /lidar/cluster
+    bool enable_cluster_ = false;
 
     // Odin1 内置重定位 TF 作为可选主位姿源；GICP 始终保留作为重定位未成功时的回退
     bool use_odin_relocalization_tf_ = false;
